@@ -564,16 +564,24 @@ async function syncFromSheet() {
   try {
     const response = await fetch(csvUrl);
     const text = await response.text();
-    // Google Sheets JSON response is wrapped in google.visualization.Query.setResponse(...)
     const jsonStr = text.match(/google\.visualization\.Query\.setResponse\((.+)\)/);
     if (!jsonStr) throw new Error('Could not parse sheet data');
 
     const data = JSON.parse(jsonStr[1]);
     const rows = data.table.rows;
-    const lastSynced = parseInt(localStorage.getItem(SYNC_LAST_KEY) || '0');
+
+    // Build a set of existing email message IDs and subjects to prevent duplicates
+    const existingKeys = new Set();
+    tasks.forEach(t => {
+      if (t.source === 'email') {
+        if (t.emailMessageId) existingKeys.add(t.emailMessageId);
+        existingKeys.add(t.title.toLowerCase().trim());
+      }
+    });
+
     let newCount = 0;
 
-    for (let i = lastSynced; i < rows.length; i++) {
+    for (let i = 0; i < rows.length; i++) {
       const cells = rows[i].c;
       if (!cells || !cells[0]) continue;
 
@@ -581,14 +589,21 @@ async function syncFromSheet() {
       const from = (cells[1] && cells[1].v) || '';
       const body = (cells[2] && cells[2].v) || '';
       const timestamp = (cells[3] && cells[3].v) || '';
+      const messageId = (cells[4] && cells[4].v) || '';
+
+      // Skip if already imported (by message ID or subject)
+      if (messageId && existingKeys.has(messageId)) continue;
+      if (existingKeys.has(subject.toLowerCase().trim())) continue;
 
       const notes = (from ? `From: ${from}\n` : '') + (timestamp ? `Date: ${timestamp}\n\n` : '\n') + body;
       const dept = detectDepartment(subject + ' ' + body) || 'B2B Marketing';
-      addTask(subject, dept, 'Medium', notes, 'email', [], '');
+      const task = addTask(subject, dept, 'Medium', notes, 'email', [], '');
+      task.emailMessageId = messageId;
+      existingKeys.add(messageId || subject.toLowerCase().trim());
       newCount++;
     }
 
-    localStorage.setItem(SYNC_LAST_KEY, String(rows.length));
+    saveTasks();
     if (newCount > 0) {
       alert(`Synced ${newCount} new email${newCount !== 1 ? 's' : ''} as tasks!`);
     } else {
