@@ -710,10 +710,9 @@ function init() {
   });
 
   // Task list event delegation (for both active + completed lists)
-  function handleTaskAction(e) {
-    // Handle status select changes
-    if (e.target.matches('select[data-action="status"]')) {
-      setTaskStatus(e.target.dataset.id, e.target.value);
+  function handleTaskClick(e) {
+    // Ignore clicks on the status select — let the browser handle it natively
+    if (e.target.matches('select[data-action="status"]') || e.target.matches('select[data-action="status"] option')) {
       return;
     }
 
@@ -741,10 +740,16 @@ function init() {
     }
   }
 
-  document.getElementById('task-list').addEventListener('click', handleTaskAction);
-  document.getElementById('task-list').addEventListener('change', handleTaskAction);
-  document.getElementById('completed-list').addEventListener('click', handleTaskAction);
-  document.getElementById('completed-list').addEventListener('change', handleTaskAction);
+  function handleTaskChange(e) {
+    if (e.target.matches('select[data-action="status"]')) {
+      setTaskStatus(e.target.dataset.id, e.target.value);
+    }
+  }
+
+  document.getElementById('task-list').addEventListener('click', handleTaskClick);
+  document.getElementById('task-list').addEventListener('change', handleTaskChange);
+  document.getElementById('completed-list').addEventListener('click', handleTaskClick);
+  document.getElementById('completed-list').addEventListener('change', handleTaskChange);
 
   // Completed period filter
   document.getElementById('completed-period').addEventListener('change', render);
