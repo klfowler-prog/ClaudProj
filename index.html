@@ -27,6 +27,10 @@
           <span class="stat-value" id="stat-percent">0%</span>
           <span class="stat-label">Complete</span>
         </div>
+        <div class="stat">
+          <span class="stat-value stat-overdue" id="stat-overdue">0</span>
+          <span class="stat-label">Overdue</span>
+        </div>
       </div>
     </div>
   </header>
@@ -157,6 +161,10 @@
           </div>
         </div>
         <div class="form-group">
+          <label for="input-due-date">Due Date</label>
+          <input type="date" id="input-due-date">
+        </div>
+        <div class="form-group">
           <label for="input-notes">Notes</label>
           <textarea id="input-notes" rows="3" placeholder="Additional details..."></textarea>
         </div>
@@ -223,6 +231,10 @@
             <label for="import-slack-message">Message</label>
             <textarea id="import-slack-message" rows="6" placeholder="Paste Slack message here..."></textarea>
           </div>
+        </div>
+        <div class="form-group">
+          <label for="import-due-date">Due Date</label>
+          <input type="date" id="import-due-date">
         </div>
         <div class="form-row">
           <div class="form-group">

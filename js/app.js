@@ -51,9 +51,12 @@ function renderStats() {
   const total = tasks.length;
   const completed = tasks.filter(t => t.completed).length;
   const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+  const today = new Date().toISOString().split('T')[0];
+  const overdue = tasks.filter(t => !t.completed && t.dueDate && t.dueDate < today).length;
   document.getElementById('stat-total').textContent = total;
   document.getElementById('stat-completed').textContent = completed;
   document.getElementById('stat-percent').textContent = pct + '%';
+  document.getElementById('stat-overdue').textContent = overdue;
 }
 
 function renderDepartmentCards() {
@@ -100,6 +103,7 @@ function renderTaskList() {
     const hasAttachments = task.attachments && task.attachments.length > 0;
     const sourceLabel = task.source === 'email' ? '&#9993; Email' : task.source === 'slack' ? '# Slack' : '';
     const isConfirming = deleteConfirmId === task.id;
+    const dueDateHtml = formatDueDate(task.dueDate, task.completed);
 
     return `
       <div class="task-item ${task.completed ? 'completed' : ''}" data-id="${task.id}">
@@ -109,6 +113,7 @@ function renderTaskList() {
           <div class="task-meta">
             <span class="badge badge-${deptKey}">${escapeHtml(task.department)}</span>
             <span class="badge badge-${prioKey}">${task.priority}</span>
+            ${dueDateHtml}
             ${sourceLabel ? `<span class="task-source">${sourceLabel}</span>` : ''}
           </div>
         </div>
@@ -127,6 +132,30 @@ function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
+}
+
+// === Due Date Formatting ===
+function formatDueDate(dueDate, completed) {
+  if (!dueDate) return '';
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(dueDate + 'T00:00:00');
+  const diffDays = Math.round((due - today) / (1000 * 60 * 60 * 24));
+  const dateLabel = due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+  if (completed) {
+    return `<span class="task-due-date">${dateLabel}</span>`;
+  }
+  if (diffDays < 0) {
+    return `<span class="task-due-date overdue">Overdue \u00b7 ${dateLabel}</span>`;
+  }
+  if (diffDays === 0) {
+    return `<span class="task-due-date due-today">Due today</span>`;
+  }
+  if (diffDays <= 3) {
+    return `<span class="task-due-date due-soon">Due in ${diffDays}d</span>`;
+  }
+  return `<span class="task-due-date">${dateLabel}</span>`;
 }
 
 // === Filtering ===
@@ -150,7 +179,7 @@ function applyFilters() {
 }
 
 // === Task Operations ===
-function addTask(title, department, priority, notes, source, attachments) {
+function addTask(title, department, priority, notes, source, attachments, dueDate) {
   const task = {
     id: crypto.randomUUID(),
     title: title.trim(),
@@ -160,7 +189,8 @@ function addTask(title, department, priority, notes, source, attachments) {
     completed: false,
     createdAt: new Date().toISOString(),
     source: source || 'manual',
-    attachments: attachments || []
+    attachments: attachments || [],
+    dueDate: dueDate || ''
   };
   tasks.unshift(task);
   saveTasks();
@@ -304,6 +334,7 @@ function showTaskDetail(id) {
     </div>
     ${task.notes ? `<div class="detail-section"><div class="detail-section-title">Notes</div><div class="detail-notes">${escapeHtml(task.notes)}</div></div>` : ''}
     ${attachmentsHtml}
+    ${task.dueDate ? `<div class="detail-section"><div class="detail-section-title">Due Date</div><div>${formatDueDate(task.dueDate, task.completed)} &mdash; ${new Date(task.dueDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</div></div>` : ''}
     <div class="detail-timestamp">Created ${dateStr}</div>
   `;
   openModal('modal-detail');
@@ -339,7 +370,8 @@ function handleImport(e) {
   const detectedDept = department || detectDepartment(title + ' ' + notes);
   const finalDept = detectedDept || 'B2B Marketing'; // fallback
 
-  addTask(title, finalDept, priority, notes, source, []);
+  const dueDate = document.getElementById('import-due-date').value;
+  addTask(title, finalDept, priority, notes, source, [], dueDate);
   closeModal('modal-import');
   document.getElementById('form-import').reset();
   document.querySelector('.import-tab[data-tab="email"]').click();
@@ -388,11 +420,12 @@ function init() {
     const department = document.getElementById('input-department').value;
     const priority = document.getElementById('input-priority').value;
     const notes = document.getElementById('input-notes').value.trim();
+    const dueDate = document.getElementById('input-due-date').value;
 
     if (!title || !department) return;
 
     const allAttachments = [...pendingAttachments, ...pendingLinks];
-    addTask(title, department, priority, notes, 'manual', allAttachments);
+    addTask(title, department, priority, notes, 'manual', allAttachments, dueDate);
     closeModal('modal-add');
     resetAddForm();
   });
