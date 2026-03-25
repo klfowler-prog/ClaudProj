@@ -118,7 +118,7 @@ function renderTaskItem(task) {
 
   return `
     <div class="task-item ${isCompleted ? 'completed' : ''} status-${statusKey}" data-id="${task.id}">
-      <select class="status-select status-${statusKey}" data-action="status" data-id="${task.id}">
+      <select class="status-select status-${statusKey}" data-action="status" data-id="${task.id}" onclick="event.stopPropagation()" onmousedown="event.stopPropagation()">
         ${statusOptions}
       </select>
       <div class="task-body" data-action="detail" data-id="${task.id}">
