@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CMO Task Manager</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- Header -->
+  <header class="header">
+    <div class="header-content">
+      <div class="header-title">
+        <h1>CMO Task Manager</h1>
+        <p class="header-subtitle">Marketing Department Task Tracker</p>
+      </div>
+      <div class="header-stats">
+        <div class="stat">
+          <span class="stat-value" id="stat-total">0</span>
+          <span class="stat-label">Total</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value" id="stat-completed">0</span>
+          <span class="stat-label">Done</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value" id="stat-percent">0%</span>
+          <span class="stat-label">Complete</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <div class="toolbar-actions">
+      <button class="btn btn-primary" id="btn-add-task">+ Add Task</button>
+      <button class="btn btn-secondary" id="btn-import-email">&#9993; Import Email</button>
+      <button class="btn btn-secondary" id="btn-import-slack">&#35; Import Slack</button>
+    </div>
+    <div class="toolbar-filters">
+      <select id="filter-department" class="filter-select">
+        <option value="all">All Departments</option>
+        <option value="B2B Marketing">B2B Marketing</option>
+        <option value="Internal Comms">Internal Comms</option>
+        <option value="Rev Ops">Rev Ops</option>
+        <option value="B2C Marketing">B2C Marketing</option>
+      </select>
+      <select id="filter-priority" class="filter-select">
+        <option value="all">All Priorities</option>
+        <option value="High">High</option>
+        <option value="Medium">Medium</option>
+        <option value="Low">Low</option>
+      </select>
+      <input type="text" id="filter-search" class="filter-search" placeholder="Search tasks...">
+    </div>
+  </div>
+
+  <!-- Department Cards -->
+  <div class="department-cards">
+    <div class="dept-card" data-dept="B2B Marketing">
+      <div class="dept-card-header">
+        <span class="dept-dot dept-b2b"></span>
+        <span class="dept-name">B2B Marketing</span>
+      </div>
+      <div class="dept-card-stats">
+        <span class="dept-count" id="dept-count-b2b">0 tasks</span>
+        <span class="dept-done" id="dept-done-b2b">0 done</span>
+      </div>
+      <div class="dept-progress">
+        <div class="dept-progress-bar dept-bg-b2b" id="dept-bar-b2b" style="width: 0%"></div>
+      </div>
+    </div>
+    <div class="dept-card" data-dept="Internal Comms">
+      <div class="dept-card-header">
+        <span class="dept-dot dept-comms"></span>
+        <span class="dept-name">Internal Comms</span>
+      </div>
+      <div class="dept-card-stats">
+        <span class="dept-count" id="dept-count-comms">0 tasks</span>
+        <span class="dept-done" id="dept-done-comms">0 done</span>
+      </div>
+      <div class="dept-progress">
+        <div class="dept-progress-bar dept-bg-comms" id="dept-bar-comms" style="width: 0%"></div>
+      </div>
+    </div>
+    <div class="dept-card" data-dept="Rev Ops">
+      <div class="dept-card-header">
+        <span class="dept-dot dept-revops"></span>
+        <span class="dept-name">Rev Ops</span>
+      </div>
+      <div class="dept-card-stats">
+        <span class="dept-count" id="dept-count-revops">0 tasks</span>
+        <span class="dept-done" id="dept-done-revops">0 done</span>
+      </div>
+      <div class="dept-progress">
+        <div class="dept-progress-bar dept-bg-revops" id="dept-bar-revops" style="width: 0%"></div>
+      </div>
+    </div>
+    <div class="dept-card" data-dept="B2C Marketing">
+      <div class="dept-card-header">
+        <span class="dept-dot dept-b2c"></span>
+        <span class="dept-name">B2C Marketing</span>
+      </div>
+      <div class="dept-card-stats">
+        <span class="dept-count" id="dept-count-b2c">0 tasks</span>
+        <span class="dept-done" id="dept-done-b2c">0 done</span>
+      </div>
+      <div class="dept-progress">
+        <div class="dept-progress-bar dept-bg-b2c" id="dept-bar-b2c" style="width: 0%"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Task List -->
+  <div class="task-list-container">
+    <div class="task-list" id="task-list">
+      <!-- Tasks rendered by JS -->
+    </div>
+    <div class="empty-state" id="empty-state" style="display: none;">
+      <div class="empty-icon">&#9776;</div>
+      <p class="empty-title">No tasks yet</p>
+      <p class="empty-subtitle">Click "Add Task" to get started, or import from email/Slack</p>
+    </div>
+  </div>
+
+  <!-- Add/Edit Task Modal -->
+  <div class="modal-overlay" id="modal-add" style="display: none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="modal-add-title">Add Task</h2>
+        <button class="modal-close" data-close="modal-add">&times;</button>
+      </div>
+      <form id="form-add-task">
+        <div class="form-group">
+          <label for="input-title">Task Title <span class="required">*</span></label>
+          <input type="text" id="input-title" required placeholder="What needs to be done?">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="input-department">Department <span class="required">*</span></label>
+            <select id="input-department" required>
+              <option value="">Select department</option>
+              <option value="B2B Marketing">B2B Marketing</option>
+              <option value="Internal Comms">Internal Comms</option>
+              <option value="Rev Ops">Rev Ops</option>
+              <option value="B2C Marketing">B2C Marketing</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="input-priority">Priority</label>
+            <select id="input-priority">
+              <option value="Medium">Medium</option>
+              <option value="High">High</option>
+              <option value="Low">Low</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="input-notes">Notes</label>
+          <textarea id="input-notes" rows="3" placeholder="Additional details..."></textarea>
+        </div>
+        <div class="form-group">
+          <label>Attachments</label>
+          <div class="attachment-area" id="attachment-area">
+            <div class="drop-zone" id="drop-zone">
+              <span class="drop-icon">&#128206;</span>
+              <span>Drag & drop files here or <label for="file-input" class="file-label">browse</label></span>
+              <input type="file" id="file-input" multiple style="display: none;">
+            </div>
+            <div class="attachment-list" id="attachment-list"></div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Links</label>
+          <div class="link-input-row">
+            <input type="text" id="input-link-name" placeholder="Link name">
+            <input type="url" id="input-link-url" placeholder="https://...">
+            <button type="button" class="btn btn-small" id="btn-add-link">Add</button>
+          </div>
+          <div class="link-list" id="link-list"></div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" data-close="modal-add">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btn-submit-task">Add Task</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Import Modal -->
+  <div class="modal-overlay" id="modal-import" style="display: none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="modal-import-title">Import from Email</h2>
+        <button class="modal-close" data-close="modal-import">&times;</button>
+      </div>
+      <form id="form-import">
+        <div class="import-tabs">
+          <button type="button" class="import-tab active" data-tab="email">Email</button>
+          <button type="button" class="import-tab" data-tab="slack">Slack</button>
+        </div>
+        <div class="import-panel" id="panel-email">
+          <div class="form-group">
+            <label for="import-email-subject">Subject</label>
+            <input type="text" id="import-email-subject" placeholder="Email subject line">
+          </div>
+          <div class="form-group">
+            <label for="import-email-from">From</label>
+            <input type="text" id="import-email-from" placeholder="sender@example.com">
+          </div>
+          <div class="form-group">
+            <label for="import-email-body">Body</label>
+            <textarea id="import-email-body" rows="6" placeholder="Paste email body here..."></textarea>
+          </div>
+        </div>
+        <div class="import-panel" id="panel-slack" style="display: none;">
+          <div class="form-group">
+            <label for="import-slack-channel">Channel</label>
+            <input type="text" id="import-slack-channel" placeholder="#channel-name">
+          </div>
+          <div class="form-group">
+            <label for="import-slack-message">Message</label>
+            <textarea id="import-slack-message" rows="6" placeholder="Paste Slack message here..."></textarea>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="import-department">Department</label>
+            <select id="import-department">
+              <option value="">Auto-detect</option>
+              <option value="B2B Marketing">B2B Marketing</option>
+              <option value="Internal Comms">Internal Comms</option>
+              <option value="Rev Ops">Rev Ops</option>
+              <option value="B2C Marketing">B2C Marketing</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="import-priority">Priority</label>
+            <select id="import-priority">
+              <option value="Medium">Medium</option>
+              <option value="High">High</option>
+              <option value="Low">Low</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" data-close="modal-import">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create Task</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Task Detail Modal -->
+  <div class="modal-overlay" id="modal-detail" style="display: none;">
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h2 id="detail-title">Task Details</h2>
+        <button class="modal-close" data-close="modal-detail">&times;</button>
+      </div>
+      <div id="detail-content"></div>
+    </div>
+  </div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
