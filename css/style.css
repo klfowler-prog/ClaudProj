@@ -1,36 +1,52 @@
-/* === Design System === */
+/* === Follett Higher Education Design System === */
 :root {
-  --color-bg: #f1f5f9;
+  /* Follett Primary */
+  --follett-dark-blue: #204A65;
+  --follett-light-blue: #AEEAFC;
+  --follett-medium-blue: #479FC8;
+
+  /* Follett Secondary */
+  --follett-coral: #DC6B67;
+  --follett-sage: #ABC39B;
+  --follett-light-gray: #E9F0F1;
+  --follett-dark-gray: #7398A9;
+  --follett-deep-gray: #081F21;
+
+  /* Semantic colors mapped to Follett palette */
+  --color-bg: var(--follett-light-gray);
   --color-surface: #ffffff;
-  --color-text: #1e293b;
-  --color-text-muted: #64748b;
-  --color-text-light: #94a3b8;
-  --color-border: #e2e8f0;
-  --color-primary: #3b82f6;
-  --color-primary-hover: #2563eb;
-  --color-danger: #ef4444;
-  --color-danger-hover: #dc2626;
+  --color-text: var(--follett-deep-gray);
+  --color-text-muted: var(--follett-dark-gray);
+  --color-text-light: #93adb8;
+  --color-border: #cdd9dc;
+  --color-primary: var(--follett-dark-blue);
+  --color-primary-hover: #173a50;
+  --color-accent: var(--follett-medium-blue);
+  --color-danger: var(--follett-coral);
+  --color-danger-hover: #c45550;
 
-  --color-b2b: #3b82f6;
-  --color-b2b-light: #dbeafe;
-  --color-comms: #10b981;
-  --color-comms-light: #d1fae5;
-  --color-revops: #f59e0b;
-  --color-revops-light: #fef3c7;
-  --color-b2c: #8b5cf6;
-  --color-b2c-light: #ede9fe;
+  /* Department colors — mapped to Follett palette */
+  --color-b2b: var(--follett-medium-blue);
+  --color-b2b-light: #d9eef8;
+  --color-comms: var(--follett-sage);
+  --color-comms-light: #e5eedf;
+  --color-revops: var(--follett-coral);
+  --color-revops-light: #f8e0df;
+  --color-b2c: var(--follett-dark-blue);
+  --color-b2c-light: #d4e2eb;
 
-  --color-high: #ef4444;
-  --color-high-light: #fef2f2;
-  --color-medium: #f59e0b;
-  --color-medium-light: #fffbeb;
-  --color-low: #6b7280;
-  --color-low-light: #f3f4f6;
+  /* Priority colors */
+  --color-high: var(--follett-coral);
+  --color-high-light: #f8e0df;
+  --color-medium: #d4960a;
+  --color-medium-light: #fdf3da;
+  --color-low: var(--follett-dark-gray);
+  --color-low-light: var(--follett-light-gray);
 
   --radius: 8px;
   --radius-lg: 12px;
-  --shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
-  --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.1);
+  --shadow: 0 1px 3px rgba(8, 31, 33, 0.06), 0 1px 2px rgba(8, 31, 33, 0.04);
+  --shadow-lg: 0 4px 12px rgba(8, 31, 33, 0.08);
   --transition: all 0.2s ease;
 }
 
@@ -42,7 +58,8 @@
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+  font-weight: 400;
   background: var(--color-bg);
   color: var(--color-text);
   line-height: 1.5;
@@ -51,9 +68,10 @@ body {
 
 /* === Header === */
 .header {
-  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  background: linear-gradient(135deg, var(--follett-deep-gray) 0%, var(--follett-dark-blue) 100%);
   color: #ffffff;
   padding: 1.25rem 1.5rem;
+  border-bottom: 4px solid var(--follett-light-blue);
 }
 
 .header-content {
@@ -65,14 +83,16 @@ body {
 }
 
 .header h1 {
+  font-family: 'IBM Plex Serif', Georgia, serif;
   font-size: 1.5rem;
-  font-weight: 700;
-  letter-spacing: -0.025em;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .header-subtitle {
-  color: #94a3b8;
+  color: var(--follett-light-blue);
   font-size: 0.85rem;
+  font-weight: 300;
   margin-top: 0.125rem;
 }
 
@@ -87,16 +107,18 @@ body {
 
 .stat-value {
   display: block;
+  font-family: 'IBM Plex Serif', Georgia, serif;
   font-size: 1.5rem;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .stat-label {
   display: block;
   font-size: 0.7rem;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #94a3b8;
+  color: var(--follett-light-blue);
 }
 
 /* === Toolbar === */
@@ -130,6 +152,7 @@ body {
   padding: 0.5rem 1rem;
   border: none;
   border-radius: var(--radius);
+  font-family: 'Roboto', sans-serif;
   font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
@@ -153,8 +176,8 @@ body {
 }
 
 .btn-secondary:hover {
-  background: #f8fafc;
-  border-color: #cbd5e1;
+  background: var(--follett-light-gray);
+  border-color: var(--follett-dark-gray);
 }
 
 .btn-ghost {
@@ -163,14 +186,14 @@ body {
 }
 
 .btn-ghost:hover {
-  background: #f1f5f9;
+  background: var(--follett-light-gray);
   color: var(--color-text);
 }
 
 .btn-small {
   padding: 0.3rem 0.6rem;
   font-size: 0.8rem;
-  background: var(--color-primary);
+  background: var(--follett-medium-blue);
   color: #ffffff;
   border: none;
   border-radius: var(--radius);
@@ -178,7 +201,7 @@ body {
 }
 
 .btn-small:hover {
-  background: var(--color-primary-hover);
+  background: var(--follett-dark-blue);
 }
 
 .btn-danger {
@@ -203,6 +226,7 @@ body {
   padding: 0.5rem 0.75rem;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
+  font-family: 'Roboto', sans-serif;
   font-size: 0.875rem;
   background: var(--color-surface);
   color: var(--color-text);
@@ -211,8 +235,8 @@ body {
 
 .filter-select:focus, .filter-search:focus {
   outline: none;
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+  border-color: var(--follett-medium-blue);
+  box-shadow: 0 0 0 3px rgba(71, 159, 200, 0.2);
 }
 
 .filter-search {
@@ -245,7 +269,7 @@ body {
 }
 
 .dept-card.active {
-  border-color: var(--color-primary);
+  border-color: var(--follett-medium-blue);
 }
 
 .dept-card-header {
@@ -268,8 +292,10 @@ body {
 .dept-b2c { background: var(--color-b2c); }
 
 .dept-name {
-  font-weight: 600;
+  font-weight: 700;
   font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
 }
 
 .dept-card-stats {
@@ -282,7 +308,7 @@ body {
 
 .dept-progress {
   height: 4px;
-  background: var(--color-bg);
+  background: var(--follett-light-gray);
   border-radius: 2px;
   overflow: hidden;
 }
@@ -320,6 +346,7 @@ body {
   gap: 0.75rem;
   box-shadow: var(--shadow);
   transition: var(--transition);
+  border-left: 3px solid transparent;
 }
 
 .task-item:hover {
@@ -351,12 +378,12 @@ body {
 }
 
 .task-checkbox:hover {
-  border-color: var(--color-primary);
+  border-color: var(--follett-medium-blue);
 }
 
 .task-item.completed .task-checkbox {
-  background: var(--color-primary);
-  border-color: var(--color-primary);
+  background: var(--follett-dark-blue);
+  border-color: var(--follett-dark-blue);
   color: #ffffff;
 }
 
@@ -393,17 +420,19 @@ body {
   padding: 0.125rem 0.5rem;
   border-radius: 999px;
   font-size: 0.7rem;
-  font-weight: 600;
+  font-weight: 700;
   white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
 }
 
-.badge-b2b { background: var(--color-b2b-light); color: var(--color-b2b); }
-.badge-comms { background: var(--color-comms-light); color: #059669; }
-.badge-revops { background: var(--color-revops-light); color: #d97706; }
-.badge-b2c { background: var(--color-b2c-light); color: var(--color-b2c); }
+.badge-b2b { background: var(--color-b2b-light); color: #2e7aaa; }
+.badge-comms { background: var(--color-comms-light); color: #5e8a4e; }
+.badge-revops { background: var(--color-revops-light); color: #b84e4b; }
+.badge-b2c { background: var(--color-b2c-light); color: var(--follett-dark-blue); }
 
 .badge-high { background: var(--color-high-light); color: var(--color-high); }
-.badge-medium { background: var(--color-medium-light); color: #b45309; }
+.badge-medium { background: var(--color-medium-light); color: #a17508; }
 .badge-low { background: var(--color-low-light); color: var(--color-low); }
 
 /* Due date */
@@ -414,22 +443,22 @@ body {
 }
 
 .task-due-date.overdue {
-  color: var(--color-danger);
+  color: var(--follett-coral);
   font-weight: 600;
 }
 
 .task-due-date.due-today {
-  color: #ea580c;
+  color: #c45a15;
   font-weight: 600;
 }
 
 .task-due-date.due-soon {
-  color: #d97706;
+  color: #a17508;
   font-weight: 500;
 }
 
 .stat-overdue {
-  color: var(--color-danger);
+  color: var(--follett-coral);
 }
 
 /* Attachment indicator */
@@ -437,7 +466,6 @@ body {
   color: var(--color-text-light);
   font-size: 0.85rem;
   flex-shrink: 0;
-  title: "Has attachments";
 }
 
 /* Task actions */
@@ -479,6 +507,7 @@ body {
 }
 
 .empty-title {
+  font-family: 'IBM Plex Serif', Georgia, serif;
   font-size: 1.1rem;
   font-weight: 600;
   color: var(--color-text);
@@ -487,13 +516,14 @@ body {
 
 .empty-subtitle {
   font-size: 0.875rem;
+  font-weight: 300;
 }
 
 /* === Modals === */
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.4);
+  background: rgba(8, 31, 33, 0.45);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -508,7 +538,7 @@ body {
   max-width: 520px;
   max-height: 90vh;
   overflow-y: auto;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 20px 60px rgba(8, 31, 33, 0.2);
 }
 
 .modal-wide {
@@ -520,11 +550,14 @@ body {
   justify-content: space-between;
   align-items: center;
   padding: 1.25rem 1.5rem 0.75rem;
+  border-bottom: 2px solid var(--follett-light-blue);
 }
 
 .modal-header h2 {
+  font-family: 'IBM Plex Serif', Georgia, serif;
   font-size: 1.125rem;
-  font-weight: 700;
+  font-weight: 600;
+  color: var(--follett-dark-blue);
 }
 
 .modal-close {
@@ -560,16 +593,16 @@ body {
 
 .form-group label {
   display: block;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--follett-dark-blue);
   margin-bottom: 0.3rem;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.04em;
 }
 
 .required {
-  color: var(--color-danger);
+  color: var(--follett-coral);
 }
 
 .form-group input[type="text"],
@@ -582,7 +615,7 @@ body {
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   font-size: 0.9rem;
-  font-family: inherit;
+  font-family: 'Roboto', sans-serif;
   color: var(--color-text);
   transition: var(--transition);
 }
@@ -591,8 +624,8 @@ body {
 .form-group select:focus,
 .form-group textarea:focus {
   outline: none;
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+  border-color: var(--follett-medium-blue);
+  box-shadow: 0 0 0 3px rgba(71, 159, 200, 0.2);
 }
 
 .form-row {
@@ -613,6 +646,7 @@ body {
   background: none;
   border: none;
   padding: 0.5rem 1rem;
+  font-family: 'Roboto', sans-serif;
   font-size: 0.875rem;
   font-weight: 500;
   color: var(--color-text-muted);
@@ -623,8 +657,8 @@ body {
 }
 
 .import-tab.active {
-  color: var(--color-primary);
-  border-bottom-color: var(--color-primary);
+  color: var(--follett-dark-blue);
+  border-bottom-color: var(--follett-dark-blue);
 }
 
 .import-tab:hover {
@@ -644,8 +678,8 @@ body {
 }
 
 .drop-zone:hover, .drop-zone.dragover {
-  border-color: var(--color-primary);
-  background: rgba(59, 130, 246, 0.04);
+  border-color: var(--follett-medium-blue);
+  background: rgba(71, 159, 200, 0.05);
 }
 
 .drop-icon {
@@ -654,7 +688,7 @@ body {
 }
 
 .file-label {
-  color: var(--color-primary);
+  color: var(--follett-medium-blue);
   cursor: pointer;
   font-weight: 500;
 }
@@ -671,7 +705,7 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 0.375rem 0.625rem;
-  background: var(--color-bg);
+  background: var(--follett-light-gray);
   border-radius: var(--radius);
   font-size: 0.8rem;
 }
@@ -708,11 +742,12 @@ body {
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   font-size: 0.85rem;
+  font-family: 'Roboto', sans-serif;
 }
 
 .link-input-row input:focus {
   outline: none;
-  border-color: var(--color-primary);
+  border-color: var(--follett-medium-blue);
 }
 
 /* === Task Detail Modal === */
@@ -732,10 +767,10 @@ body {
 
 .detail-section-title {
   font-size: 0.75rem;
-  font-weight: 600;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--color-text-muted);
+  color: var(--follett-dark-blue);
   margin-bottom: 0.375rem;
 }
 
@@ -744,6 +779,7 @@ body {
   line-height: 1.6;
   white-space: pre-wrap;
   color: var(--color-text);
+  font-weight: 300;
 }
 
 .detail-attachments {
@@ -756,7 +792,7 @@ body {
 }
 
 .detail-attachments a {
-  color: var(--color-primary);
+  color: var(--follett-medium-blue);
   text-decoration: none;
 }
 
