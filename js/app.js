@@ -1,6 +1,7 @@
 // === Constants ===
 const DEPARTMENTS = ['B2B Marketing', 'Internal Comms', 'Rev Ops', 'B2C Marketing'];
 const PRIORITIES = ['High', 'Medium', 'Low'];
+const STATUSES = ['Not Started', 'In Progress', 'Awaiting Feedback', 'Completed'];
 const STORAGE_KEY = 'cmo_tasks';
 
 const DEPT_KEYS = {
@@ -8,6 +9,13 @@ const DEPT_KEYS = {
   'Internal Comms': 'comms',
   'Rev Ops': 'revops',
   'B2C Marketing': 'b2c'
+};
+
+const STATUS_KEYS = {
+  'Not Started': 'not-started',
+  'In Progress': 'in-progress',
+  'Awaiting Feedback': 'awaiting',
+  'Completed': 'completed'
 };
 
 // Keywords for auto-detecting department from imported content
@@ -31,6 +39,17 @@ function loadTasks() {
   try {
     const data = localStorage.getItem(STORAGE_KEY);
     tasks = data ? JSON.parse(data) : [];
+    // Migrate old boolean completed to status system
+    tasks.forEach(t => {
+      if (!t.status) {
+        if (t.completed) {
+          t.status = 'Completed';
+          t.completedAt = t.completedAt || t.createdAt;
+        } else {
+          t.status = 'Not Started';
+        }
+      }
+    });
   } catch {
     tasks = [];
   }
@@ -48,14 +67,14 @@ function render() {
 }
 
 function renderStats() {
-  const total = tasks.length;
-  const completed = tasks.filter(t => t.completed).length;
-  const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+  const active = tasks.filter(t => t.status !== 'Completed');
+  const completed = tasks.filter(t => t.status === 'Completed');
+  const awaiting = tasks.filter(t => t.status === 'Awaiting Feedback').length;
   const today = new Date().toISOString().split('T')[0];
-  const overdue = tasks.filter(t => !t.completed && t.dueDate && t.dueDate < today).length;
-  document.getElementById('stat-total').textContent = total;
-  document.getElementById('stat-completed').textContent = completed;
-  document.getElementById('stat-percent').textContent = pct + '%';
+  const overdue = tasks.filter(t => t.status !== 'Completed' && t.dueDate && t.dueDate < today).length;
+  document.getElementById('stat-total').textContent = active.length;
+  document.getElementById('stat-completed').textContent = completed.length;
+  document.getElementById('stat-awaiting').textContent = awaiting;
   document.getElementById('stat-overdue').textContent = overdue;
 }
 
@@ -64,7 +83,7 @@ function renderDepartmentCards() {
     const key = DEPT_KEYS[dept];
     const deptTasks = tasks.filter(t => t.department === dept);
     const total = deptTasks.length;
-    const done = deptTasks.filter(t => t.completed).length;
+    const done = deptTasks.filter(t => t.status === 'Completed').length;
     const pct = total > 0 ? Math.round((done / total) * 100) : 0;
 
     document.getElementById(`dept-count-${key}`).textContent = `${total} task${total !== 1 ? 's' : ''}`;
@@ -78,12 +97,58 @@ function renderDepartmentCards() {
   });
 }
 
+function renderTaskItem(task) {
+  const deptKey = DEPT_KEYS[task.department] || 'b2b';
+  const prioKey = task.priority.toLowerCase();
+  const statusKey = STATUS_KEYS[task.status] || 'not-started';
+  const hasAttachments = task.attachments && task.attachments.length > 0;
+  const sourceLabel = task.source === 'email' ? '&#9993; Email' : task.source === 'slack' ? '# Slack' : '';
+  const isConfirming = deleteConfirmId === task.id;
+  const isCompleted = task.status === 'Completed';
+  const dueDateHtml = formatDueDate(task.dueDate, isCompleted);
+
+  const statusOptions = STATUSES.map(s =>
+    `<option value="${s}" ${s === task.status ? 'selected' : ''}>${s}</option>`
+  ).join('');
+
+  return `
+    <div class="task-item ${isCompleted ? 'completed' : ''} status-${statusKey}" data-id="${task.id}">
+      <select class="status-select status-${statusKey}" data-action="status" data-id="${task.id}">
+        ${statusOptions}
+      </select>
+      <div class="task-body" data-action="detail" data-id="${task.id}">
+        <div class="task-title">${escapeHtml(task.title)}</div>
+        <div class="task-meta">
+          <span class="badge badge-${deptKey}">${escapeHtml(task.department)}</span>
+          <span class="badge badge-${prioKey}">${task.priority}</span>
+          ${dueDateHtml}
+          ${isCompleted && task.completedAt ? `<span class="task-source">Done ${new Date(task.completedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>` : ''}
+          ${!isCompleted && sourceLabel ? `<span class="task-source">${sourceLabel}</span>` : ''}
+        </div>
+      </div>
+      ${hasAttachments ? '<span class="task-attachment-icon" title="Has attachments">&#128206;</span>' : ''}
+      <div class="task-actions">
+        ${isConfirming
+          ? `<button class="confirm-delete" data-action="confirm-delete" data-id="${task.id}">Delete?</button>
+             <button class="btn-danger" data-action="cancel-delete" data-id="${task.id}" title="Cancel">&#10005;</button>`
+          : `<button class="btn-danger" data-action="delete" data-id="${task.id}" title="Delete task">&#128465;</button>`}
+      </div>
+    </div>`;
+}
+
 function renderTaskList() {
   const filtered = getFilteredTasks();
   const container = document.getElementById('task-list');
   const emptyState = document.getElementById('empty-state');
+  const completedSection = document.getElementById('completed-section');
+  const completedList = document.getElementById('completed-list');
+  const completedCount = document.getElementById('completed-count');
 
-  if (filtered.length === 0) {
+  const activeTasks = filtered.filter(t => t.status !== 'Completed');
+  const completedTasks = getFilteredCompletedTasks();
+
+  // Active tasks
+  if (activeTasks.length === 0 && completedTasks.length === 0) {
     container.innerHTML = '';
     emptyState.style.display = 'block';
     if (tasks.length === 0) {
@@ -93,39 +158,59 @@ function renderTaskList() {
       document.querySelector('.empty-title').textContent = 'No matching tasks';
       document.querySelector('.empty-subtitle').textContent = 'Try adjusting your filters';
     }
+    completedSection.style.display = 'none';
     return;
   }
 
-  emptyState.style.display = 'none';
-  container.innerHTML = filtered.map(task => {
-    const deptKey = DEPT_KEYS[task.department] || 'b2b';
-    const prioKey = task.priority.toLowerCase();
-    const hasAttachments = task.attachments && task.attachments.length > 0;
-    const sourceLabel = task.source === 'email' ? '&#9993; Email' : task.source === 'slack' ? '# Slack' : '';
-    const isConfirming = deleteConfirmId === task.id;
-    const dueDateHtml = formatDueDate(task.dueDate, task.completed);
+  emptyState.style.display = activeTasks.length === 0 && completedTasks.length > 0 ? 'none' : 'none';
+  if (activeTasks.length === 0) {
+    container.innerHTML = '<div class="empty-state" style="padding: 1.5rem;"><p class="empty-subtitle">All filtered tasks are completed</p></div>';
+  } else {
+    emptyState.style.display = 'none';
+    // Group by status
+    const grouped = {};
+    ['Awaiting Feedback', 'In Progress', 'Not Started'].forEach(s => {
+      const group = activeTasks.filter(t => t.status === s);
+      if (group.length > 0) grouped[s] = group;
+    });
 
-    return `
-      <div class="task-item ${task.completed ? 'completed' : ''}" data-id="${task.id}">
-        <div class="task-checkbox" data-action="toggle" data-id="${task.id}">${task.completed ? '&#10003;' : ''}</div>
-        <div class="task-body" data-action="detail" data-id="${task.id}">
-          <div class="task-title">${escapeHtml(task.title)}</div>
-          <div class="task-meta">
-            <span class="badge badge-${deptKey}">${escapeHtml(task.department)}</span>
-            <span class="badge badge-${prioKey}">${task.priority}</span>
-            ${dueDateHtml}
-            ${sourceLabel ? `<span class="task-source">${sourceLabel}</span>` : ''}
-          </div>
-        </div>
-        ${hasAttachments ? '<span class="task-attachment-icon" title="Has attachments">&#128206;</span>' : ''}
-        <div class="task-actions">
-          ${isConfirming
-            ? `<button class="confirm-delete" data-action="confirm-delete" data-id="${task.id}">Delete?</button>
-               <button class="btn-danger" data-action="cancel-delete" data-id="${task.id}" title="Cancel">&#10005;</button>`
-            : `<button class="btn-danger" data-action="delete" data-id="${task.id}" title="Delete task">&#128465;</button>`}
-        </div>
-      </div>`;
-  }).join('');
+    let html = '';
+    for (const [status, group] of Object.entries(grouped)) {
+      const statusKey = STATUS_KEYS[status];
+      html += `<div class="status-group-header status-header-${statusKey}">${status} <span class="status-group-count">${group.length}</span></div>`;
+      html += group.map(renderTaskItem).join('');
+    }
+    container.innerHTML = html;
+  }
+
+  // Completed section
+  if (completedTasks.length > 0) {
+    completedSection.style.display = 'block';
+    completedCount.textContent = completedTasks.length;
+    completedList.innerHTML = completedTasks.map(renderTaskItem).join('');
+  } else {
+    completedSection.style.display = 'none';
+  }
+}
+
+function getFilteredCompletedTasks() {
+  const completedPeriod = document.getElementById('completed-period') ?
+    document.getElementById('completed-period').value : 'all';
+  let completed = getFilteredTasks().filter(t => t.status === 'Completed');
+
+  if (completedPeriod !== 'all') {
+    const now = new Date();
+    let cutoff;
+    if (completedPeriod === 'week') {
+      cutoff = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
+    } else if (completedPeriod === 'month') {
+      cutoff = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
+    } else if (completedPeriod === 'quarter') {
+      cutoff = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate());
+    }
+    completed = completed.filter(t => t.completedAt && new Date(t.completedAt) >= cutoff);
+  }
+  return completed;
 }
 
 function escapeHtml(str) {
@@ -135,7 +220,7 @@ function escapeHtml(str) {
 }
 
 // === Due Date Formatting ===
-function formatDueDate(dueDate, completed) {
+function formatDueDate(dueDate, isCompleted) {
   if (!dueDate) return '';
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -143,7 +228,7 @@ function formatDueDate(dueDate, completed) {
   const diffDays = Math.round((due - today) / (1000 * 60 * 60 * 24));
   const dateLabel = due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
-  if (completed) {
+  if (isCompleted) {
     return `<span class="task-due-date">${dateLabel}</span>`;
   }
   if (diffDays < 0) {
@@ -187,6 +272,8 @@ function addTask(title, department, priority, notes, source, attachments, dueDat
     priority: priority || 'Medium',
     notes: notes || '',
     completed: false,
+    status: 'Not Started',
+    completedAt: '',
     createdAt: new Date().toISOString(),
     source: source || 'manual',
     attachments: attachments || [],
@@ -198,10 +285,16 @@ function addTask(title, department, priority, notes, source, attachments, dueDat
   return task;
 }
 
-function toggleTask(id) {
+function setTaskStatus(id, newStatus) {
   const task = tasks.find(t => t.id === id);
   if (task) {
-    task.completed = !task.completed;
+    task.status = newStatus;
+    task.completed = newStatus === 'Completed';
+    if (newStatus === 'Completed' && !task.completedAt) {
+      task.completedAt = new Date().toISOString();
+    } else if (newStatus !== 'Completed') {
+      task.completedAt = '';
+    }
     saveTasks();
     render();
   }
@@ -359,7 +452,12 @@ function showTaskDetail(id) {
     </div>
     ${task.notes ? `<div class="detail-section"><div class="detail-section-title">Notes</div><div class="detail-notes">${escapeHtml(task.notes)}</div></div>` : ''}
     ${attachmentsHtml}
-    ${task.dueDate ? `<div class="detail-section"><div class="detail-section-title">Due Date</div><div>${formatDueDate(task.dueDate, task.completed)} &mdash; ${new Date(task.dueDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</div></div>` : ''}
+    <div class="detail-section">
+      <div class="detail-section-title">Status</div>
+      <span class="badge badge-status-${STATUS_KEYS[task.status] || 'not-started'}">${task.status}</span>
+      ${task.completedAt ? `<span style="font-size: 0.8rem; color: var(--color-text-light); margin-left: 0.5rem;">Completed ${new Date(task.completedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>` : ''}
+    </div>
+    ${task.dueDate ? `<div class="detail-section"><div class="detail-section-title">Due Date</div><div>${formatDueDate(task.dueDate, task.status === 'Completed')} &mdash; ${new Date(task.dueDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</div></div>` : ''}
     <div class="detail-timestamp">Created ${dateStr}</div>
     <div class="detail-actions">
       <button class="btn btn-primary" onclick="editTask('${task.id}')">Edit Task</button>
@@ -601,8 +699,14 @@ function init() {
     });
   });
 
-  // Task list event delegation
-  document.getElementById('task-list').addEventListener('click', (e) => {
+  // Task list event delegation (for both active + completed lists)
+  function handleTaskAction(e) {
+    // Handle status select changes
+    if (e.target.matches('select[data-action="status"]')) {
+      setTaskStatus(e.target.dataset.id, e.target.value);
+      return;
+    }
+
     const target = e.target.closest('[data-action]');
     if (!target) return;
 
@@ -610,9 +714,6 @@ function init() {
     const id = target.dataset.id;
 
     switch (action) {
-      case 'toggle':
-        toggleTask(id);
-        break;
       case 'detail':
         showTaskDetail(id);
         break;
@@ -628,6 +729,23 @@ function init() {
         render();
         break;
     }
+  }
+
+  document.getElementById('task-list').addEventListener('click', handleTaskAction);
+  document.getElementById('task-list').addEventListener('change', handleTaskAction);
+  document.getElementById('completed-list').addEventListener('click', handleTaskAction);
+  document.getElementById('completed-list').addEventListener('change', handleTaskAction);
+
+  // Completed period filter
+  document.getElementById('completed-period').addEventListener('change', render);
+
+  // Completed section toggle
+  document.getElementById('completed-toggle').addEventListener('click', () => {
+    const list = document.getElementById('completed-list');
+    const toggle = document.getElementById('completed-toggle');
+    const isHidden = list.style.display === 'none';
+    list.style.display = isHidden ? 'flex' : 'none';
+    toggle.textContent = isHidden ? 'Hide' : 'Show';
   });
 
   // File drag & drop
