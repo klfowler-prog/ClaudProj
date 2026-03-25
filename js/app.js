@@ -40,16 +40,21 @@ function loadTasks() {
     const data = localStorage.getItem(STORAGE_KEY);
     tasks = data ? JSON.parse(data) : [];
     // Migrate old boolean completed to status system
+    let migrated = false;
     tasks.forEach(t => {
       if (!t.status) {
+        migrated = true;
         if (t.completed) {
           t.status = 'Completed';
-          t.completedAt = t.completedAt || t.createdAt;
+          t.completedAt = t.completedAt || new Date().toISOString();
         } else {
           t.status = 'Not Started';
         }
       }
     });
+    if (migrated) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+    }
   } catch {
     tasks = [];
   }
@@ -188,6 +193,11 @@ function renderTaskList() {
     completedSection.style.display = 'block';
     completedCount.textContent = completedTasks.length;
     completedList.innerHTML = completedTasks.map(renderTaskItem).join('');
+    // Auto-expand if there are no active tasks
+    if (activeTasks.length === 0) {
+      completedList.style.display = 'flex';
+      document.getElementById('completed-toggle').textContent = 'Hide';
+    }
   } else {
     completedSection.style.display = 'none';
   }
