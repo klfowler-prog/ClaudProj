@@ -20,19 +20,19 @@
       <div class="header-stats">
         <div class="stat">
           <span class="stat-value" id="stat-total">0</span>
-          <span class="stat-label">Total</span>
+          <span class="stat-label">Active</span>
         </div>
         <div class="stat">
-          <span class="stat-value" id="stat-completed">0</span>
-          <span class="stat-label">Done</span>
-        </div>
-        <div class="stat">
-          <span class="stat-value" id="stat-percent">0%</span>
-          <span class="stat-label">Complete</span>
+          <span class="stat-value stat-awaiting" id="stat-awaiting">0</span>
+          <span class="stat-label">Awaiting</span>
         </div>
         <div class="stat">
           <span class="stat-value stat-overdue" id="stat-overdue">0</span>
           <span class="stat-label">Overdue</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value" id="stat-completed">0</span>
+          <span class="stat-label">Completed</span>
         </div>
       </div>
     </div>
@@ -128,6 +128,23 @@
       <div class="empty-icon">&#9776;</div>
       <p class="empty-title">No tasks yet</p>
       <p class="empty-subtitle">Click "Add Task" to get started, or import from email/Slack</p>
+    </div>
+
+    <!-- Completed Section -->
+    <div class="completed-section" id="completed-section" style="display: none;">
+      <div class="completed-header">
+        <div class="completed-header-left">
+          <h3>Completed <span class="completed-count" id="completed-count">0</span></h3>
+          <button class="btn-link" id="completed-toggle">Show</button>
+        </div>
+        <select id="completed-period" class="filter-select filter-select-small">
+          <option value="week">This Week</option>
+          <option value="month">This Month</option>
+          <option value="quarter">This Quarter</option>
+          <option value="all">All Time</option>
+        </select>
+      </div>
+      <div class="task-list" id="completed-list" style="display: none;"></div>
     </div>
   </div>
 
