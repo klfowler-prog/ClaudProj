@@ -214,6 +214,31 @@ function deleteTask(id) {
   render();
 }
 
+// === Edit Task ===
+function editTask(id) {
+  const task = tasks.find(t => t.id === id);
+  if (!task) return;
+
+  closeModal('modal-detail');
+  editingTaskId = id;
+
+  document.getElementById('input-title').value = task.title;
+  document.getElementById('input-department').value = task.department;
+  document.getElementById('input-priority').value = task.priority;
+  document.getElementById('input-due-date').value = task.dueDate || '';
+  document.getElementById('input-notes').value = task.notes || '';
+
+  // Load existing attachments into pending lists
+  pendingAttachments = (task.attachments || []).filter(a => a.type === 'file');
+  pendingLinks = (task.attachments || []).filter(a => a.type === 'link');
+  renderPendingAttachments();
+  renderPendingLinks();
+
+  document.getElementById('modal-add-title').textContent = 'Edit Task';
+  document.getElementById('btn-submit-task').textContent = 'Save Changes';
+  openModal('modal-add');
+}
+
 // === Department Auto-detection ===
 function detectDepartment(text) {
   const lower = text.toLowerCase();
@@ -336,6 +361,9 @@ function showTaskDetail(id) {
     ${attachmentsHtml}
     ${task.dueDate ? `<div class="detail-section"><div class="detail-section-title">Due Date</div><div>${formatDueDate(task.dueDate, task.completed)} &mdash; ${new Date(task.dueDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</div></div>` : ''}
     <div class="detail-timestamp">Created ${dateStr}</div>
+    <div class="detail-actions">
+      <button class="btn btn-primary" onclick="editTask('${task.id}')">Edit Task</button>
+    </div>
   `;
   openModal('modal-detail');
 }
@@ -502,7 +530,7 @@ function init() {
   const savedUrl = localStorage.getItem(SYNC_SHEET_KEY);
   if (savedUrl) document.getElementById('sync-sheet-url').value = savedUrl;
 
-  // Add task form submit
+  // Add/Edit task form submit
   document.getElementById('form-add-task').addEventListener('submit', (e) => {
     e.preventDefault();
     const title = document.getElementById('input-title').value.trim();
@@ -514,7 +542,24 @@ function init() {
     if (!title || !department) return;
 
     const allAttachments = [...pendingAttachments, ...pendingLinks];
-    addTask(title, department, priority, notes, 'manual', allAttachments, dueDate);
+
+    if (editingTaskId) {
+      // Update existing task
+      const task = tasks.find(t => t.id === editingTaskId);
+      if (task) {
+        task.title = title;
+        task.department = department;
+        task.priority = priority;
+        task.notes = notes;
+        task.dueDate = dueDate;
+        task.attachments = allAttachments;
+        saveTasks();
+        render();
+      }
+    } else {
+      addTask(title, department, priority, notes, 'manual', allAttachments, dueDate);
+    }
+
     closeModal('modal-add');
     resetAddForm();
   });
