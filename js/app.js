@@ -340,41 +340,127 @@ function showTaskDetail(id) {
   openModal('modal-detail');
 }
 
-// === Import Logic ===
-function handleImport(e) {
-  e.preventDefault();
-  const activeTab = document.querySelector('.import-tab.active').dataset.tab;
-  const department = document.getElementById('import-department').value;
-  const priority = document.getElementById('import-priority').value;
+// === Quick Import Logic ===
+function parseImportText(text) {
+  const lines = text.trim().split('\n');
+  let title = '';
+  let notes = '';
+  let source = 'manual';
 
-  let title, notes, source;
+  // Try to detect email format (Subject: / From: headers)
+  const subjectMatch = text.match(/^Subject:\s*(.+)$/mi);
+  const fromMatch = text.match(/^From:\s*(.+)$/mi);
 
-  if (activeTab === 'email') {
-    const subject = document.getElementById('import-email-subject').value.trim();
-    const from = document.getElementById('import-email-from').value.trim();
-    const body = document.getElementById('import-email-body').value.trim();
-    title = subject || 'Imported email task';
-    notes = (from ? `From: ${from}\n\n` : '') + body;
+  if (subjectMatch) {
+    title = subjectMatch[1].trim();
+    // Remove common forwarding prefixes
+    title = title.replace(/^(Fw|Fwd|Re):\s*/i, '');
+    notes = text;
     source = 'email';
   } else {
-    const channel = document.getElementById('import-slack-channel').value.trim();
-    const message = document.getElementById('import-slack-message').value.trim();
-    // Use first line or first 100 chars as title
-    const firstLine = message.split('\n')[0];
-    title = firstLine.length > 100 ? firstLine.substring(0, 100) + '...' : firstLine || 'Imported Slack task';
-    notes = (channel ? `Channel: ${channel}\n\n` : '') + message;
+    // First line = title, rest = notes
+    title = lines[0].trim();
+    if (title.length > 120) title = title.substring(0, 120) + '...';
+    notes = lines.slice(1).join('\n').trim();
+  }
+
+  // Detect if it looks like email or slack
+  if (fromMatch || text.includes('Subject:') || text.includes('From:')) {
+    source = 'email';
+  } else if (text.includes('#') && text.match(/#[\w-]+/)) {
     source = 'slack';
   }
 
-  // Auto-detect department if not manually selected
-  const detectedDept = department || detectDepartment(title + ' ' + notes);
-  const finalDept = detectedDept || 'B2B Marketing'; // fallback
+  const detectedDept = detectDepartment(text);
+  return { title, notes, source, detectedDept };
+}
 
+function handleImport(e) {
+  e.preventDefault();
+  const pasteText = document.getElementById('import-paste').value.trim();
+  if (!pasteText) return;
+
+  const department = document.getElementById('import-department').value;
+  const priority = document.getElementById('import-priority').value;
   const dueDate = document.getElementById('import-due-date').value;
-  addTask(title, finalDept, priority, notes, source, [], dueDate);
+
+  const parsed = parseImportText(pasteText);
+  const finalDept = department || parsed.detectedDept || 'B2B Marketing';
+
+  addTask(parsed.title, finalDept, priority, parsed.notes, parsed.source, [], dueDate);
   closeModal('modal-import');
   document.getElementById('form-import').reset();
-  document.querySelector('.import-tab[data-tab="email"]').click();
+  document.getElementById('import-preview').style.display = 'none';
+}
+
+function updateImportPreview() {
+  const text = document.getElementById('import-paste').value.trim();
+  const preview = document.getElementById('import-preview');
+  if (!text) {
+    preview.style.display = 'none';
+    return;
+  }
+  const parsed = parseImportText(text);
+  document.getElementById('import-preview-title').textContent = parsed.title || '(no title)';
+  const dept = document.getElementById('import-department').value || parsed.detectedDept;
+  document.getElementById('import-preview-dept').textContent = dept ? `Department: ${dept}` : 'Department: Auto-detect';
+  preview.style.display = 'block';
+}
+
+// === Email Sync ===
+const SYNC_SHEET_KEY = 'cmo_sync_sheet_url';
+const SYNC_LAST_KEY = 'cmo_sync_last_row';
+
+function getSyncSheetId() {
+  const url = localStorage.getItem(SYNC_SHEET_KEY) || '';
+  const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+  return match ? match[1] : '';
+}
+
+async function syncFromSheet() {
+  const sheetId = getSyncSheetId();
+  if (!sheetId) {
+    openModal('modal-sync');
+    return;
+  }
+
+  const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json`;
+  try {
+    const response = await fetch(csvUrl);
+    const text = await response.text();
+    // Google Sheets JSON response is wrapped in google.visualization.Query.setResponse(...)
+    const jsonStr = text.match(/google\.visualization\.Query\.setResponse\((.+)\)/);
+    if (!jsonStr) throw new Error('Could not parse sheet data');
+
+    const data = JSON.parse(jsonStr[1]);
+    const rows = data.table.rows;
+    const lastSynced = parseInt(localStorage.getItem(SYNC_LAST_KEY) || '0');
+    let newCount = 0;
+
+    for (let i = lastSynced; i < rows.length; i++) {
+      const cells = rows[i].c;
+      if (!cells || !cells[0]) continue;
+
+      const subject = (cells[0] && cells[0].v) || 'Forwarded email';
+      const from = (cells[1] && cells[1].v) || '';
+      const body = (cells[2] && cells[2].v) || '';
+      const timestamp = (cells[3] && cells[3].v) || '';
+
+      const notes = (from ? `From: ${from}\n` : '') + (timestamp ? `Date: ${timestamp}\n\n` : '\n') + body;
+      const dept = detectDepartment(subject + ' ' + body) || 'B2B Marketing';
+      addTask(subject, dept, 'Medium', notes, 'email', [], '');
+      newCount++;
+    }
+
+    localStorage.setItem(SYNC_LAST_KEY, String(rows.length));
+    if (newCount > 0) {
+      alert(`Synced ${newCount} new email${newCount !== 1 ? 's' : ''} as tasks!`);
+    } else {
+      alert('No new emails to sync.');
+    }
+  } catch (err) {
+    alert('Sync failed: ' + err.message + '\n\nMake sure the Google Sheet is shared as "Anyone with the link can view".');
+  }
 }
 
 // === Event Binding ===
@@ -387,31 +473,34 @@ function init() {
     openModal('modal-add');
   });
 
-  // Import buttons
-  document.getElementById('btn-import-email').addEventListener('click', () => {
-    document.querySelector('.import-tab[data-tab="email"]').click();
-    document.getElementById('modal-import-title').textContent = 'Import from Email';
+  // Quick Import button
+  document.getElementById('btn-quick-import').addEventListener('click', () => {
+    document.getElementById('form-import').reset();
+    document.getElementById('import-preview').style.display = 'none';
     openModal('modal-import');
   });
 
-  document.getElementById('btn-import-slack').addEventListener('click', () => {
-    document.querySelector('.import-tab[data-tab="slack"]').click();
-    document.getElementById('modal-import-title').textContent = 'Import from Slack';
-    openModal('modal-import');
-  });
+  // Sync Email button
+  document.getElementById('btn-sync-email').addEventListener('click', syncFromSheet);
 
-  // Import tabs
-  document.querySelectorAll('.import-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('.import-tab').forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-      document.getElementById('panel-email').style.display = tab.dataset.tab === 'email' ? 'block' : 'none';
-      document.getElementById('panel-slack').style.display = tab.dataset.tab === 'slack' ? 'block' : 'none';
-    });
-  });
-
-  // Import form submit
+  // Import form submit + live preview
   document.getElementById('form-import').addEventListener('submit', handleImport);
+  document.getElementById('import-paste').addEventListener('input', updateImportPreview);
+  document.getElementById('import-department').addEventListener('change', updateImportPreview);
+
+  // Sync settings save
+  document.getElementById('btn-save-sync').addEventListener('click', () => {
+    const url = document.getElementById('sync-sheet-url').value.trim();
+    if (url) {
+      localStorage.setItem(SYNC_SHEET_KEY, url);
+      closeModal('modal-sync');
+      syncFromSheet();
+    }
+  });
+
+  // Load saved sheet URL into settings modal
+  const savedUrl = localStorage.getItem(SYNC_SHEET_KEY);
+  if (savedUrl) document.getElementById('sync-sheet-url').value = savedUrl;
 
   // Add task form submit
   document.getElementById('form-add-task').addEventListener('submit', (e) => {
