@@ -852,6 +852,12 @@ body {
   color: var(--color-text-light);
 }
 
+.detail-actions {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border);
+}
+
 /* === Responsive === */
 @media (max-width: 900px) {
   .department-cards {
