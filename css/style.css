@@ -665,6 +665,53 @@ body {
   color: var(--color-text);
 }
 
+/* === Import Preview === */
+.import-preview {
+  background: var(--follett-light-gray);
+  border-radius: var(--radius);
+  padding: 0.625rem 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.import-preview-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--follett-dark-gray);
+  margin-bottom: 0.25rem;
+}
+
+.import-preview-title {
+  font-weight: 500;
+  font-size: 0.9rem;
+  color: var(--color-text);
+}
+
+.import-preview-dept {
+  font-size: 0.75rem;
+  color: var(--follett-medium-blue);
+  margin-top: 0.125rem;
+}
+
+/* Sync status */
+.sync-status {
+  font-size: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius);
+  margin-bottom: 0.75rem;
+}
+
+.sync-status.success {
+  background: var(--color-comms-light);
+  color: #5e8a4e;
+}
+
+.sync-status.error {
+  background: var(--color-high-light);
+  color: var(--follett-coral);
+}
+
 /* === Attachments === */
 .drop-zone {
   border: 2px dashed var(--color-border);

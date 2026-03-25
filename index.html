@@ -42,8 +42,8 @@
   <div class="toolbar">
     <div class="toolbar-actions">
       <button class="btn btn-primary" id="btn-add-task">+ Add Task</button>
-      <button class="btn btn-secondary" id="btn-import-email">&#9993; Import Email</button>
-      <button class="btn btn-secondary" id="btn-import-slack">&#35; Import Slack</button>
+      <button class="btn btn-secondary" id="btn-quick-import">&#9993; Quick Import</button>
+      <button class="btn btn-secondary" id="btn-sync-email">&#8635; Sync Email</button>
     </div>
     <div class="toolbar-filters">
       <select id="filter-department" class="filter-select">
@@ -199,41 +199,17 @@
     </div>
   </div>
 
-  <!-- Import Modal -->
+  <!-- Quick Import Modal -->
   <div class="modal-overlay" id="modal-import" style="display: none;">
     <div class="modal">
       <div class="modal-header">
-        <h2 id="modal-import-title">Import from Email</h2>
+        <h2>Quick Import</h2>
         <button class="modal-close" data-close="modal-import">&times;</button>
       </div>
       <form id="form-import">
-        <div class="import-tabs">
-          <button type="button" class="import-tab active" data-tab="email">Email</button>
-          <button type="button" class="import-tab" data-tab="slack">Slack</button>
-        </div>
-        <div class="import-panel" id="panel-email">
-          <div class="form-group">
-            <label for="import-email-subject">Subject</label>
-            <input type="text" id="import-email-subject" placeholder="Email subject line">
-          </div>
-          <div class="form-group">
-            <label for="import-email-from">From</label>
-            <input type="text" id="import-email-from" placeholder="sender@example.com">
-          </div>
-          <div class="form-group">
-            <label for="import-email-body">Body</label>
-            <textarea id="import-email-body" rows="6" placeholder="Paste email body here..."></textarea>
-          </div>
-        </div>
-        <div class="import-panel" id="panel-slack" style="display: none;">
-          <div class="form-group">
-            <label for="import-slack-channel">Channel</label>
-            <input type="text" id="import-slack-channel" placeholder="#channel-name">
-          </div>
-          <div class="form-group">
-            <label for="import-slack-message">Message</label>
-            <textarea id="import-slack-message" rows="6" placeholder="Paste Slack message here..."></textarea>
-          </div>
+        <div class="form-group">
+          <label for="import-paste">Paste email, Slack message, or any text</label>
+          <textarea id="import-paste" rows="8" placeholder="Paste anything here — an email, Slack message, meeting notes, etc. The first line becomes the task title, the rest goes into notes."></textarea>
         </div>
         <div class="form-group">
           <label for="import-due-date">Due Date</label>
@@ -259,11 +235,52 @@
             </select>
           </div>
         </div>
+        <div id="import-preview" class="import-preview" style="display: none;">
+          <div class="import-preview-label">Preview</div>
+          <div class="import-preview-title" id="import-preview-title"></div>
+          <div class="import-preview-dept" id="import-preview-dept"></div>
+        </div>
         <div class="modal-actions">
           <button type="button" class="btn btn-ghost" data-close="modal-import">Cancel</button>
           <button type="submit" class="btn btn-primary">Create Task</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- Sync Settings Modal -->
+  <div class="modal-overlay" id="modal-sync" style="display: none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Email Sync Setup</h2>
+        <button class="modal-close" data-close="modal-sync">&times;</button>
+      </div>
+      <div style="padding: 0.75rem 1.5rem 1.5rem;">
+        <div class="form-group">
+          <label for="sync-sheet-url">Google Sheet URL</label>
+          <input type="url" id="sync-sheet-url" placeholder="https://docs.google.com/spreadsheets/d/.../edit">
+          <p style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.25rem;">
+            Paste the URL of your Google Sheet that receives forwarded emails. See setup instructions below.
+          </p>
+        </div>
+        <div class="modal-actions" style="margin-bottom: 1rem;">
+          <button class="btn btn-ghost" data-close="modal-sync">Cancel</button>
+          <button class="btn btn-primary" id="btn-save-sync">Save &amp; Sync Now</button>
+        </div>
+        <details style="font-size: 0.8rem; color: var(--color-text-muted);">
+          <summary style="cursor: pointer; font-weight: 600; color: var(--follett-dark-blue);">Setup Instructions</summary>
+          <ol style="margin-top: 0.5rem; padding-left: 1.25rem; line-height: 1.8;">
+            <li>Create a new Gmail account (e.g., cmo-tasks-inbox@gmail.com)</li>
+            <li>Open Google Sheets and create a new spreadsheet</li>
+            <li>Go to Extensions > Apps Script</li>
+            <li>Paste the provided Apps Script code (see project README)</li>
+            <li>Set up a trigger to run every 5 minutes</li>
+            <li>Publish the script as a web app (accessible to "Anyone")</li>
+            <li>Paste the Sheet URL above</li>
+            <li>Forward emails from Outlook to the Gmail address</li>
+          </ol>
+        </details>
+      </div>
     </div>
   </div>
 
