@@ -199,7 +199,7 @@ app.get('/api/gmail/auth', authenticate, async (req, res) => {
   const url = oauth2Client.generateAuthUrl({
     access_type: 'offline',
     prompt: 'consent',
-    scope: ['https://www.googleapis.com/auth/gmail.readonly'],
+    scope: ['https://www.googleapis.com/auth/gmail.modify'],
     state
   });
   res.json({ url });
