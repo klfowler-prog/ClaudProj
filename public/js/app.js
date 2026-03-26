@@ -273,6 +273,14 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+function escapeHtmlWithLinks(str) {
+  const escaped = escapeHtml(str);
+  return escaped.replace(
+    /(https?:\/\/[^\s<>"']+)/g,
+    '<a href="$1" target="_blank" rel="noopener" class="inline-link">$1</a>'
+  );
+}
+
 // === Due Date Formatting ===
 function formatDueDate(dueDate, isCompleted) {
   if (!dueDate) return '';
@@ -543,7 +551,7 @@ function showTaskDetail(id) {
       <span class="badge badge-${prioKey}">${task.priority}</span>
       ${task.source !== 'manual' ? `<span class="badge badge-low">${task.source === 'email' ? '&#9993; Email' : '# Slack'}</span>` : ''}
     </div>
-    ${task.notes ? `<div class="detail-section"><div class="detail-section-title">Notes</div><div class="detail-notes">${escapeHtml(task.notes)}</div></div>` : ''}
+    ${task.notes ? `<div class="detail-section"><div class="detail-section-title">Notes</div><div class="detail-notes">${escapeHtmlWithLinks(task.notes)}</div></div>` : ''}
     ${attachmentsHtml}
     <div class="detail-section">
       <div class="detail-section-title">Status</div>

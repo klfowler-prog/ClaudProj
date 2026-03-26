@@ -953,6 +953,16 @@ body {
   font-weight: 300;
 }
 
+.inline-link {
+  color: var(--follett-medium-blue);
+  text-decoration: none;
+  word-break: break-all;
+}
+
+.inline-link:hover {
+  text-decoration: underline;
+}
+
 .detail-attachments {
   list-style: none;
 }
