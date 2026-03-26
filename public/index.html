@@ -283,42 +283,6 @@
     </div>
   </div>
 
-  <!-- Sync Settings Modal -->
-  <div class="modal-overlay" id="modal-sync" style="display: none;">
-    <div class="modal">
-      <div class="modal-header">
-        <h2>Email Sync Setup</h2>
-        <button class="modal-close" data-close="modal-sync">&times;</button>
-      </div>
-      <div style="padding: 0.75rem 1.5rem 1.5rem;">
-        <div class="form-group">
-          <label for="sync-sheet-url">Google Sheet URL</label>
-          <input type="url" id="sync-sheet-url" placeholder="https://docs.google.com/spreadsheets/d/.../edit">
-          <p style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.25rem;">
-            Paste the URL of your Google Sheet that receives forwarded emails. See setup instructions below.
-          </p>
-        </div>
-        <div class="modal-actions" style="margin-bottom: 1rem;">
-          <button class="btn btn-ghost" data-close="modal-sync">Cancel</button>
-          <button class="btn btn-primary" id="btn-save-sync">Save &amp; Sync Now</button>
-        </div>
-        <details style="font-size: 0.8rem; color: var(--color-text-muted);">
-          <summary style="cursor: pointer; font-weight: 600; color: var(--follett-dark-blue);">Setup Instructions</summary>
-          <ol style="margin-top: 0.5rem; padding-left: 1.25rem; line-height: 1.8;">
-            <li>Create a new Gmail account (e.g., cmo-tasks-inbox@gmail.com)</li>
-            <li>Open Google Sheets and create a new spreadsheet</li>
-            <li>Go to Extensions > Apps Script</li>
-            <li>Paste the provided Apps Script code (see project README)</li>
-            <li>Set up a trigger to run every 5 minutes</li>
-            <li>Publish the script as a web app (accessible to "Anyone")</li>
-            <li>Paste the Sheet URL above</li>
-            <li>Forward emails from Outlook to the Gmail address</li>
-          </ol>
-        </details>
-      </div>
-    </div>
-  </div>
-
   <!-- Task Detail Modal -->
   <div class="modal-overlay" id="modal-detail" style="display: none;">
     <div class="modal modal-wide">

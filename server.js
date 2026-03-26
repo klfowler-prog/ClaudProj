@@ -2,6 +2,7 @@ const express = require('express');
 const admin = require('firebase-admin');
 const cors = require('cors');
 const path = require('path');
+const { google } = require('googleapis');
 
 // Initialize Firebase Admin with default credentials (auto-detected on Cloud Run)
 admin.initializeApp({
@@ -11,6 +12,11 @@ admin.initializeApp({
 const db = admin.firestore();
 const app = express();
 const PORT = process.env.PORT || 8080;
+
+// Gmail OAuth config — set these as Cloud Run environment variables
+const GMAIL_CLIENT_ID = process.env.GMAIL_CLIENT_ID;
+const GMAIL_CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET;
+const GMAIL_REDIRECT_URI = process.env.GMAIL_REDIRECT_URI || 'https://cmo-task-manager-951932541878.us-central1.run.app/api/gmail/callback';
 
 app.use(cors());
 app.use(express.json({ limit: '5mb' }));
@@ -168,84 +174,173 @@ app.delete('/api/tasks/:id', authenticate, async (req, res) => {
   }
 });
 
-// POST /api/sync — Server-side email sync from Google Sheet
+// === Gmail OAuth Endpoints ===
+
+function createOAuth2Client() {
+  return new google.auth.OAuth2(GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REDIRECT_URI);
+}
+
+// GET /api/gmail/status — Check if Gmail inbox is connected
+app.get('/api/gmail/status', authenticate, async (req, res) => {
+  try {
+    const doc = await db.collection('users').doc(req.userId).get();
+    const data = doc.exists ? doc.data() : {};
+    res.json({ connected: !!data.gmailRefreshToken, email: data.gmailEmail || '' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to check Gmail status' });
+  }
+});
+
+// GET /api/gmail/auth — Start OAuth flow for CMOtaskinbox Gmail
+app.get('/api/gmail/auth', authenticate, async (req, res) => {
+  const oauth2Client = createOAuth2Client();
+  // Store the user's Firebase UID in state so we can link it after callback
+  const state = Buffer.from(JSON.stringify({ userId: req.userId })).toString('base64');
+  const url = oauth2Client.generateAuthUrl({
+    access_type: 'offline',
+    prompt: 'consent',
+    scope: ['https://www.googleapis.com/auth/gmail.readonly'],
+    state
+  });
+  res.json({ url });
+});
+
+// GET /api/gmail/callback — OAuth callback (redirected from Google)
+app.get('/api/gmail/callback', async (req, res) => {
+  try {
+    const { code, state } = req.query;
+    if (!code || !state) {
+      return res.status(400).send('Missing code or state');
+    }
+
+    const { userId } = JSON.parse(Buffer.from(state, 'base64').toString());
+    const oauth2Client = createOAuth2Client();
+    const { tokens } = await oauth2Client.getToken(code);
+
+    // Get the Gmail email address
+    oauth2Client.setCredentials(tokens);
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+    const profile = await gmail.users.getProfile({ userId: 'me' });
+
+    // Store refresh token in Firestore under the user's doc
+    await db.collection('users').doc(userId).set({
+      gmailRefreshToken: tokens.refresh_token,
+      gmailEmail: profile.data.emailAddress
+    }, { merge: true });
+
+    // Redirect back to the app with success message
+    res.send('<html><body><h2>Gmail connected successfully!</h2><p>You can close this tab and go back to the app.</p><script>window.close();</script></body></html>');
+  } catch (err) {
+    res.status(500).send('Gmail authorization failed: ' + err.message);
+  }
+});
+
+// POST /api/gmail/disconnect — Remove Gmail connection
+app.post('/api/gmail/disconnect', authenticate, async (req, res) => {
+  try {
+    await db.collection('users').doc(req.userId).set({
+      gmailRefreshToken: admin.firestore.FieldValue.delete(),
+      gmailEmail: admin.firestore.FieldValue.delete()
+    }, { merge: true });
+    res.json({ disconnected: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to disconnect' });
+  }
+});
+
+// Department detection helper
+const DEPT_KEYWORDS = {
+  'B2B Marketing': ['b2b', 'enterprise', 'account-based', 'abm', 'lead gen', 'demand gen', 'webinar', 'linkedin'],
+  'Internal Comms': ['internal', 'comms', 'newsletter', 'all-hands', 'town hall', 'employee'],
+  'Rev Ops': ['rev ops', 'revenue', 'operations', 'hubspot', 'salesforce', 'crm', 'pipeline', 'analytics'],
+  'B2C Marketing': ['b2c', 'consumer', 'social media', 'instagram', 'tiktok', 'influencer', 'brand', 'campaign', 'seo']
+};
+
+function detectDept(text) {
+  const lower = text.toLowerCase();
+  let best = '', score = 0;
+  for (const [dept, kws] of Object.entries(DEPT_KEYWORDS)) {
+    let s = 0;
+    for (const kw of kws) { if (lower.includes(kw)) s++; }
+    if (s > score) { score = s; best = dept; }
+  }
+  return best || 'B2B Marketing';
+}
+
+// POST /api/sync — Sync emails from connected Gmail inbox
 app.post('/api/sync', authenticate, async (req, res) => {
   try {
-    const sheetUrl = req.body.sheetUrl;
-    if (!sheetUrl) {
-      return res.status(400).json({ error: 'sheetUrl is required' });
+    // Get stored refresh token
+    const userDoc = await db.collection('users').doc(req.userId).get();
+    const userData = userDoc.exists ? userDoc.data() : {};
+
+    if (!userData.gmailRefreshToken) {
+      return res.status(400).json({ error: 'Gmail not connected. Click "Connect Gmail" first.' });
     }
 
-    const match = sheetUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
-    if (!match) {
-      return res.status(400).json({ error: 'Invalid Google Sheet URL' });
-    }
+    // Set up Gmail API client
+    const oauth2Client = createOAuth2Client();
+    oauth2Client.setCredentials({ refresh_token: userData.gmailRefreshToken });
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
 
-    const sheetId = match[1];
-    const gvizUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json`;
-
-    const fetch = (await import('node-fetch')).default;
-    const response = await fetch(gvizUrl);
-    const text = await response.text();
-    const jsonStr = text.match(/google\.visualization\.Query\.setResponse\((.+)\)/);
-    if (!jsonStr) {
-      return res.status(400).json({ error: 'Could not parse sheet data' });
-    }
-
-    const data = JSON.parse(jsonStr[1]);
-    const rows = data.table.rows;
-
-    // Get existing email message IDs and subjects to prevent duplicates
+    // Get existing email message IDs to prevent duplicates
     const existingSnapshot = await db.collection('users').doc(req.userId)
       .collection('tasks').where('source', '==', 'email').get();
 
-    const existingKeys = new Set();
+    const existingIds = new Set();
     existingSnapshot.forEach(doc => {
       const t = doc.data();
-      if (t.emailMessageId) existingKeys.add(t.emailMessageId);
-      existingKeys.add((t.title || '').toLowerCase().trim());
+      if (t.emailMessageId) existingIds.add(t.emailMessageId);
     });
 
-    const DEPT_KEYWORDS = {
-      'B2B Marketing': ['b2b', 'enterprise', 'account-based', 'abm', 'lead gen', 'demand gen', 'webinar', 'linkedin'],
-      'Internal Comms': ['internal', 'comms', 'newsletter', 'all-hands', 'town hall', 'employee'],
-      'Rev Ops': ['rev ops', 'revenue', 'operations', 'hubspot', 'salesforce', 'crm', 'pipeline', 'analytics'],
-      'B2C Marketing': ['b2c', 'consumer', 'social media', 'instagram', 'tiktok', 'influencer', 'brand', 'campaign', 'seo']
-    };
+    // Fetch recent unread messages
+    const listRes = await gmail.users.messages.list({
+      userId: 'me',
+      q: 'is:unread',
+      maxResults: 50
+    });
 
-    function detectDept(text) {
-      const lower = text.toLowerCase();
-      let best = '', score = 0;
-      for (const [dept, kws] of Object.entries(DEPT_KEYWORDS)) {
-        let s = 0;
-        for (const kw of kws) { if (lower.includes(kw)) s++; }
-        if (s > score) { score = s; best = dept; }
-      }
-      return best || 'B2B Marketing';
-    }
-
+    const messages = listRes.data.messages || [];
     let newCount = 0;
     const batch = db.batch();
     const tasksRef = db.collection('users').doc(req.userId).collection('tasks');
 
-    for (let i = 0; i < rows.length; i++) {
-      const cells = rows[i].c;
-      if (!cells || !cells[0]) continue;
+    for (const msg of messages) {
+      if (existingIds.has(msg.id)) continue;
 
-      const subject = (cells[0] && cells[0].v) || 'Forwarded email';
-      const from = (cells[1] && cells[1].v) || '';
-      const body = (cells[2] && cells[2].v) || '';
-      const timestamp = (cells[3] && cells[3].v) || '';
-      const messageId = (cells[4] && cells[4].v) || '';
+      // Fetch full message
+      const fullMsg = await gmail.users.messages.get({
+        userId: 'me',
+        id: msg.id,
+        format: 'full'
+      });
 
-      if (messageId && existingKeys.has(messageId)) continue;
-      if (existingKeys.has(subject.toLowerCase().trim())) continue;
+      const headers = fullMsg.data.payload.headers;
+      const getHeader = (name) => (headers.find(h => h.name.toLowerCase() === name.toLowerCase()) || {}).value || '';
 
-      const notes = (from ? `From: ${from}\n` : '') + (timestamp ? `Date: ${timestamp}\n\n` : '\n') + body;
+      let subject = getHeader('Subject').replace(/^(Fw|Fwd|FW|RE|Re):\s*/i, '');
+      const from = getHeader('From');
+      const date = getHeader('Date');
+
+      // Extract body text
+      let body = '';
+      const payload = fullMsg.data.payload;
+      if (payload.parts) {
+        const textPart = payload.parts.find(p => p.mimeType === 'text/plain');
+        if (textPart && textPart.body.data) {
+          body = Buffer.from(textPart.body.data, 'base64').toString('utf-8');
+        }
+      } else if (payload.body && payload.body.data) {
+        body = Buffer.from(payload.body.data, 'base64').toString('utf-8');
+      }
+
+      if (body.length > 5000) body = body.substring(0, 5000) + '\n\n[Truncated]';
+
+      const notes = (from ? `From: ${from}\n` : '') + (date ? `Date: ${date}\n\n` : '\n') + body;
 
       const docRef = tasksRef.doc();
       batch.set(docRef, {
-        title: subject,
+        title: subject || 'Forwarded email',
         department: detectDept(subject + ' ' + body),
         priority: 'Medium',
         notes,
@@ -256,9 +351,16 @@ app.post('/api/sync', authenticate, async (req, res) => {
         source: 'email',
         attachments: [],
         dueDate: '',
-        emailMessageId: messageId
+        emailMessageId: msg.id
       });
       newCount++;
+
+      // Mark as read
+      await gmail.users.messages.modify({
+        userId: 'me',
+        id: msg.id,
+        requestBody: { removeLabelIds: ['UNREAD'] }
+      });
     }
 
     if (newCount > 0) await batch.commit();

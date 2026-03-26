@@ -607,28 +607,64 @@ function updateImportPreview() {
   preview.style.display = 'block';
 }
 
-// === Email Sync (Server-side) ===
-const SYNC_SHEET_KEY = 'cmo_sync_sheet_url';
+// === Gmail Sync ===
+async function checkGmailStatus() {
+  try {
+    const status = await api('GET', '/api/gmail/status');
+    const syncBtn = document.getElementById('btn-sync-email');
+    if (status.connected) {
+      syncBtn.innerHTML = '&#8635; Sync Email';
+      syncBtn.title = `Connected to ${status.email}`;
+    } else {
+      syncBtn.innerHTML = '&#9993; Connect Gmail';
+      syncBtn.title = 'Connect your task inbox';
+    }
+    return status.connected;
+  } catch {
+    return false;
+  }
+}
 
-async function syncFromSheet() {
-  const sheetUrl = localStorage.getItem(SYNC_SHEET_KEY);
-  if (!sheetUrl) {
-    openModal('modal-sync');
+async function handleSyncClick() {
+  const connected = await checkGmailStatus();
+
+  if (!connected) {
+    // Start OAuth flow
+    try {
+      const { url } = await api('GET', '/api/gmail/auth');
+      window.open(url, 'gmail-auth', 'width=500,height=600');
+      // Poll for connection status
+      const poll = setInterval(async () => {
+        const status = await api('GET', '/api/gmail/status');
+        if (status.connected) {
+          clearInterval(poll);
+          await checkGmailStatus();
+          alert(`Connected to ${status.email}! Click "Sync Email" to import messages.`);
+        }
+      }, 2000);
+      // Stop polling after 5 minutes
+      setTimeout(() => clearInterval(poll), 300000);
+    } catch (err) {
+      alert('Failed to start Gmail authorization: ' + err.message);
+    }
     return;
   }
 
+  // Already connected — sync emails
   try {
-    const result = await api('POST', '/api/sync', { sheetUrl });
+    document.getElementById('btn-sync-email').innerHTML = '&#8987; Syncing...';
+    const result = await api('POST', '/api/sync');
     if (result.synced > 0) {
       await loadTasks();
       render();
       alert(`Synced ${result.synced} new email${result.synced !== 1 ? 's' : ''} as tasks!`);
     } else {
-      alert('No new emails to sync.');
+      alert('No new unread emails to sync.');
     }
   } catch (err) {
     alert('Sync failed: ' + err.message);
   }
+  await checkGmailStatus();
 }
 
 // === Event Binding ===
@@ -649,27 +685,14 @@ async function init() {
     openModal('modal-import');
   });
 
-  // Sync Email button
-  document.getElementById('btn-sync-email').addEventListener('click', syncFromSheet);
+  // Sync Email / Connect Gmail button
+  document.getElementById('btn-sync-email').addEventListener('click', handleSyncClick);
+  checkGmailStatus();
 
   // Import form submit + live preview
   document.getElementById('form-import').addEventListener('submit', handleImport);
   document.getElementById('import-paste').addEventListener('input', updateImportPreview);
   document.getElementById('import-department').addEventListener('change', updateImportPreview);
-
-  // Sync settings save
-  document.getElementById('btn-save-sync').addEventListener('click', () => {
-    const url = document.getElementById('sync-sheet-url').value.trim();
-    if (url) {
-      localStorage.setItem(SYNC_SHEET_KEY, url);
-      closeModal('modal-sync');
-      syncFromSheet();
-    }
-  });
-
-  // Load saved sheet URL into settings modal
-  const savedUrl = localStorage.getItem(SYNC_SHEET_KEY);
-  if (savedUrl) document.getElementById('sync-sheet-url').value = savedUrl;
 
   // Add/Edit task form submit
   document.getElementById('form-add-task').addEventListener('submit', async (e) => {
