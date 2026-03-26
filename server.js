@@ -194,12 +194,11 @@ app.get('/api/gmail/status', authenticate, async (req, res) => {
 // GET /api/gmail/auth — Start OAuth flow for CMOtaskinbox Gmail
 app.get('/api/gmail/auth', authenticate, async (req, res) => {
   const oauth2Client = createOAuth2Client();
-  // Store the user's Firebase UID in state so we can link it after callback
   const state = Buffer.from(JSON.stringify({ userId: req.userId })).toString('base64');
   const url = oauth2Client.generateAuthUrl({
     access_type: 'offline',
     prompt: 'consent',
-    scope: ['https://www.googleapis.com/auth/gmail.readonly'],
+    scope: ['https://www.googleapis.com/auth/gmail.modify'],
     state
   });
   res.json({ url });
@@ -217,18 +216,15 @@ app.get('/api/gmail/callback', async (req, res) => {
     const oauth2Client = createOAuth2Client();
     const { tokens } = await oauth2Client.getToken(code);
 
-    // Get the Gmail email address
     oauth2Client.setCredentials(tokens);
     const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
     const profile = await gmail.users.getProfile({ userId: 'me' });
 
-    // Store refresh token in Firestore under the user's doc
     await db.collection('users').doc(userId).set({
       gmailRefreshToken: tokens.refresh_token,
       gmailEmail: profile.data.emailAddress
     }, { merge: true });
 
-    // Redirect back to the app with success message
     res.send('<html><body><h2>Gmail connected successfully!</h2><p>You can close this tab and go back to the app.</p><script>window.close();</script></body></html>');
   } catch (err) {
     res.status(500).send('Gmail authorization failed: ' + err.message);
@@ -270,7 +266,6 @@ function detectDept(text) {
 // POST /api/sync — Sync emails from connected Gmail inbox
 app.post('/api/sync', authenticate, async (req, res) => {
   try {
-    // Get stored refresh token
     const userDoc = await db.collection('users').doc(req.userId).get();
     const userData = userDoc.exists ? userDoc.data() : {};
 
@@ -278,12 +273,10 @@ app.post('/api/sync', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'Gmail not connected. Click "Connect Gmail" first.' });
     }
 
-    // Set up Gmail API client
     const oauth2Client = createOAuth2Client();
     oauth2Client.setCredentials({ refresh_token: userData.gmailRefreshToken });
     const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
 
-    // Get existing email message IDs to prevent duplicates
     const existingSnapshot = await db.collection('users').doc(req.userId)
       .collection('tasks').where('source', '==', 'email').get();
 
@@ -293,7 +286,6 @@ app.post('/api/sync', authenticate, async (req, res) => {
       if (t.emailMessageId) existingIds.add(t.emailMessageId);
     });
 
-    // Fetch recent unread messages
     const listRes = await gmail.users.messages.list({
       userId: 'me',
       q: 'is:unread',
@@ -308,7 +300,6 @@ app.post('/api/sync', authenticate, async (req, res) => {
     for (const msg of messages) {
       if (existingIds.has(msg.id)) continue;
 
-      // Fetch full message
       const fullMsg = await gmail.users.messages.get({
         userId: 'me',
         id: msg.id,
@@ -322,7 +313,6 @@ app.post('/api/sync', authenticate, async (req, res) => {
       const from = getHeader('From');
       const date = getHeader('Date');
 
-      // Extract body text
       let body = '';
       const payload = fullMsg.data.payload;
       if (payload.parts) {
@@ -355,7 +345,6 @@ app.post('/api/sync', authenticate, async (req, res) => {
       });
       newCount++;
 
-      // Mark as read
       await gmail.users.messages.modify({
         userId: 'me',
         id: msg.id,
