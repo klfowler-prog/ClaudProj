@@ -162,6 +162,7 @@ function renderTaskItem(task) {
 
   return `
     <div class="task-item ${isCompleted ? 'completed' : ''} status-${statusKey}" data-id="${task.id}">
+      <button class="task-check ${isCompleted ? 'checked' : ''}" data-action="toggle-complete" data-id="${task.id}" title="${isCompleted ? 'Mark incomplete' : 'Mark complete'}">${isCompleted ? '&#10003;' : ''}</button>
       <select class="status-select status-${statusKey}" data-action="status" data-id="${task.id}" onclick="event.stopPropagation()" onmousedown="event.stopPropagation()">
         ${statusOptions}
       </select>
@@ -805,6 +806,12 @@ async function init() {
     const id = target.dataset.id;
 
     switch (action) {
+      case 'toggle-complete':
+        const task = tasks.find(t => t.id === id);
+        if (task) {
+          setTaskStatus(id, task.status === 'Completed' ? 'Not Started' : 'Completed');
+        }
+        break;
       case 'detail':
         showTaskDetail(id);
         break;

@@ -361,7 +361,35 @@ body {
   text-decoration: line-through;
 }
 
-/* Status select replaces the old checkbox */
+/* Complete button */
+.task-check {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--color-border);
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: var(--transition);
+  font-size: 0.75rem;
+  color: transparent;
+  padding: 0;
+}
+
+.task-check:hover {
+  border-color: var(--follett-sage);
+  background: var(--color-comms-light);
+  color: #5e8a4e;
+}
+
+.task-check.checked {
+  background: var(--follett-sage);
+  border-color: var(--follett-sage);
+  color: #ffffff;
+}
 
 /* Task content */
 .task-body {
