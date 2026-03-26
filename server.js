@@ -290,7 +290,7 @@ app.post('/api/sync', authenticate, async (req, res) => {
 
     const listRes = await gmail.users.messages.list({
       userId: 'me',
-      q: 'is:unread',
+      q: 'newer_than:7d',
       maxResults: 50
     });
 
@@ -346,12 +346,6 @@ app.post('/api/sync', authenticate, async (req, res) => {
         emailMessageId: msg.id
       });
       newCount++;
-
-      await gmail.users.messages.modify({
-        userId: 'me',
-        id: msg.id,
-        requestBody: { removeLabelIds: ['UNREAD'] }
-      });
     }
 
     if (newCount > 0) await batch.commit();
