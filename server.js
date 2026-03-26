@@ -72,7 +72,8 @@ app.post('/api/tasks', authenticate, async (req, res) => {
       source: req.body.source || 'manual',
       attachments: req.body.attachments || [],
       dueDate: req.body.dueDate || '',
-      emailMessageId: req.body.emailMessageId || ''
+      emailMessageId: req.body.emailMessageId || '',
+      recurring: req.body.recurring || 'none'
     };
 
     const docRef = await db.collection('users').doc(req.userId)
@@ -110,7 +111,8 @@ app.post('/api/tasks/batch', authenticate, async (req, res) => {
         source: task.source || 'manual',
         attachments: task.attachments || [],
         dueDate: task.dueDate || '',
-        emailMessageId: task.emailMessageId || ''
+        emailMessageId: task.emailMessageId || '',
+        recurring: task.recurring || 'none'
       };
       batch.set(docRef, taskData);
       results.push({ id: docRef.id, ...taskData });
@@ -136,7 +138,7 @@ app.put('/api/tasks/:id', authenticate, async (req, res) => {
 
     const updates = {};
     const allowedFields = ['title', 'department', 'priority', 'notes', 'status',
-      'completed', 'completedAt', 'dueDate', 'attachments', 'emailMessageId'];
+      'completed', 'completedAt', 'dueDate', 'attachments', 'emailMessageId', 'recurring'];
 
     for (const field of allowedFields) {
       if (req.body[field] !== undefined) {

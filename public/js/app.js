@@ -155,6 +155,8 @@ function renderTaskItem(task) {
   const isConfirming = deleteConfirmId === task.id;
   const isCompleted = task.status === 'Completed';
   const dueDateHtml = formatDueDate(task.dueDate, isCompleted);
+  const isRecurring = task.recurring && task.recurring !== 'none';
+  const recurringLabel = { daily: 'Daily', weekly: 'Weekly', biweekly: 'Biweekly', monthly: 'Monthly' }[task.recurring] || '';
 
   const statusOptions = STATUSES.map(s =>
     `<option value="${s}" ${s === task.status ? 'selected' : ''}>${s}</option>`
@@ -172,6 +174,7 @@ function renderTaskItem(task) {
           <span class="badge badge-${deptKey}">${escapeHtml(task.department)}</span>
           <span class="badge badge-${prioKey}">${task.priority}</span>
           ${dueDateHtml}
+          ${isRecurring ? `<span class="task-recurring" title="${recurringLabel}">&#8635; ${recurringLabel}</span>` : ''}
           ${isCompleted && task.completedAt ? `<span class="task-source">Done ${new Date(task.completedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>` : ''}
           ${!isCompleted && sourceLabel ? `<span class="task-source">${sourceLabel}</span>` : ''}
         </div>
@@ -346,7 +349,7 @@ function applyFilters() {
 }
 
 // === Task Operations (API-backed) ===
-async function addTask(title, department, priority, notes, source, attachments, dueDate) {
+async function addTask(title, department, priority, notes, source, attachments, dueDate, recurring) {
   const taskData = {
     title: title.trim(),
     department,
@@ -357,7 +360,8 @@ async function addTask(title, department, priority, notes, source, attachments, 
     createdAt: new Date().toISOString(),
     source: source || 'manual',
     attachments: attachments || [],
-    dueDate: dueDate || ''
+    dueDate: dueDate || '',
+    recurring: recurring || 'none'
   };
 
   try {
@@ -369,6 +373,22 @@ async function addTask(title, department, priority, notes, source, attachments, 
     alert('Failed to create task: ' + err.message);
     return null;
   }
+}
+
+function getNextDueDate(currentDueDate, frequency) {
+  if (!currentDueDate) {
+    // No due date — use today as the base
+    const today = new Date();
+    currentDueDate = today.toISOString().split('T')[0];
+  }
+  const date = new Date(currentDueDate + 'T00:00:00');
+  switch (frequency) {
+    case 'daily': date.setDate(date.getDate() + 1); break;
+    case 'weekly': date.setDate(date.getDate() + 7); break;
+    case 'biweekly': date.setDate(date.getDate() + 14); break;
+    case 'monthly': date.setMonth(date.getMonth() + 1); break;
+  }
+  return date.toISOString().split('T')[0];
 }
 
 async function setTaskStatus(id, newStatus) {
@@ -387,8 +407,22 @@ async function setTaskStatus(id, newStatus) {
 
   try {
     await api('PUT', `/api/tasks/${id}`, updates);
+
+    // Auto-create next occurrence for recurring tasks
+    if (newStatus === 'Completed' && task.recurring && task.recurring !== 'none') {
+      const nextDue = getNextDueDate(task.dueDate, task.recurring);
+      await addTask(
+        task.title,
+        task.department,
+        task.priority,
+        task.notes,
+        'manual',
+        task.attachments || [],
+        nextDue,
+        task.recurring
+      );
+    }
   } catch (err) {
-    // Revert on failure
     await loadTasks();
     render();
     alert('Failed to update status: ' + err.message);
@@ -422,6 +456,7 @@ function editTask(id) {
   document.getElementById('input-priority').value = task.priority;
   document.getElementById('input-due-date').value = task.dueDate || '';
   document.getElementById('input-notes').value = task.notes || '';
+  document.getElementById('input-recurring').value = task.recurring || 'none';
 
   // Load existing attachments into pending lists
   pendingAttachments = (task.attachments || []).filter(a => a.type === 'file');
@@ -558,6 +593,7 @@ function showTaskDetail(id) {
       <div class="detail-section-title">Status</div>
       <span class="badge badge-status-${STATUS_KEYS[task.status] || 'not-started'}">${task.status}</span>
       ${task.completedAt ? `<span style="font-size: 0.8rem; color: var(--color-text-light); margin-left: 0.5rem;">Completed ${new Date(task.completedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>` : ''}
+      ${task.recurring && task.recurring !== 'none' ? `<span style="font-size: 0.8rem; color: var(--follett-medium-blue); margin-left: 0.5rem;">&#8635; Repeats ${{ daily: 'daily', weekly: 'weekly', biweekly: 'every 2 weeks', monthly: 'monthly' }[task.recurring]}</span>` : ''}
     </div>
     ${task.dueDate ? `<div class="detail-section"><div class="detail-section-title">Due Date</div><div>${formatDueDate(task.dueDate, task.status === 'Completed')} &mdash; ${new Date(task.dueDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</div></div>` : ''}
     <div class="detail-timestamp">Created ${dateStr}</div>
@@ -730,6 +766,7 @@ async function init() {
     const priority = document.getElementById('input-priority').value;
     const notes = document.getElementById('input-notes').value.trim();
     const dueDate = document.getElementById('input-due-date').value;
+    const recurring = document.getElementById('input-recurring').value;
 
     if (!title || !department) return;
 
@@ -737,7 +774,7 @@ async function init() {
 
     if (editingTaskId) {
       // Update existing task via API
-      const updates = { title, department, priority, notes, dueDate, attachments: allAttachments };
+      const updates = { title, department, priority, notes, dueDate, recurring, attachments: allAttachments };
       try {
         await api('PUT', `/api/tasks/${editingTaskId}`, updates);
         const task = tasks.find(t => t.id === editingTaskId);
@@ -747,7 +784,7 @@ async function init() {
         alert('Failed to update task: ' + err.message);
       }
     } else {
-      await addTask(title, department, priority, notes, 'manual', allAttachments, dueDate);
+      await addTask(title, department, priority, notes, 'manual', allAttachments, dueDate, recurring);
     }
 
     closeModal('modal-add');

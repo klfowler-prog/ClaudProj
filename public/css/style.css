@@ -413,6 +413,13 @@ body {
   margin-top: 0.25rem;
 }
 
+.task-recurring {
+  font-size: 0.65rem;
+  color: var(--follett-medium-blue);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .task-source {
   font-size: 0.7rem;
   color: var(--color-text-light);
