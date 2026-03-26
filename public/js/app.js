@@ -48,7 +48,7 @@ const DEPT_KEYWORDS = {
 
 // === State ===
 let tasks = [];
-let filters = { department: 'all', priority: 'all', search: '' };
+let filters = { department: 'all', priority: 'all', search: '', sort: 'created' };
 let pendingAttachments = []; // temp attachments for the add-task form
 let pendingLinks = [];       // temp links for the add-task form
 let editingTaskId = null;    // null = adding, string = editing
@@ -219,7 +219,7 @@ function renderTaskList() {
     // Group by status
     const grouped = {};
     ['Awaiting Feedback', 'In Progress', 'Not Started'].forEach(s => {
-      const group = activeTasks.filter(t => t.status === s);
+      const group = sortTasks(activeTasks.filter(t => t.status === s));
       if (group.length > 0) grouped[s] = group;
     });
 
@@ -297,6 +297,24 @@ function formatDueDate(dueDate, isCompleted) {
   return `<span class="task-due-date">${dateLabel}</span>`;
 }
 
+// === Sorting ===
+function sortTasks(taskList) {
+  const sort = filters.sort;
+  return [...taskList].sort((a, b) => {
+    if (sort === 'due-date') {
+      if (!a.dueDate && !b.dueDate) return 0;
+      if (!a.dueDate) return 1;
+      if (!b.dueDate) return -1;
+      return a.dueDate.localeCompare(b.dueDate);
+    }
+    if (sort === 'priority') {
+      const order = { 'High': 0, 'Medium': 1, 'Low': 2 };
+      return (order[a.priority] || 1) - (order[b.priority] || 1);
+    }
+    return (b.createdAt || '').localeCompare(a.createdAt || '');
+  });
+}
+
 // === Filtering ===
 function getFilteredTasks() {
   return tasks.filter(t => {
@@ -314,6 +332,7 @@ function applyFilters() {
   filters.department = document.getElementById('filter-department').value;
   filters.priority = document.getElementById('filter-priority').value;
   filters.search = document.getElementById('filter-search').value;
+  filters.sort = document.getElementById('filter-sort').value;
   render();
 }
 
@@ -750,6 +769,7 @@ async function init() {
   // Filters
   document.getElementById('filter-department').addEventListener('change', applyFilters);
   document.getElementById('filter-priority').addEventListener('change', applyFilters);
+  document.getElementById('filter-sort').addEventListener('change', applyFilters);
   document.getElementById('filter-search').addEventListener('input', applyFilters);
 
   // Department card clicks
