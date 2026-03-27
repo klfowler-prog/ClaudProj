@@ -690,7 +690,20 @@ app.post('/api/team/:id/disable', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Failed to disable member' }); }
 });
 
-// POST /api/team/:id/enable — Re-enable a team member (CMO only)
+// DELETE /api/team/:id — Fully delete a team member (CMO only)
+app.delete('/api/team/:id', auth, async (req, res) => {
+  if (req.memberRole !== 'cmo') return res.status(403).json({ error: 'CMO only' });
+  if (req.params.id === req.userId) return res.status(400).json({ error: 'Cannot delete yourself' });
+  try {
+    // Delete Firebase Auth account
+    await admin.auth().deleteUser(req.params.id).catch(() => {});
+    // Remove member doc
+    await orgCol(req, 'members').doc(req.params.id).delete();
+    // Remove their user doc (orgId mapping)
+    await db.collection('users').doc(req.params.id).delete().catch(() => {});
+    res.json({ deleted: true });
+  } catch (err) { res.status(500).json({ error: 'Failed to delete member: ' + err.message }); }
+});
 app.post('/api/team/:id/enable', auth, async (req, res) => {
   if (req.memberRole !== 'cmo') return res.status(403).json({ error: 'CMO only' });
   try {

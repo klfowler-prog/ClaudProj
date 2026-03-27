@@ -1426,11 +1426,7 @@ async function showTeamView() {
         <div class="team-member-meta">${escapeHtml(m.email)} &middot; ${m.role} &middot; ${m.department} &middot; ${m.status}</div>
       </div>
       <div class="team-member-actions">
-        ${m.status === 'active' && m.role !== 'cmo'
-          ? `<button class="btn btn-ghost btn-sm" onclick="disableMember('${m.id}')">Disable</button>`
-          : m.status === 'disabled'
-          ? `<button class="btn btn-ghost btn-sm" onclick="enableMember('${m.id}')">Enable</button>`
-          : ''}
+        ${m.role !== 'cmo' ? `<button class="btn btn-ghost btn-sm" style="color: var(--follett-coral);" onclick="deleteMember('${m.id}', '${escapeHtml(m.displayName)}')">Remove</button>` : ''}
       </div>
     </div>
   `).join('');
@@ -1477,6 +1473,11 @@ async function disableMember(id) {
 
 async function enableMember(id) {
   try { await api('POST', `/api/team/${id}/enable`); showTeamView(); } catch (err) { alert(err.message); }
+}
+
+async function deleteMember(id, name) {
+  if (!confirm(`Remove ${name} from the team? This deletes their account entirely so you can re-invite them if needed.`)) return;
+  try { await api('DELETE', `/api/team/${id}`); showTeamView(); } catch (err) { alert(err.message); }
 }
 
 // === Firebase Auth & Boot ===
