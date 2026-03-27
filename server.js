@@ -362,10 +362,20 @@ app.get('/api/notes', auth, async (req, res) => {
       query = orgCol(req, 'notes').orderBy('updatedAt', 'desc');
     }
     const snapshot = await query.get();
-    const notes = snapshot.docs.map(doc => {
+    let notes = snapshot.docs.map(doc => {
       const d = doc.data();
-      return { id: doc.id, title: d.title, folderId: d.folderId, source: d.source, updatedAt: d.updatedAt, createdAt: d.createdAt, createdBy: d.createdBy };
+      return { id: doc.id, title: d.title, folderId: d.folderId, source: d.source, updatedAt: d.updatedAt, createdAt: d.createdAt, createdBy: d.createdBy, sharedWith: d.sharedWith || [] };
     });
+
+    // Notes are private: only show your own notes + notes shared with you
+    // CMO sees all notes
+    if (req.memberRole !== 'cmo') {
+      notes = notes.filter(n =>
+        n.createdBy === req.userId ||
+        (n.sharedWith && n.sharedWith.includes(req.userId))
+      );
+    }
+
     notes.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
     res.json(notes);
   } catch (err) { res.status(500).json({ error: 'Failed to fetch notes' }); }
@@ -375,7 +385,12 @@ app.get('/api/notes/:id', auth, async (req, res) => {
   try {
     const doc = await orgCol(req, 'notes').doc(req.params.id).get();
     if (!doc.exists) return res.status(404).json({ error: 'Note not found' });
-    res.json({ id: doc.id, ...doc.data() });
+    const note = doc.data();
+    // Non-CMO can only read their own notes or notes shared with them
+    if (req.memberRole !== 'cmo' && note.createdBy !== req.userId && !(note.sharedWith || []).includes(req.userId)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    res.json({ id: doc.id, ...note });
   } catch (err) { res.status(500).json({ error: 'Failed to fetch note' }); }
 });
 
