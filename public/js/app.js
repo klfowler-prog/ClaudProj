@@ -925,6 +925,67 @@ async function createFolder() {
   } catch (err) { alert('Failed to create folder: ' + err.message); }
 }
 
+// === Note Sharing ===
+let currentNoteSharedWith = [];
+
+async function openShareModal() {
+  if (!activeNoteId) return;
+
+  // Get current note's sharedWith
+  const note = await api('GET', `/api/notes/${activeNoteId}`);
+  currentNoteSharedWith = note.sharedWith || [];
+
+  // Build people checkboxes
+  const peopleContainer = document.getElementById('share-people-list');
+  if (teamMembers.length === 0 && myProfile && myProfile.role === 'cmo') {
+    await loadTeam();
+  }
+  const otherMembers = teamMembers.filter(m => m.userId !== (myProfile && myProfile.userId) && m.status === 'active');
+  peopleContainer.innerHTML = otherMembers.map(m => `
+    <label style="display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0; font-size: 0.85rem; text-transform: none; font-weight: 400; color: var(--color-text);">
+      <input type="checkbox" class="share-person-cb" value="${m.userId}" ${currentNoteSharedWith.includes(m.userId) ? 'checked' : ''}>
+      ${escapeHtml(m.displayName)} <span style="color: var(--color-text-muted); font-size: 0.75rem;">(${m.department})</span>
+    </label>
+  `).join('') || '<p style="font-size: 0.8rem; color: var(--color-text-muted);">No team members yet</p>';
+
+  // Build department checkboxes
+  const deptContainer = document.getElementById('share-dept-list');
+  deptContainer.innerHTML = DEPARTMENTS.map(d => `
+    <label style="display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0; font-size: 0.85rem; text-transform: none; font-weight: 400; color: var(--color-text);">
+      <input type="checkbox" class="share-dept-cb" value="dept:${d}" ${currentNoteSharedWith.includes('dept:' + d) ? 'checked' : ''}>
+      ${d}
+    </label>
+  `).join('');
+
+  // All team checkbox
+  document.getElementById('share-all-team').checked = currentNoteSharedWith.includes('all');
+
+  openModal('modal-share-note');
+}
+
+async function saveSharing() {
+  const sharedWith = [];
+
+  // Collect checked people
+  document.querySelectorAll('.share-person-cb:checked').forEach(cb => sharedWith.push(cb.value));
+
+  // Collect checked departments
+  document.querySelectorAll('.share-dept-cb:checked').forEach(cb => sharedWith.push(cb.value));
+
+  // All team
+  if (document.getElementById('share-all-team').checked) sharedWith.push('all');
+
+  try {
+    await api('PUT', `/api/notes/${activeNoteId}`, { sharedWith });
+    closeModal('modal-share-note');
+    const count = sharedWith.length;
+    alert(count > 0 ? `Note shared with ${count} ${count === 1 ? 'recipient' : 'recipients'}.` : 'Note is now private.');
+  } catch (err) {
+    alert('Failed to save sharing: ' + err.message);
+  }
+}
+
+
 // === AI Features ===
 function showAiPanel(title, content) {
   document.getElementById('ai-panel-title').textContent = title;
@@ -1218,6 +1279,8 @@ async function init() {
     loadNotesList(activeFolderId);
   });
   document.getElementById('btn-delete-note').addEventListener('click', deleteNote);
+  document.getElementById('btn-share-note').addEventListener('click', openShareModal);
+  document.getElementById('btn-save-share').addEventListener('click', saveSharing);
   document.getElementById('btn-add-folder').addEventListener('click', createFolder);
   document.getElementById('editor-title').addEventListener('input', scheduleAutoSave);
   document.getElementById('editor-content').addEventListener('input', scheduleAutoSave);

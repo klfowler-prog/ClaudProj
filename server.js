@@ -393,13 +393,17 @@ app.get('/api/notes', auth, async (req, res) => {
       };
     });
 
-    // Notes are private: only show your own notes + notes shared with you
-    // CMO sees all. Optional: ?mine=true to filter to own notes only
+    // Notes are private: only show your own + shared with you/your dept/all
+    // CMO sees all
     if (req.memberRole !== 'cmo') {
-      notes = notes.filter(n =>
-        n.createdBy === req.userId ||
-        (n.sharedWith && n.sharedWith.includes(req.userId))
-      );
+      notes = notes.filter(n => {
+        if (n.createdBy === req.userId) return true;
+        const sw = n.sharedWith || [];
+        if (sw.includes(req.userId)) return true;
+        if (sw.includes('dept:' + req.memberDept)) return true;
+        if (sw.includes('all')) return true;
+        return false;
+      });
     }
     if (req.query.mine === 'true') {
       notes = notes.filter(n => n.createdBy === req.userId);
@@ -416,8 +420,11 @@ app.get('/api/notes/:id', auth, async (req, res) => {
     if (!doc.exists) return res.status(404).json({ error: 'Note not found' });
     const note = doc.data();
     // Non-CMO can only read their own notes or notes shared with them
-    if (req.memberRole !== 'cmo' && note.createdBy !== req.userId && !(note.sharedWith || []).includes(req.userId)) {
-      return res.status(403).json({ error: 'Access denied' });
+    if (req.memberRole !== 'cmo' && note.createdBy !== req.userId) {
+      const sw = note.sharedWith || [];
+      if (!sw.includes(req.userId) && !sw.includes('dept:' + req.memberDept) && !sw.includes('all')) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
     }
     res.json({ id: doc.id, ...note });
   } catch (err) { res.status(500).json({ error: 'Failed to fetch note' }); }
@@ -440,7 +447,7 @@ app.put('/api/notes/:id', auth, async (req, res) => {
   try {
     const ref = orgCol(req, 'notes').doc(req.params.id);
     const updates = { updatedAt: new Date().toISOString() };
-    const allowed = ['title', 'content', 'folderId', 'aiSummary'];
+    const allowed = ['title', 'content', 'folderId', 'aiSummary', 'sharedWith'];
     for (const f of allowed) { if (req.body[f] !== undefined) updates[f] = req.body[f]; }
     await ref.update(updates);
     res.json({ id: req.params.id, ...updates });
