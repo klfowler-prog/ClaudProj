@@ -872,6 +872,13 @@ async function openNote(noteId) {
     document.getElementById('notes-editor-panel').style.display = 'flex';
     document.getElementById('notes-no-selection').style.display = 'none';
     document.getElementById('editor-saved').textContent = '';
+
+    // Populate folder dropdown and set current folder
+    const folderSelect = document.getElementById('note-folder-select');
+    folderSelect.innerHTML = folders.map(f =>
+      `<option value="${f.id}" ${f.id === note.folderId ? 'selected' : ''}>${escapeHtml(f.name)}</option>`
+    ).join('');
+
     renderNotesList();
   } catch (err) { alert('Failed to open note: ' + err.message); }
 }
@@ -1280,6 +1287,18 @@ async function init() {
   });
   document.getElementById('btn-delete-note').addEventListener('click', deleteNote);
   document.getElementById('btn-share-note').addEventListener('click', openShareModal);
+
+  // Move note to different folder
+  document.getElementById('note-folder-select').addEventListener('change', async (e) => {
+    if (!activeNoteId) return;
+    try {
+      await api('PUT', `/api/notes/${activeNoteId}`, { folderId: e.target.value });
+      document.getElementById('editor-saved').textContent = 'Moved';
+      // Update the note in the local list
+      const item = notesList.find(n => n.id === activeNoteId);
+      if (item) item.folderId = e.target.value;
+    } catch (err) { alert('Failed to move note: ' + err.message); }
+  });
   document.getElementById('btn-save-share').addEventListener('click', saveSharing);
   document.getElementById('btn-add-folder').addEventListener('click', createFolder);
   document.getElementById('editor-title').addEventListener('input', scheduleAutoSave);
