@@ -176,6 +176,167 @@ app.delete('/api/tasks/:id', authenticate, async (req, res) => {
   }
 });
 
+// === Folder Endpoints ===
+
+// GET /api/folders — List all folders
+app.get('/api/folders', authenticate, async (req, res) => {
+  try {
+    const snapshot = await db.collection('users').doc(req.userId)
+      .collection('folders').orderBy('order').get();
+    const folders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+    // Seed default folders if none exist
+    if (folders.length === 0) {
+      const defaults = ['B2B Marketing', 'Internal Comms', 'Rev Ops', 'B2C Marketing'];
+      const batch = db.batch();
+      const seeded = [];
+      defaults.forEach((name, i) => {
+        const ref = db.collection('users').doc(req.userId).collection('folders').doc();
+        const folder = { name, order: i, createdAt: new Date().toISOString() };
+        batch.set(ref, folder);
+        seeded.push({ id: ref.id, ...folder });
+      });
+      await batch.commit();
+      return res.json(seeded);
+    }
+
+    res.json(folders);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch folders' });
+  }
+});
+
+// POST /api/folders — Create a folder
+app.post('/api/folders', authenticate, async (req, res) => {
+  try {
+    const folder = {
+      name: req.body.name,
+      order: req.body.order || 99,
+      createdAt: new Date().toISOString()
+    };
+    const ref = await db.collection('users').doc(req.userId)
+      .collection('folders').add(folder);
+    res.status(201).json({ id: ref.id, ...folder });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to create folder' });
+  }
+});
+
+// PUT /api/folders/:id — Update a folder
+app.put('/api/folders/:id', authenticate, async (req, res) => {
+  try {
+    const ref = db.collection('users').doc(req.userId)
+      .collection('folders').doc(req.params.id);
+    const updates = {};
+    if (req.body.name !== undefined) updates.name = req.body.name;
+    if (req.body.order !== undefined) updates.order = req.body.order;
+    await ref.update(updates);
+    res.json({ id: req.params.id, ...updates });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update folder' });
+  }
+});
+
+// DELETE /api/folders/:id — Delete a folder (only if empty)
+app.delete('/api/folders/:id', authenticate, async (req, res) => {
+  try {
+    const notesInFolder = await db.collection('users').doc(req.userId)
+      .collection('notes').where('folderId', '==', req.params.id).limit(1).get();
+    if (!notesInFolder.empty) {
+      return res.status(400).json({ error: 'Folder is not empty. Delete or move notes first.' });
+    }
+    await db.collection('users').doc(req.userId)
+      .collection('folders').doc(req.params.id).delete();
+    res.json({ deleted: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete folder' });
+  }
+});
+
+// === Notes Endpoints ===
+
+// GET /api/notes — List notes (optionally filtered by folderId)
+app.get('/api/notes', authenticate, async (req, res) => {
+  try {
+    let query = db.collection('users').doc(req.userId)
+      .collection('notes').orderBy('updatedAt', 'desc');
+    if (req.query.folderId) {
+      query = db.collection('users').doc(req.userId)
+        .collection('notes').where('folderId', '==', req.query.folderId)
+        .orderBy('updatedAt', 'desc');
+    }
+    const snapshot = await query.get();
+    const notes = snapshot.docs.map(doc => {
+      const d = doc.data();
+      return { id: doc.id, title: d.title, folderId: d.folderId, source: d.source, updatedAt: d.updatedAt, createdAt: d.createdAt };
+    });
+    res.json(notes);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch notes' });
+  }
+});
+
+// GET /api/notes/:id — Get a single note with full content
+app.get('/api/notes/:id', authenticate, async (req, res) => {
+  try {
+    const doc = await db.collection('users').doc(req.userId)
+      .collection('notes').doc(req.params.id).get();
+    if (!doc.exists) return res.status(404).json({ error: 'Note not found' });
+    res.json({ id: doc.id, ...doc.data() });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch note' });
+  }
+});
+
+// POST /api/notes — Create a note
+app.post('/api/notes', authenticate, async (req, res) => {
+  try {
+    const now = new Date().toISOString();
+    const note = {
+      title: req.body.title || 'Untitled',
+      content: req.body.content || '',
+      folderId: req.body.folderId || '',
+      source: req.body.source || 'manual',
+      createdAt: now,
+      updatedAt: now,
+      aiSummary: ''
+    };
+    const ref = await db.collection('users').doc(req.userId)
+      .collection('notes').add(note);
+    res.status(201).json({ id: ref.id, ...note });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to create note' });
+  }
+});
+
+// PUT /api/notes/:id — Update a note
+app.put('/api/notes/:id', authenticate, async (req, res) => {
+  try {
+    const ref = db.collection('users').doc(req.userId)
+      .collection('notes').doc(req.params.id);
+    const updates = { updatedAt: new Date().toISOString() };
+    const allowed = ['title', 'content', 'folderId', 'aiSummary'];
+    for (const f of allowed) {
+      if (req.body[f] !== undefined) updates[f] = req.body[f];
+    }
+    await ref.update(updates);
+    res.json({ id: req.params.id, ...updates });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update note' });
+  }
+});
+
+// DELETE /api/notes/:id — Delete a note
+app.delete('/api/notes/:id', authenticate, async (req, res) => {
+  try {
+    await db.collection('users').doc(req.userId)
+      .collection('notes').doc(req.params.id).delete();
+    res.json({ deleted: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete note' });
+  }
+});
+
 // === Gmail OAuth Endpoints ===
 
 function createOAuth2Client() {

@@ -161,12 +161,47 @@
       </div>
     </div><!-- /view-tasks -->
 
-    <!-- Notes View (Phase 2) -->
-    <div id="view-notes" style="display: none;">
-      <div class="notes-placeholder">
+    <!-- Notes View -->
+    <div id="view-notes" class="notes-view" style="display: none;">
+      <!-- Note List Panel -->
+      <div class="notes-list-panel">
+        <div class="notes-list-header">
+          <h2 class="notes-list-title" id="notes-folder-title">All Notes</h2>
+          <button class="btn btn-primary btn-sm" id="btn-new-note">+ New Note</button>
+        </div>
+        <div class="notes-list" id="notes-list">
+          <!-- Populated by JS -->
+        </div>
+        <div class="notes-empty" id="notes-empty" style="display: none;">
+          <p>No notes yet. Click "+ New Note" to get started.</p>
+        </div>
+      </div>
+
+      <!-- Editor Panel -->
+      <div class="notes-editor-panel" id="notes-editor-panel" style="display: none;">
+        <div class="editor-header">
+          <input type="text" class="editor-title" id="editor-title" placeholder="Note title...">
+          <div class="editor-meta">
+            <span class="editor-saved" id="editor-saved"></span>
+            <button class="btn-danger" id="btn-delete-note" title="Delete note">&#128465;</button>
+          </div>
+        </div>
+        <div class="editor-toolbar">
+          <button class="editor-btn" data-cmd="bold" title="Bold"><strong>B</strong></button>
+          <button class="editor-btn" data-cmd="italic" title="Italic"><em>I</em></button>
+          <span class="editor-divider"></span>
+          <button class="editor-btn" data-cmd="insertUnorderedList" title="Bullet list">&#8226; List</button>
+          <button class="editor-btn" data-cmd="insertOrderedList" title="Numbered list">1. List</button>
+          <span class="editor-divider"></span>
+          <button class="editor-btn" data-cmd="formatBlock" data-value="H2" title="Heading">H</button>
+        </div>
+        <div class="editor-content" id="editor-content" contenteditable="true" placeholder="Start writing..."></div>
+      </div>
+
+      <!-- No note selected -->
+      <div class="notes-no-selection" id="notes-no-selection">
         <div class="empty-icon">&#128196;</div>
-        <p class="empty-title">Strategy &amp; Notes</p>
-        <p class="empty-subtitle">Coming soon — organize your department strategy, meeting notes, and leverage AI for summaries and task generation.</p>
+        <p class="empty-subtitle">Select a note or create a new one</p>
       </div>
     </div><!-- /view-notes -->
 

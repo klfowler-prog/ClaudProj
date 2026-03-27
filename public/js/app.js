@@ -756,6 +756,125 @@ async function handleSyncClick() {
   await checkGmailStatus();
 }
 
+// === Notes State & Logic ===
+let folders = [];
+let notesList = [];
+let activeNoteId = null;
+let activeFolderId = null;
+let saveTimeout = null;
+
+async function loadFolders() {
+  try {
+    folders = await api('GET', '/api/folders');
+    renderSidebarFolders();
+  } catch (err) { console.error('Failed to load folders:', err); }
+}
+
+function renderSidebarFolders() {
+  const container = document.getElementById('sidebar-folders');
+  container.innerHTML = folders.map(f =>
+    `<button class="sidebar-dept-item ${activeFolderId === f.id ? 'active' : ''}" data-folder-id="${f.id}">${escapeHtml(f.name)}</button>`
+  ).join('');
+  container.querySelectorAll('[data-folder-id]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      activeFolderId = btn.dataset.folderId;
+      switchView('notes');
+      loadNotesList(activeFolderId);
+      renderSidebarFolders();
+      const folder = folders.find(f => f.id === activeFolderId);
+      document.getElementById('notes-folder-title').textContent = folder ? folder.name : 'All Notes';
+      closeSidebar();
+    });
+  });
+}
+
+async function loadNotesList(folderId) {
+  try {
+    const url = folderId ? `/api/notes?folderId=${folderId}` : '/api/notes';
+    notesList = await api('GET', url);
+    renderNotesList();
+  } catch (err) { notesList = []; renderNotesList(); }
+}
+
+function renderNotesList() {
+  const container = document.getElementById('notes-list');
+  const empty = document.getElementById('notes-empty');
+  if (notesList.length === 0) { container.innerHTML = ''; empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+  container.innerHTML = notesList.map(n => {
+    const date = new Date(n.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return `<button class="note-list-item ${activeNoteId === n.id ? 'active' : ''}" data-note-id="${n.id}">
+      <div class="note-list-item-title">${escapeHtml(n.title || 'Untitled')}</div>
+      <div class="note-list-item-date">${date}</div>
+    </button>`;
+  }).join('');
+  container.querySelectorAll('[data-note-id]').forEach(btn => {
+    btn.addEventListener('click', () => openNote(btn.dataset.noteId));
+  });
+}
+
+async function openNote(noteId) {
+  try {
+    const note = await api('GET', `/api/notes/${noteId}`);
+    activeNoteId = noteId;
+    document.getElementById('editor-title').value = note.title || '';
+    document.getElementById('editor-content').innerHTML = note.content || '';
+    document.getElementById('notes-editor-panel').style.display = 'flex';
+    document.getElementById('notes-no-selection').style.display = 'none';
+    document.getElementById('editor-saved').textContent = '';
+    renderNotesList();
+  } catch (err) { alert('Failed to open note: ' + err.message); }
+}
+
+async function createNote() {
+  if (!activeFolderId && folders.length > 0) activeFolderId = folders[0].id;
+  try {
+    const note = await api('POST', '/api/notes', { title: 'Untitled', content: '', folderId: activeFolderId || '' });
+    notesList.unshift(note);
+    renderNotesList();
+    openNote(note.id);
+  } catch (err) { alert('Failed to create note: ' + err.message); }
+}
+
+function scheduleAutoSave() {
+  if (saveTimeout) clearTimeout(saveTimeout);
+  document.getElementById('editor-saved').textContent = 'Saving...';
+  saveTimeout = setTimeout(async () => {
+    if (!activeNoteId) return;
+    try {
+      await api('PUT', `/api/notes/${activeNoteId}`, {
+        title: document.getElementById('editor-title').value || 'Untitled',
+        content: document.getElementById('editor-content').innerHTML
+      });
+      document.getElementById('editor-saved').textContent = 'Saved';
+      const item = notesList.find(n => n.id === activeNoteId);
+      if (item) { item.title = document.getElementById('editor-title').value || 'Untitled'; item.updatedAt = new Date().toISOString(); renderNotesList(); }
+    } catch { document.getElementById('editor-saved').textContent = 'Save failed'; }
+  }, 500);
+}
+
+async function deleteNote() {
+  if (!activeNoteId || !confirm('Delete this note?')) return;
+  try {
+    await api('DELETE', `/api/notes/${activeNoteId}`);
+    notesList = notesList.filter(n => n.id !== activeNoteId);
+    activeNoteId = null;
+    document.getElementById('notes-editor-panel').style.display = 'none';
+    document.getElementById('notes-no-selection').style.display = 'flex';
+    renderNotesList();
+  } catch (err) { alert('Failed to delete note: ' + err.message); }
+}
+
+async function createFolder() {
+  const name = prompt('Folder name:');
+  if (!name) return;
+  try {
+    const folder = await api('POST', '/api/folders', { name, order: folders.length });
+    folders.push(folder);
+    renderSidebarFolders();
+  } catch (err) { alert('Failed to create folder: ' + err.message); }
+}
+
 // === Event Binding ===
 async function init() {
   await loadTasks();
@@ -870,6 +989,28 @@ async function init() {
   document.getElementById('sidebar-toggle').addEventListener('click', openSidebar);
   document.getElementById('sidebar-close').addEventListener('click', closeSidebar);
   document.getElementById('sidebar-overlay').addEventListener('click', closeSidebar);
+
+  // Notes event listeners
+  document.getElementById('btn-new-note').addEventListener('click', createNote);
+  document.getElementById('btn-delete-note').addEventListener('click', deleteNote);
+  document.getElementById('btn-add-folder').addEventListener('click', createFolder);
+  document.getElementById('editor-title').addEventListener('input', scheduleAutoSave);
+  document.getElementById('editor-content').addEventListener('input', scheduleAutoSave);
+
+  // Editor toolbar (execCommand for rich text)
+  document.querySelectorAll('.editor-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const cmd = btn.dataset.cmd;
+      const val = btn.dataset.value || null;
+      document.getElementById('editor-content').focus();
+      document.execCommand(cmd, false, val);
+      scheduleAutoSave();
+    });
+  });
+
+  // Load folders for sidebar
+  await loadFolders();
 
   // Task list event delegation (for both active + completed lists)
   function handleTaskClick(e) {
