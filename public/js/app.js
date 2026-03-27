@@ -888,6 +888,104 @@ async function createFolder() {
   } catch (err) { alert('Failed to create folder: ' + err.message); }
 }
 
+// === AI Features ===
+function showAiPanel(title, content) {
+  document.getElementById('ai-panel-title').textContent = title;
+  document.getElementById('ai-panel-content').innerHTML = content;
+  document.getElementById('ai-panel').style.display = 'block';
+}
+
+function hideAiPanel() {
+  document.getElementById('ai-panel').style.display = 'none';
+}
+
+async function aiSummarize() {
+  if (!activeNoteId) return;
+  showAiPanel('Summary', '<span class="ai-loading">Generating summary...</span>');
+  try {
+    const result = await api('POST', `/api/notes/${activeNoteId}/summarize`);
+    showAiPanel('Summary', escapeHtmlWithLinks(result.summary));
+  } catch (err) {
+    showAiPanel('Error', err.message);
+  }
+}
+
+async function aiAsk() {
+  if (!activeNoteId) return;
+  const question = prompt('What would you like to know about this note?');
+  if (!question) return;
+  showAiPanel('Answer', '<span class="ai-loading">Thinking...</span>');
+  try {
+    const result = await api('POST', `/api/notes/${activeNoteId}/ask`, { question });
+    showAiPanel('Answer', escapeHtmlWithLinks(result.answer));
+  } catch (err) {
+    showAiPanel('Error', err.message);
+  }
+}
+
+let pendingAiTasks = [];
+
+async function aiGenerateTasks() {
+  if (!activeNoteId) return;
+  showAiPanel('Generate Tasks', '<span class="ai-loading">Extracting tasks...</span>');
+  try {
+    const result = await api('POST', `/api/notes/${activeNoteId}/generate-tasks`);
+    hideAiPanel();
+    pendingAiTasks = result.tasks || [];
+    if (pendingAiTasks.length === 0) {
+      alert('No actionable tasks found in this note.');
+      return;
+    }
+    // Show confirmation modal
+    const list = document.getElementById('ai-tasks-list');
+    list.innerHTML = pendingAiTasks.map((t, i) => `
+      <div class="ai-task-item">
+        <input type="checkbox" checked data-ai-task-idx="${i}">
+        <div>
+          <div class="ai-task-item-title">${escapeHtml(t.title)}</div>
+          <div class="ai-task-item-meta">${escapeHtml(t.department)} &middot; ${t.priority} priority</div>
+          ${t.notes ? `<div class="ai-task-item-meta">${escapeHtml(t.notes)}</div>` : ''}
+        </div>
+      </div>
+    `).join('');
+    openModal('modal-ai-tasks');
+  } catch (err) {
+    showAiPanel('Error', err.message);
+  }
+}
+
+async function createAiTasks() {
+  const checkboxes = document.querySelectorAll('#ai-tasks-list input[type="checkbox"]');
+  const selected = [];
+  checkboxes.forEach(cb => {
+    if (cb.checked) {
+      const idx = parseInt(cb.dataset.aiTaskIdx);
+      selected.push(pendingAiTasks[idx]);
+    }
+  });
+  if (selected.length === 0) { alert('No tasks selected.'); return; }
+
+  try {
+    const tasksToCreate = selected.map(t => ({
+      title: t.title,
+      department: t.department || 'Personal',
+      priority: t.priority || 'Medium',
+      notes: t.notes || '',
+      status: 'Not Started',
+      source: 'manual',
+      dueDate: '',
+      recurring: 'none'
+    }));
+    await api('POST', '/api/tasks/batch', { tasks: tasksToCreate });
+    closeModal('modal-ai-tasks');
+    await loadTasks();
+    render();
+    alert(`Created ${selected.length} task${selected.length !== 1 ? 's' : ''}!`);
+  } catch (err) {
+    alert('Failed to create tasks: ' + err.message);
+  }
+}
+
 // === Event Binding ===
 async function init() {
   await loadTasks();
@@ -1016,6 +1114,13 @@ async function init() {
   document.getElementById('btn-add-folder').addEventListener('click', createFolder);
   document.getElementById('editor-title').addEventListener('input', scheduleAutoSave);
   document.getElementById('editor-content').addEventListener('input', scheduleAutoSave);
+
+  // AI buttons
+  document.getElementById('btn-ai-summarize').addEventListener('click', aiSummarize);
+  document.getElementById('btn-ai-ask').addEventListener('click', aiAsk);
+  document.getElementById('btn-ai-tasks').addEventListener('click', aiGenerateTasks);
+  document.getElementById('ai-panel-close').addEventListener('click', hideAiPanel);
+  document.getElementById('btn-create-ai-tasks').addEventListener('click', createAiTasks);
 
   // Editor toolbar (execCommand for rich text)
   document.querySelectorAll('.editor-btn').forEach(btn => {

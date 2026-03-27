@@ -555,6 +555,64 @@ body {
 
 .editor-content a { color: var(--follett-medium-blue); }
 
+/* AI buttons and panel */
+.editor-btn-ai { color: var(--follett-medium-blue) !important; font-weight: 500 !important; }
+.editor-btn-ai:hover { background: var(--color-b2b-light) !important; }
+
+.ai-panel {
+  border-top: 2px solid var(--follett-light-blue);
+  background: #f8fbfd;
+  max-height: 250px;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.ai-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.ai-panel-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--follett-medium-blue);
+}
+
+.ai-panel-close {
+  background: none;
+  border: none;
+  font-size: 1.25rem;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.ai-panel-content {
+  padding: 0.75rem 1rem;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--color-text);
+  white-space: pre-wrap;
+}
+
+.ai-loading { color: var(--follett-medium-blue); font-style: italic; }
+
+.ai-task-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.ai-task-item:last-child { border-bottom: none; }
+.ai-task-item input[type="checkbox"] { margin-top: 0.25rem; flex-shrink: 0; }
+.ai-task-item-title { font-size: 0.85rem; font-weight: 500; }
+.ai-task-item-meta { font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.125rem; }
+
 .notes-no-selection {
   flex: 1;
   display: flex;

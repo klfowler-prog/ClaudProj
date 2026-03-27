@@ -198,8 +198,20 @@
           <button class="editor-btn" data-cmd="insertOrderedList" title="Numbered list">1. List</button>
           <span class="editor-divider"></span>
           <button class="editor-btn" data-cmd="formatBlock" data-value="H2" title="Heading">H</button>
+          <span class="editor-divider"></span>
+          <button class="editor-btn editor-btn-ai" id="btn-ai-summarize" title="AI Summarize">&#10024; Summarize</button>
+          <button class="editor-btn editor-btn-ai" id="btn-ai-ask" title="Ask AI a question">&#10024; Ask</button>
+          <button class="editor-btn editor-btn-ai" id="btn-ai-tasks" title="Generate tasks from note">&#10024; Tasks</button>
         </div>
         <div class="editor-content" id="editor-content" contenteditable="true" placeholder="Start writing..."></div>
+        <!-- AI Results Panel -->
+        <div class="ai-panel" id="ai-panel" style="display: none;">
+          <div class="ai-panel-header">
+            <span class="ai-panel-title" id="ai-panel-title">AI Result</span>
+            <button class="ai-panel-close" id="ai-panel-close">&times;</button>
+          </div>
+          <div class="ai-panel-content" id="ai-panel-content"></div>
+        </div>
       </div>
 
       <!-- No note selected -->
@@ -350,6 +362,24 @@
         <button class="modal-close" data-close="modal-detail">&times;</button>
       </div>
       <div id="detail-content"></div>
+    </div>
+  </div>
+
+  <!-- AI Task Generation Modal -->
+  <div class="modal-overlay" id="modal-ai-tasks" style="display: none;">
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h2>Generated Tasks</h2>
+        <button class="modal-close" data-close="modal-ai-tasks">&times;</button>
+      </div>
+      <div style="padding: 0.75rem 1.5rem 1.5rem;">
+        <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 0.75rem;">Select the tasks you want to create:</p>
+        <div id="ai-tasks-list"></div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" data-close="modal-ai-tasks">Cancel</button>
+          <button class="btn btn-primary" id="btn-create-ai-tasks">Create Selected Tasks</button>
+        </div>
+      </div>
     </div>
   </div>
 

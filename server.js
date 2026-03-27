@@ -341,6 +341,103 @@ app.delete('/api/notes/:id', authenticate, async (req, res) => {
   }
 });
 
+// === AI Endpoints (Gemini) ===
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+
+function getGeminiModel() {
+  if (!GEMINI_API_KEY) throw new Error('Gemini API key not configured');
+  const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+  return genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+}
+
+function stripHtml(html) {
+  return html.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+// POST /api/notes/:id/summarize
+app.post('/api/notes/:id/summarize', authenticate, async (req, res) => {
+  try {
+    const doc = await db.collection('users').doc(req.userId)
+      .collection('notes').doc(req.params.id).get();
+    if (!doc.exists) return res.status(404).json({ error: 'Note not found' });
+
+    const note = doc.data();
+    const text = stripHtml(note.content || '');
+    if (!text || text.length < 10) return res.status(400).json({ error: 'Note is too short to summarize' });
+
+    const model = getGeminiModel();
+    const result = await model.generateContent({
+      contents: [{ role: 'user', parts: [{ text: `You are a marketing strategy assistant for a CMO at Follett Higher Education. Summarize the following note concisely. Highlight key decisions, action items, and strategic implications.\n\nNote title: ${note.title}\n\nContent:\n${text}` }] }]
+    });
+
+    const summary = result.response.text();
+
+    // Cache the summary
+    await db.collection('users').doc(req.userId)
+      .collection('notes').doc(req.params.id).update({ aiSummary: summary });
+
+    res.json({ summary });
+  } catch (err) {
+    res.status(500).json({ error: 'Summarize failed: ' + err.message });
+  }
+});
+
+// POST /api/notes/:id/ask
+app.post('/api/notes/:id/ask', authenticate, async (req, res) => {
+  try {
+    const { question } = req.body;
+    if (!question) return res.status(400).json({ error: 'Question is required' });
+
+    const doc = await db.collection('users').doc(req.userId)
+      .collection('notes').doc(req.params.id).get();
+    if (!doc.exists) return res.status(404).json({ error: 'Note not found' });
+
+    const note = doc.data();
+    const text = stripHtml(note.content || '');
+
+    const model = getGeminiModel();
+    const result = await model.generateContent({
+      contents: [{ role: 'user', parts: [{ text: `You are a marketing strategy assistant for a CMO. Answer the following question based on this document. Be concise and specific.\n\nDocument title: ${note.title}\n\nDocument content:\n${text}\n\nQuestion: ${question}` }] }]
+    });
+
+    res.json({ answer: result.response.text() });
+  } catch (err) {
+    res.status(500).json({ error: 'Ask failed: ' + err.message });
+  }
+});
+
+// POST /api/notes/:id/generate-tasks
+app.post('/api/notes/:id/generate-tasks', authenticate, async (req, res) => {
+  try {
+    const doc = await db.collection('users').doc(req.userId)
+      .collection('notes').doc(req.params.id).get();
+    if (!doc.exists) return res.status(404).json({ error: 'Note not found' });
+
+    const note = doc.data();
+    const text = stripHtml(note.content || '');
+
+    const model = getGeminiModel();
+    const result = await model.generateContent({
+      contents: [{ role: 'user', parts: [{ text: `You are a marketing strategy assistant for a CMO at Follett Higher Education. Extract actionable tasks from the following document. Return ONLY a JSON array (no markdown, no code fences) where each item has:\n- "title": string (concise task description)\n- "department": one of "B2B Marketing", "Internal Comms", "Rev Ops", "B2C Marketing", "Personal"\n- "priority": one of "High", "Medium", "Low"\n- "notes": string (brief context from the document)\n\nOnly include genuinely actionable items. If there are no actionable items, return an empty array [].\n\nDocument title: ${note.title}\n\nContent:\n${text}` }] }]
+    });
+
+    let tasksJson;
+    const responseText = result.response.text().trim();
+    // Strip markdown code fences if present
+    const cleaned = responseText.replace(/^```json?\n?/i, '').replace(/\n?```$/i, '').trim();
+    try {
+      tasksJson = JSON.parse(cleaned);
+    } catch {
+      return res.status(400).json({ error: 'AI returned invalid format. Try again.' });
+    }
+
+    res.json({ tasks: tasksJson });
+  } catch (err) {
+    res.status(500).json({ error: 'Generate tasks failed: ' + err.message });
+  }
+});
+
 // === Gmail OAuth Endpoints ===
 
 function createOAuth2Client() {
