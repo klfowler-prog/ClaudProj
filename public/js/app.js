@@ -777,7 +777,18 @@ function renderSidebarFolders() {
     `<button class="sidebar-dept-item ${activeFolderId === f.id ? 'active' : ''}" data-folder-id="${f.id}">${escapeHtml(f.name)}</button>`
   ).join('');
   container.querySelectorAll('[data-folder-id]').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
+      // Save any pending note before switching
+      if (saveTimeout && activeNoteId) {
+        clearTimeout(saveTimeout);
+        await api('PUT', `/api/notes/${activeNoteId}`, {
+          title: document.getElementById('editor-title').value || 'Untitled',
+          content: document.getElementById('editor-content').innerHTML
+        }).catch(() => {});
+      }
+      activeNoteId = null;
+      document.getElementById('notes-editor-panel').style.display = 'none';
+      document.getElementById('notes-no-selection').style.display = 'flex';
       activeFolderId = btn.dataset.folderId;
       switchView('notes');
       loadNotesList(activeFolderId);

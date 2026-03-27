@@ -258,18 +258,22 @@ app.delete('/api/folders/:id', authenticate, async (req, res) => {
 // GET /api/notes — List notes (optionally filtered by folderId)
 app.get('/api/notes', authenticate, async (req, res) => {
   try {
-    let query = db.collection('users').doc(req.userId)
-      .collection('notes').orderBy('updatedAt', 'desc');
+    let query;
     if (req.query.folderId) {
+      // Filter by folder — sort client-side to avoid needing a composite index
       query = db.collection('users').doc(req.userId)
-        .collection('notes').where('folderId', '==', req.query.folderId)
-        .orderBy('updatedAt', 'desc');
+        .collection('notes').where('folderId', '==', req.query.folderId);
+    } else {
+      query = db.collection('users').doc(req.userId)
+        .collection('notes').orderBy('updatedAt', 'desc');
     }
     const snapshot = await query.get();
     const notes = snapshot.docs.map(doc => {
       const d = doc.data();
       return { id: doc.id, title: d.title, folderId: d.folderId, source: d.source, updatedAt: d.updatedAt, createdAt: d.createdAt };
     });
+    // Sort by updatedAt descending (needed when filtering by folder since we can't use orderBy with where)
+    notes.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
     res.json(notes);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch notes' });
