@@ -1555,8 +1555,8 @@ function populateAssignToDropdown() {
   const select = document.getElementById('input-assign-to');
   if (!select) return;
   select.innerHTML = '<option value="">Me (default)</option>' +
-    teamMembers.filter(m => m.status === 'active').map(m =>
-      `<option value="${m.userId}">${escapeHtml(m.displayName)} (${m.department})</option>`
+    teamMembers.filter(m => m.status === 'active' || !m.status).map(m =>
+      `<option value="${m.userId}">${escapeHtml(m.displayName)} (${(m.departments || [m.department]).join(', ')})</option>`
     ).join('');
 }
 
