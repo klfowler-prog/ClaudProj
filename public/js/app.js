@@ -139,9 +139,9 @@ function renderSidebarCounts() {
     visibleDepts = DEPARTMENTS;
   } else {
     // Show user's department + any department where they have tasks
-    const myDept = myProfile ? myProfile.department : 'all';
+    const myDepts = myProfile ? (myProfile.departments || []) : [];
     const deptsWithTasks = new Set(tasks.map(t => t.department));
-    visibleDepts = DEPARTMENTS.filter(d => d === myDept || deptsWithTasks.has(d));
+    visibleDepts = DEPARTMENTS.filter(d => myDepts.includes(d) || deptsWithTasks.has(d));
   }
 
   let html = '<button class="sidebar-dept-item ' + (filters.department === 'all' ? 'active' : '') + '" data-dept="all">All Tasks</button>';
@@ -1549,10 +1549,11 @@ async function showTeamView() {
     <div class="team-member-card">
       <div class="team-member-info">
         <div class="team-member-name">${escapeHtml(m.displayName)}</div>
-        <div class="team-member-meta">${escapeHtml(m.email)} &middot; ${m.role} &middot; ${m.department} &middot; ${m.status}</div>
+        <div class="team-member-meta">${escapeHtml(m.email)} &middot; ${m.role} &middot; ${(m.departments || [m.department]).join(', ')} &middot; ${m.status}</div>
       </div>
       <div class="team-member-actions">
-        ${m.role !== 'cmo' ? `<button class="btn btn-ghost btn-sm" style="color: var(--follett-coral);" onclick="deleteMember('${m.id}', '${escapeHtml(m.displayName)}')">Remove</button>` : ''}
+        ${m.role !== 'cmo' ? `<button class="btn btn-ghost btn-sm" onclick="editMember('${m.id}')">Edit</button>
+        <button class="btn btn-ghost btn-sm" style="color: var(--follett-coral);" onclick="deleteMember('${m.id}', '${escapeHtml(m.displayName)}')">Remove</button>` : ''}
       </div>
     </div>
   `).join('');
@@ -1569,13 +1570,14 @@ async function submitInvite(e) {
   e.preventDefault();
   const name = document.getElementById('invite-name').value.trim();
   const email = document.getElementById('invite-email').value.trim();
-  const department = document.getElementById('invite-department').value;
+  const departments = [];
+  document.querySelectorAll('.invite-dept-cb:checked').forEach(cb => departments.push(cb.value));
   const role = document.getElementById('invite-role').value;
 
-  if (!name || !email || !department) return;
+  if (!name || !email || departments.length === 0) { alert('Select at least one department'); return; }
 
   try {
-    const result = await api('POST', '/api/team/invite', { email, displayName: name, department, role });
+    const result = await api('POST', '/api/team/invite', { email, displayName: name, departments, role });
     // Show success with the reset link
     document.getElementById('form-invite').style.display = 'none';
     document.getElementById('invite-result').style.display = 'block';
@@ -1599,6 +1601,60 @@ async function disableMember(id) {
 
 async function enableMember(id) {
   try { await api('POST', `/api/team/${id}/enable`); showTeamView(); } catch (err) { alert(err.message); }
+}
+
+async function editMember(id) {
+  const member = teamMembers.find(m => m.id === id);
+  if (!member) return;
+  const memberDepts = member.departments || [member.department];
+
+  // Build a simple prompt-free edit using the invite modal pattern
+  const deptCheckboxes = DEPARTMENTS.map(d =>
+    `<label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;padding:0.25rem 0;">
+      <input type="checkbox" class="edit-dept-cb" value="${d}" ${memberDepts.includes(d) ? 'checked' : ''}> ${d}
+    </label>`
+  ).join('');
+
+  const roleSelect = `<select id="edit-role" style="padding:0.4rem;border-radius:var(--radius);border:1px solid var(--color-border);font-size:0.85rem;margin-top:0.25rem;">
+    <option value="member" ${member.role === 'member' ? 'selected' : ''}>Team Member</option>
+    <option value="lead" ${member.role === 'lead' ? 'selected' : ''}>Department Lead</option>
+  </select>`;
+
+  const container = document.getElementById('team-roster');
+  // Insert edit form inline
+  const editHtml = `<div class="team-member-card" id="edit-member-form" style="border: 2px solid var(--follett-medium-blue);">
+    <div style="flex:1;">
+      <div class="team-member-name" style="margin-bottom:0.5rem;">Editing: ${escapeHtml(member.displayName)}</div>
+      <div style="margin-bottom:0.5rem;"><strong style="font-size:0.75rem;text-transform:uppercase;color:var(--follett-dark-blue);">Departments:</strong><br>${deptCheckboxes}</div>
+      <div><strong style="font-size:0.75rem;text-transform:uppercase;color:var(--follett-dark-blue);">Role:</strong><br>${roleSelect}</div>
+    </div>
+    <div class="team-member-actions" style="flex-direction:column;gap:0.5rem;">
+      <button class="btn btn-primary btn-sm" onclick="saveMemberEdit('${id}')">Save</button>
+      <button class="btn btn-ghost btn-sm" onclick="showTeamView()">Cancel</button>
+    </div>
+  </div>`;
+
+  // Replace the member's card with the edit form
+  const cards = container.querySelectorAll('.team-member-card');
+  for (const card of cards) {
+    if (card.innerHTML.includes(member.displayName)) {
+      card.outerHTML = editHtml;
+      break;
+    }
+  }
+}
+
+async function saveMemberEdit(id) {
+  const departments = [];
+  document.querySelectorAll('.edit-dept-cb:checked').forEach(cb => departments.push(cb.value));
+  const role = document.getElementById('edit-role').value;
+
+  if (departments.length === 0) { alert('Select at least one department'); return; }
+
+  try {
+    await api('PUT', `/api/team/${id}`, { departments, role });
+    showTeamView();
+  } catch (err) { alert('Failed to update: ' + err.message); }
 }
 
 async function deleteMember(id, name) {

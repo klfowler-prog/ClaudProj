@@ -43,8 +43,15 @@ async function authenticate(req, res, next) {
   }
 }
 
+// Helper: get departments array from member data (handles migration from old string format)
+function getMemberDepts(m) {
+  if (m.departments && Array.isArray(m.departments)) return m.departments;
+  if (m.department === 'all') return ['all'];
+  if (m.department) return [m.department];
+  return [];
+}
+
 // === Org Resolution Middleware ===
-// Uses users/{userId} doc to store orgId for fast lookup (no collectionGroup index needed)
 async function resolveOrg(req, res, next) {
   try {
     // Check if user already has an orgId stored
@@ -60,7 +67,7 @@ async function resolveOrg(req, res, next) {
         const m = memberDoc.data();
         req.orgId = userData.orgId;
         req.memberRole = m.role;
-        req.memberDept = m.department;
+        req.memberDepts = getMemberDepts(m);
         req.memberName = m.displayName;
         return next();
       }
@@ -77,7 +84,7 @@ async function resolveOrg(req, res, next) {
         await db.collection('users').doc(req.userId).set({ orgId: orgDoc.id }, { merge: true });
         req.orgId = orgDoc.id;
         req.memberRole = m.role;
-        req.memberDept = m.department;
+        req.memberDepts = getMemberDepts(m);
         req.memberName = m.displayName;
         return next();
       }
@@ -92,25 +99,31 @@ async function resolveOrg(req, res, next) {
 
     await orgRef.collection('members').doc(req.userId).set({
       userId: req.userId, email: req.userEmail, displayName: req.userName,
-      role: 'cmo', department: 'all', status: 'active', joinedAt: new Date().toISOString()
+      role: 'cmo', departments: ['all'], status: 'active', joinedAt: new Date().toISOString()
     });
 
-    // Store orgId on user doc
     await db.collection('users').doc(req.userId).set({ orgId: orgRef.id }, { merge: true });
 
     req.orgId = orgRef.id;
     req.memberRole = 'cmo';
-    req.memberDept = 'all';
+    req.memberDepts = ['all'];
     req.memberName = req.userName;
 
     if (hasLegacyData) await migrateLegacyData(req.userId, orgRef.id);
 
     // Seed default folders
-    const defaults = ['B2B Marketing', 'Internal Comms', 'Rev Ops', 'B2C Marketing', 'Personal'];
+    const defaults = [
+      { name: 'All Team', order: 0, shared: true },
+      { name: 'B2B Marketing', order: 1 },
+      { name: 'Internal Comms', order: 2 },
+      { name: 'Rev Ops', order: 3 },
+      { name: 'B2C Marketing', order: 4 },
+      { name: 'Personal', order: 5 }
+    ];
     const batch = db.batch();
-    defaults.forEach((name, i) => {
+    defaults.forEach(f => {
       const ref = orgRef.collection('folders').doc();
-      batch.set(ref, { name, order: i, createdAt: new Date().toISOString() });
+      batch.set(ref, { name: f.name, order: f.order, shared: f.shared || false, createdAt: new Date().toISOString() });
     });
     await batch.commit();
 
@@ -171,7 +184,7 @@ app.get('/api/tasks', auth, async (req, res) => {
     // Filter by role: CMO sees all, others see their dept + assigned/shared
     if (req.memberRole !== 'cmo') {
       tasks = tasks.filter(t =>
-        t.department === req.memberDept ||
+        req.memberDepts.includes(t.department) ||
         t.assignedTo === req.userId ||
         (t.sharedWith && t.sharedWith.includes(req.userId)) ||
         t.createdBy === req.userId
@@ -393,14 +406,20 @@ app.get('/api/notes', auth, async (req, res) => {
       };
     });
 
-    // Notes are private: only show your own + shared with you/your dept/all
+    // Build set of shared folder IDs (visible to everyone)
+    const foldersSnap = await orgCol(req, 'folders').get();
+    const sharedFolderIds = new Set();
+    foldersSnap.docs.forEach(d => { if (d.data().shared) sharedFolderIds.add(d.id); });
+
+    // Notes are private: only show your own + shared with you/your dept/all + notes in shared folders
     // CMO sees all
     if (req.memberRole !== 'cmo') {
       notes = notes.filter(n => {
         if (n.createdBy === req.userId) return true;
+        if (sharedFolderIds.has(n.folderId)) return true;
         const sw = n.sharedWith || [];
         if (sw.includes(req.userId)) return true;
-        if (sw.includes('dept:' + req.memberDept)) return true;
+        if (req.memberDepts.some(d => sw.includes('dept:' + d))) return true;
         if (sw.includes('all')) return true;
         return false;
       });
@@ -419,10 +438,16 @@ app.get('/api/notes/:id', auth, async (req, res) => {
     const doc = await orgCol(req, 'notes').doc(req.params.id).get();
     if (!doc.exists) return res.status(404).json({ error: 'Note not found' });
     const note = doc.data();
-    // Non-CMO can only read their own notes or notes shared with them
+    // Non-CMO can only read their own notes, shared notes, or notes in shared folders
     if (req.memberRole !== 'cmo' && note.createdBy !== req.userId) {
+      // Check if note is in a shared folder
+      let inSharedFolder = false;
+      if (note.folderId) {
+        const folderDoc = await orgCol(req, 'folders').doc(note.folderId).get();
+        if (folderDoc.exists && folderDoc.data().shared) inSharedFolder = true;
+      }
       const sw = note.sharedWith || [];
-      if (!sw.includes(req.userId) && !sw.includes('dept:' + req.memberDept) && !sw.includes('all')) {
+      if (!inSharedFolder && !sw.includes(req.userId) && !req.memberDepts.some(d => sw.includes('dept:' + d)) && !sw.includes('all')) {
         return res.status(403).json({ error: 'Access denied' });
       }
     }
@@ -661,7 +686,7 @@ app.get('/api/me', auth, async (req, res) => {
     email: req.userEmail,
     name: req.memberName,
     role: req.memberRole,
-    department: req.memberDept,
+    departments: req.memberDepts,
     orgId: req.orgId
   });
 });
@@ -683,10 +708,9 @@ app.get('/api/team', auth, async (req, res) => {
 app.post('/api/team/invite', auth, async (req, res) => {
   if (req.memberRole !== 'cmo') return res.status(403).json({ error: 'CMO only' });
   try {
-    const { email, displayName, role, department } = req.body;
-    if (!email || !department) return res.status(400).json({ error: 'Email and department required' });
+    const { email, displayName, role, departments } = req.body;
+    if (!email || !departments || departments.length === 0) return res.status(400).json({ error: 'Email and at least one department required' });
 
-    // Create Firebase Auth account with email/password
     const tempPassword = Math.random().toString(36).slice(-12) + 'A1!';
     const userRecord = await admin.auth().createUser({
       email,
@@ -694,13 +718,12 @@ app.post('/api/team/invite', auth, async (req, res) => {
       displayName: displayName || email.split('@')[0]
     });
 
-    // Add as org member
     await orgCol(req, 'members').doc(userRecord.uid).set({
       userId: userRecord.uid,
       email,
       displayName: displayName || email.split('@')[0],
       role: role || 'member',
-      department,
+      departments: Array.isArray(departments) ? departments : [departments],
       status: 'active',
       joinedAt: new Date().toISOString()
     });
@@ -728,7 +751,7 @@ app.put('/api/team/:id', auth, async (req, res) => {
   try {
     const updates = {};
     if (req.body.role) updates.role = req.body.role;
-    if (req.body.department) updates.department = req.body.department;
+    if (req.body.departments) updates.departments = req.body.departments;
     if (req.body.displayName) updates.displayName = req.body.displayName;
     await orgCol(req, 'members').doc(req.params.id).update(updates);
     res.json({ id: req.params.id, ...updates });

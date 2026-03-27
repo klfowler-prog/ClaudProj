@@ -300,25 +300,22 @@
             <label for="invite-email">Email <span class="required">*</span></label>
             <input type="email" id="invite-email" required placeholder="name@company.com">
           </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label for="invite-department">Department <span class="required">*</span></label>
-              <select id="invite-department" required>
-                <option value="">Select department</option>
-                <option value="B2B Marketing">B2B Marketing</option>
-                <option value="Internal Comms">Internal Comms</option>
-                <option value="Rev Ops">Rev Ops</option>
-                <option value="B2C Marketing">B2C Marketing</option>
-                <option value="Personal">Personal</option>
-              </select>
+          <div class="form-group">
+            <label>Departments <span class="required">*</span></label>
+            <div id="invite-depts" style="display: flex; flex-direction: column; gap: 0.25rem;">
+              <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;text-transform:none;font-weight:400;color:var(--color-text);"><input type="checkbox" class="invite-dept-cb" value="B2B Marketing"> B2B Marketing</label>
+              <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;text-transform:none;font-weight:400;color:var(--color-text);"><input type="checkbox" class="invite-dept-cb" value="Internal Comms"> Internal Comms</label>
+              <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;text-transform:none;font-weight:400;color:var(--color-text);"><input type="checkbox" class="invite-dept-cb" value="Rev Ops"> Rev Ops</label>
+              <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;text-transform:none;font-weight:400;color:var(--color-text);"><input type="checkbox" class="invite-dept-cb" value="B2C Marketing"> B2C Marketing</label>
+              <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;text-transform:none;font-weight:400;color:var(--color-text);"><input type="checkbox" class="invite-dept-cb" value="Personal"> Personal</label>
             </div>
-            <div class="form-group">
-              <label for="invite-role">Role</label>
-              <select id="invite-role">
-                <option value="member">Team Member</option>
-                <option value="lead">Department Lead</option>
-              </select>
-            </div>
+          </div>
+          <div class="form-group">
+            <label for="invite-role">Role</label>
+            <select id="invite-role">
+              <option value="member">Team Member</option>
+              <option value="lead">Department Lead</option>
+            </select>
           </div>
           <div class="modal-actions">
             <button type="button" class="btn btn-ghost" data-close="modal-invite">Cancel</button>
