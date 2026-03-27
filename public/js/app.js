@@ -50,7 +50,7 @@ const DEPT_KEYWORDS = {
 
 // === State ===
 let tasks = [];
-let filters = { department: 'all', priority: 'all', search: '', sort: 'created' };
+let filters = { department: 'all', priority: 'all', search: '', sort: 'due-date' };
 let pendingAttachments = []; // temp attachments for the add-task form
 let pendingLinks = [];       // temp links for the add-task form
 let editingTaskId = null;    // null = adding, string = editing
@@ -275,20 +275,7 @@ function renderTaskList() {
     container.innerHTML = '<div class="empty-state" style="padding: 1.5rem;"><p class="empty-subtitle">All filtered tasks are completed</p></div>';
   } else {
     emptyState.style.display = 'none';
-    // Group by status
-    const grouped = {};
-    ['Awaiting Feedback', 'Delegated', 'In Progress', 'Not Started'].forEach(s => {
-      const group = sortTasks(activeTasks.filter(t => t.status === s));
-      if (group.length > 0) grouped[s] = group;
-    });
-
-    let html = '';
-    for (const [status, group] of Object.entries(grouped)) {
-      const statusKey = STATUS_KEYS[status];
-      html += `<div class="status-group-header status-header-${statusKey}">${status} <span class="status-group-count">${group.length}</span></div>`;
-      html += group.map(renderTaskItem).join('');
-    }
-    container.innerHTML = html;
+    container.innerHTML = sortTasks(activeTasks).map(renderTaskItem).join('');
   }
 
   // Completed section
@@ -1639,7 +1626,7 @@ async function init() {
 
 // === Team, Notifications, My Tasks ===
 let myProfile = null;
-let showMyTasksOnly = false;
+let showMyTasksOnly = true;
 let teamMembers = [];
 
 async function loadProfile() {
