@@ -348,7 +348,7 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 function getGeminiModel() {
   if (!GEMINI_API_KEY) throw new Error('Gemini API key not configured');
   const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-  return genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+  return genAI.getGenerativeModel({ model: 'gemini-2.5-flash-preview-05-20' });
 }
 
 function stripHtml(html) {
