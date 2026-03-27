@@ -130,16 +130,38 @@ function renderStats() {
 }
 
 function renderSidebarCounts() {
-  for (const dept of DEPARTMENTS) {
-    const key = DEPT_KEYS[dept];
-    const count = tasks.filter(t => t.department === dept && t.status !== 'Completed').length;
-    const el = document.getElementById(`sidebar-count-${key}`);
-    if (el) el.textContent = count;
+  const container = document.getElementById('tasks-subnav');
+
+  // Determine which departments to show
+  let visibleDepts;
+  if (myProfile && myProfile.role === 'cmo') {
+    visibleDepts = DEPARTMENTS;
+  } else {
+    // Show user's department + any department where they have tasks
+    const myDept = myProfile ? myProfile.department : 'all';
+    const deptsWithTasks = new Set(tasks.map(t => t.department));
+    visibleDepts = DEPARTMENTS.filter(d => d === myDept || deptsWithTasks.has(d));
   }
 
-  // Highlight active department in sidebar
-  document.querySelectorAll('.sidebar-dept-item').forEach(item => {
-    item.classList.toggle('active', item.dataset.dept === filters.department);
+  let html = '<button class="sidebar-dept-item ' + (filters.department === 'all' ? 'active' : '') + '" data-dept="all">All Tasks</button>';
+  for (const dept of visibleDepts) {
+    const key = DEPT_KEYS[dept];
+    const count = tasks.filter(t => t.department === dept && t.status !== 'Completed').length;
+    const isActive = filters.department === dept;
+    html += `<button class="sidebar-dept-item ${isActive ? 'active' : ''}" data-dept="${dept}">
+      <span class="dept-dot dept-${key}"></span> ${dept} <span class="sidebar-count">${count}</span>
+    </button>`;
+  }
+  container.innerHTML = html;
+
+  // Re-attach click handlers
+  container.querySelectorAll('.sidebar-dept-item').forEach(item => {
+    item.addEventListener('click', () => {
+      document.getElementById('filter-department').value = item.dataset.dept;
+      applyFilters();
+      switchView('tasks');
+      closeSidebar();
+    });
   });
 }
 
@@ -380,7 +402,7 @@ function applyFilters() {
 }
 
 // === Task Operations (API-backed) ===
-async function addTask(title, department, priority, notes, source, attachments, dueDate, recurring) {
+async function addTask(title, department, priority, notes, source, attachments, dueDate, recurring, assignedTo) {
   const taskData = {
     title: title.trim(),
     department,
@@ -394,6 +416,7 @@ async function addTask(title, department, priority, notes, source, attachments, 
     dueDate: dueDate || '',
     recurring: recurring || 'none'
   };
+  if (assignedTo) taskData.assignedTo = assignedTo;
 
   try {
     const created = await api('POST', '/api/tasks', taskData);
@@ -488,6 +511,7 @@ function editTask(id) {
   document.getElementById('input-due-date').value = task.dueDate || '';
   document.getElementById('input-notes').value = task.notes || '';
   document.getElementById('input-recurring').value = task.recurring || 'none';
+  document.getElementById('input-assign-to').value = task.assignedTo || '';
 
   // Load existing attachments into pending lists
   pendingAttachments = (task.attachments || []).filter(a => a.type === 'file');
@@ -767,6 +791,7 @@ let folders = [];
 let notesList = [];
 let activeNoteId = null;
 let activeFolderId = null;
+let showMyNotesOnly = false;
 let saveTimeout = null;
 
 async function loadFolders() {
@@ -808,7 +833,8 @@ function renderSidebarFolders() {
 
 async function loadNotesList(folderId) {
   try {
-    const url = folderId ? `/api/notes?folderId=${folderId}` : '/api/notes';
+    let url = folderId ? `/api/notes?folderId=${folderId}` : '/api/notes';
+    if (showMyNotesOnly) url += (url.includes('?') ? '&' : '?') + 'mine=true';
     notesList = await api('GET', url);
     renderNotesList();
   } catch (err) { notesList = []; renderNotesList(); }
@@ -821,9 +847,11 @@ function renderNotesList() {
   empty.style.display = 'none';
   container.innerHTML = notesList.map(n => {
     const date = new Date(n.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const isOwn = myProfile && n.createdBy === myProfile.userId;
+    const authorLabel = isOwn ? '' : ` &middot; ${escapeHtml(n.authorName || 'Unknown')}`;
     return `<button class="note-list-item ${activeNoteId === n.id ? 'active' : ''}" data-note-id="${n.id}">
       <div class="note-list-item-title">${escapeHtml(n.title || 'Untitled')}</div>
-      <div class="note-list-item-date">${date}</div>
+      <div class="note-list-item-date">${date}${authorLabel}</div>
     </button>`;
   }).join('');
   container.querySelectorAll('[data-note-id]').forEach(btn => {
@@ -1079,14 +1107,15 @@ async function init() {
     const notes = document.getElementById('input-notes').value.trim();
     const dueDate = document.getElementById('input-due-date').value;
     const recurring = document.getElementById('input-recurring').value;
+    const assignTo = document.getElementById('input-assign-to').value || undefined;
 
     if (!title || !department) return;
 
     const allAttachments = [...pendingAttachments, ...pendingLinks];
 
     if (editingTaskId) {
-      // Update existing task via API
       const updates = { title, department, priority, notes, dueDate, recurring, attachments: allAttachments };
+      if (assignTo) updates.assignedTo = assignTo;
       try {
         await api('PUT', `/api/tasks/${editingTaskId}`, updates);
         const task = tasks.find(t => t.id === editingTaskId);
@@ -1096,7 +1125,7 @@ async function init() {
         alert('Failed to update task: ' + err.message);
       }
     } else {
-      await addTask(title, department, priority, notes, 'manual', allAttachments, dueDate, recurring);
+      await addTask(title, department, priority, notes, 'manual', allAttachments, dueDate, recurring, assignTo);
     }
 
     closeModal('modal-add');
@@ -1167,6 +1196,20 @@ async function init() {
 
   // Notes event listeners
   document.getElementById('btn-new-note').addEventListener('click', createNote);
+
+  // My Notes / All Notes toggle
+  document.getElementById('btn-my-notes').addEventListener('click', () => {
+    showMyNotesOnly = true;
+    document.getElementById('btn-my-notes').classList.add('active');
+    document.getElementById('btn-all-notes').classList.remove('active');
+    loadNotesList(activeFolderId);
+  });
+  document.getElementById('btn-all-notes').addEventListener('click', () => {
+    showMyNotesOnly = false;
+    document.getElementById('btn-all-notes').classList.add('active');
+    document.getElementById('btn-my-notes').classList.remove('active');
+    loadNotesList(activeFolderId);
+  });
   document.getElementById('btn-delete-note').addEventListener('click', deleteNote);
   document.getElementById('btn-add-folder').addEventListener('click', createFolder);
   document.getElementById('editor-title').addEventListener('input', scheduleAutoSave);
@@ -1229,6 +1272,11 @@ async function init() {
 
   // Load folders for sidebar
   await loadFolders();
+
+  // Load team members for Assign To dropdown
+  if (myProfile && myProfile.role === 'cmo') {
+    await loadTeam();
+  }
 
   // Task list event delegation (for both active + completed lists)
   function handleTaskClick(e) {
@@ -1413,6 +1461,16 @@ function timeAgo(iso) {
 
 async function loadTeam() {
   try { teamMembers = await api('GET', '/api/team'); } catch { teamMembers = []; }
+  populateAssignToDropdown();
+}
+
+function populateAssignToDropdown() {
+  const select = document.getElementById('input-assign-to');
+  if (!select) return;
+  select.innerHTML = '<option value="">Me (default)</option>' +
+    teamMembers.filter(m => m.status === 'active').map(m =>
+      `<option value="${m.userId}">${escapeHtml(m.displayName)} (${m.department})</option>`
+    ).join('');
 }
 
 async function showTeamView() {

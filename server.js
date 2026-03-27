@@ -362,18 +362,32 @@ app.get('/api/notes', auth, async (req, res) => {
       query = orgCol(req, 'notes').orderBy('updatedAt', 'desc');
     }
     const snapshot = await query.get();
+
+    // Build author name lookup from members
+    const membersSnap = await orgCol(req, 'members').get();
+    const memberNames = {};
+    membersSnap.docs.forEach(d => { memberNames[d.id] = d.data().displayName || d.data().email; });
+
     let notes = snapshot.docs.map(doc => {
       const d = doc.data();
-      return { id: doc.id, title: d.title, folderId: d.folderId, source: d.source, updatedAt: d.updatedAt, createdAt: d.createdAt, createdBy: d.createdBy, sharedWith: d.sharedWith || [] };
+      return {
+        id: doc.id, title: d.title, folderId: d.folderId, source: d.source,
+        updatedAt: d.updatedAt, createdAt: d.createdAt, createdBy: d.createdBy,
+        sharedWith: d.sharedWith || [],
+        authorName: memberNames[d.createdBy] || 'Unknown'
+      };
     });
 
     // Notes are private: only show your own notes + notes shared with you
-    // CMO sees all notes
+    // CMO sees all. Optional: ?mine=true to filter to own notes only
     if (req.memberRole !== 'cmo') {
       notes = notes.filter(n =>
         n.createdBy === req.userId ||
         (n.sharedWith && n.sharedWith.includes(req.userId))
       );
+    }
+    if (req.query.mine === 'true') {
+      notes = notes.filter(n => n.createdBy === req.userId);
     }
 
     notes.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
