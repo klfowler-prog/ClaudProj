@@ -28,148 +28,149 @@
   <!-- App Container (hidden until authenticated) -->
   <div id="app-container" style="display: none;">
 
-  <!-- Header -->
-  <header class="header">
-    <div class="header-content">
-      <div class="header-title">
-        <h1>CMO Task Manager</h1>
-        <p class="header-subtitle">Marketing Department Task Tracker &mdash; <span id="user-email"></span> <button id="btn-sign-out" class="btn-sign-out">Sign out</button></p>
-      </div>
-      <div class="header-stats">
-        <div class="stat">
-          <span class="stat-value" id="stat-total">0</span>
-          <span class="stat-label">Active</span>
-        </div>
-        <div class="stat">
-          <span class="stat-value stat-awaiting" id="stat-awaiting">0</span>
-          <span class="stat-label">Awaiting</span>
-        </div>
-        <div class="stat">
-          <span class="stat-value stat-overdue" id="stat-overdue">0</span>
-          <span class="stat-label">Overdue</span>
-        </div>
-        <div class="stat">
-          <span class="stat-value" id="stat-completed">0</span>
-          <span class="stat-label">Completed</span>
-        </div>
-      </div>
+  <!-- Sidebar -->
+  <nav id="app-sidebar" class="sidebar">
+    <div class="sidebar-header">
+      <h1 class="sidebar-title">CMO Task Manager</h1>
+      <button id="sidebar-close" class="sidebar-close">&times;</button>
     </div>
-  </header>
 
-  <!-- Toolbar -->
-  <div class="toolbar">
-    <div class="toolbar-actions">
-      <button class="btn btn-primary" id="btn-add-task">+ Add Task</button>
-      <button class="btn btn-secondary" id="btn-quick-import">&#9993; Quick Import</button>
-      <button class="btn btn-secondary" id="btn-sync-email">&#8635; Sync Email</button>
+    <div class="sidebar-nav">
+      <!-- Tasks Section -->
+      <div class="sidebar-section">
+        <button class="sidebar-nav-item active" data-view="tasks">
+          <span class="sidebar-icon">&#9745;</span>
+          <span>Tasks</span>
+          <span class="sidebar-caret" id="tasks-caret">&#9662;</span>
+        </button>
+        <div class="sidebar-subnav" id="tasks-subnav">
+          <button class="sidebar-dept-item active" data-dept="all">All Tasks</button>
+          <button class="sidebar-dept-item" data-dept="B2B Marketing">
+            <span class="dept-dot dept-b2b"></span> B2B Marketing <span class="sidebar-count" id="sidebar-count-b2b">0</span>
+          </button>
+          <button class="sidebar-dept-item" data-dept="Internal Comms">
+            <span class="dept-dot dept-comms"></span> Internal Comms <span class="sidebar-count" id="sidebar-count-comms">0</span>
+          </button>
+          <button class="sidebar-dept-item" data-dept="Rev Ops">
+            <span class="dept-dot dept-revops"></span> Rev Ops <span class="sidebar-count" id="sidebar-count-revops">0</span>
+          </button>
+          <button class="sidebar-dept-item" data-dept="B2C Marketing">
+            <span class="dept-dot dept-b2c"></span> B2C Marketing <span class="sidebar-count" id="sidebar-count-b2c">0</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Notes Section -->
+      <div class="sidebar-section">
+        <button class="sidebar-nav-item" data-view="notes">
+          <span class="sidebar-icon">&#128196;</span>
+          <span>Strategy &amp; Notes</span>
+          <span class="sidebar-caret" id="notes-caret">&#9656;</span>
+        </button>
+        <div class="sidebar-subnav collapsed" id="notes-subnav">
+          <div id="sidebar-folders">
+            <!-- Populated by JS -->
+          </div>
+          <button class="sidebar-add-folder" id="btn-add-folder">+ Add Folder</button>
+        </div>
+      </div>
     </div>
-    <div class="toolbar-filters">
-      <select id="filter-department" class="filter-select">
+
+    <div class="sidebar-footer">
+      <span class="sidebar-email" id="user-email"></span>
+      <button id="btn-sign-out" class="sidebar-sign-out">Sign out</button>
+    </div>
+  </nav>
+
+  <!-- Mobile hamburger -->
+  <button id="sidebar-toggle" class="sidebar-toggle">&#9776;</button>
+
+  <!-- Mobile sidebar overlay -->
+  <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+  <!-- Main Content -->
+  <main id="app-main" class="app-main">
+
+    <!-- Tasks View -->
+    <div id="view-tasks">
+      <!-- Stats Bar -->
+      <div class="stats-bar">
+        <div class="stats-bar-left">
+          <span class="stat-pill"><strong id="stat-total">0</strong> Active</span>
+          <span class="stat-pill stat-pill-awaiting"><strong id="stat-awaiting">0</strong> Awaiting</span>
+          <span class="stat-pill stat-pill-overdue"><strong id="stat-overdue">0</strong> Overdue</span>
+          <span class="stat-pill"><strong id="stat-completed">0</strong> Done</span>
+        </div>
+        <div class="stats-bar-right">
+          <select id="filter-priority" class="filter-select-compact">
+            <option value="all">All Priorities</option>
+            <option value="High">High</option>
+            <option value="Medium">Medium</option>
+            <option value="Low">Low</option>
+          </select>
+          <select id="filter-sort" class="filter-select-compact">
+            <option value="created">Newest First</option>
+            <option value="due-date">Due Date</option>
+            <option value="priority">Priority</option>
+          </select>
+          <input type="text" id="filter-search" class="filter-search-compact" placeholder="Search...">
+        </div>
+      </div>
+
+      <!-- Hidden dept filter (used by sidebar clicks) -->
+      <select id="filter-department" style="display:none;">
         <option value="all">All Departments</option>
         <option value="B2B Marketing">B2B Marketing</option>
         <option value="Internal Comms">Internal Comms</option>
         <option value="Rev Ops">Rev Ops</option>
         <option value="B2C Marketing">B2C Marketing</option>
       </select>
-      <select id="filter-priority" class="filter-select">
-        <option value="all">All Priorities</option>
-        <option value="High">High</option>
-        <option value="Medium">Medium</option>
-        <option value="Low">Low</option>
-      </select>
-      <select id="filter-sort" class="filter-select">
-        <option value="created">Newest First</option>
-        <option value="due-date">Due Date</option>
-        <option value="priority">Priority</option>
-      </select>
-      <input type="text" id="filter-search" class="filter-search" placeholder="Search tasks...">
-    </div>
-  </div>
 
-  <!-- Department Cards -->
-  <div class="department-cards">
-    <div class="dept-card" data-dept="B2B Marketing">
-      <div class="dept-card-header">
-        <span class="dept-dot dept-b2b"></span>
-        <span class="dept-name">B2B Marketing</span>
+      <!-- Task Actions -->
+      <div class="task-actions-bar">
+        <button class="btn btn-primary" id="btn-add-task">+ Add Task</button>
+        <button class="btn btn-secondary" id="btn-quick-import">&#9993; Quick Import</button>
+        <button class="btn btn-secondary" id="btn-sync-email">&#8635; Sync Email</button>
       </div>
-      <div class="dept-card-stats">
-        <span class="dept-count" id="dept-count-b2b">0 tasks</span>
-        <span class="dept-done" id="dept-done-b2b">0 done</span>
-      </div>
-      <div class="dept-progress">
-        <div class="dept-progress-bar dept-bg-b2b" id="dept-bar-b2b" style="width: 0%"></div>
-      </div>
-    </div>
-    <div class="dept-card" data-dept="Internal Comms">
-      <div class="dept-card-header">
-        <span class="dept-dot dept-comms"></span>
-        <span class="dept-name">Internal Comms</span>
-      </div>
-      <div class="dept-card-stats">
-        <span class="dept-count" id="dept-count-comms">0 tasks</span>
-        <span class="dept-done" id="dept-done-comms">0 done</span>
-      </div>
-      <div class="dept-progress">
-        <div class="dept-progress-bar dept-bg-comms" id="dept-bar-comms" style="width: 0%"></div>
-      </div>
-    </div>
-    <div class="dept-card" data-dept="Rev Ops">
-      <div class="dept-card-header">
-        <span class="dept-dot dept-revops"></span>
-        <span class="dept-name">Rev Ops</span>
-      </div>
-      <div class="dept-card-stats">
-        <span class="dept-count" id="dept-count-revops">0 tasks</span>
-        <span class="dept-done" id="dept-done-revops">0 done</span>
-      </div>
-      <div class="dept-progress">
-        <div class="dept-progress-bar dept-bg-revops" id="dept-bar-revops" style="width: 0%"></div>
-      </div>
-    </div>
-    <div class="dept-card" data-dept="B2C Marketing">
-      <div class="dept-card-header">
-        <span class="dept-dot dept-b2c"></span>
-        <span class="dept-name">B2C Marketing</span>
-      </div>
-      <div class="dept-card-stats">
-        <span class="dept-count" id="dept-count-b2c">0 tasks</span>
-        <span class="dept-done" id="dept-done-b2c">0 done</span>
-      </div>
-      <div class="dept-progress">
-        <div class="dept-progress-bar dept-bg-b2c" id="dept-bar-b2c" style="width: 0%"></div>
-      </div>
-    </div>
-  </div>
 
-  <!-- Task List -->
-  <div class="task-list-container">
-    <div class="task-list" id="task-list">
-      <!-- Tasks rendered by JS -->
-    </div>
-    <div class="empty-state" id="empty-state" style="display: none;">
-      <div class="empty-icon">&#9776;</div>
-      <p class="empty-title">No tasks yet</p>
-      <p class="empty-subtitle">Click "Add Task" to get started, or import from email/Slack</p>
-    </div>
-
-    <!-- Completed Section -->
-    <div class="completed-section" id="completed-section" style="display: none;">
-      <div class="completed-header">
-        <div class="completed-header-left">
-          <h3>Completed <span class="completed-count" id="completed-count">0</span></h3>
-          <button class="btn-link" id="completed-toggle">Show</button>
+      <!-- Task List -->
+      <div class="task-list-container">
+        <div class="task-list" id="task-list"></div>
+        <div class="empty-state" id="empty-state" style="display: none;">
+          <div class="empty-icon">&#9776;</div>
+          <p class="empty-title">No tasks yet</p>
+          <p class="empty-subtitle">Click "Add Task" to get started, or import from email/Slack</p>
         </div>
-        <select id="completed-period" class="filter-select filter-select-small">
-          <option value="all">All Time</option>
-          <option value="week">This Week</option>
-          <option value="month">This Month</option>
-          <option value="quarter">This Quarter</option>
-        </select>
+
+        <!-- Completed Section -->
+        <div class="completed-section" id="completed-section" style="display: none;">
+          <div class="completed-header">
+            <div class="completed-header-left">
+              <h3>Completed <span class="completed-count" id="completed-count">0</span></h3>
+              <button class="btn-link" id="completed-toggle">Show</button>
+            </div>
+            <select id="completed-period" class="filter-select-compact">
+              <option value="all">All Time</option>
+              <option value="week">This Week</option>
+              <option value="month">This Month</option>
+              <option value="quarter">This Quarter</option>
+            </select>
+          </div>
+          <div class="task-list" id="completed-list" style="display: none;"></div>
+        </div>
       </div>
-      <div class="task-list" id="completed-list" style="display: none;"></div>
-    </div>
-  </div>
+    </div><!-- /view-tasks -->
+
+    <!-- Notes View (Phase 2) -->
+    <div id="view-notes" style="display: none;">
+      <div class="notes-placeholder">
+        <div class="empty-icon">&#128196;</div>
+        <p class="empty-title">Strategy &amp; Notes</p>
+        <p class="empty-subtitle">Coming soon — organize your department strategy, meeting notes, and leverage AI for summaries and task generation.</p>
+      </div>
+    </div><!-- /view-notes -->
+
+  </main><!-- /app-main -->
 
   <!-- Add/Edit Task Modal -->
   <div class="modal-overlay" id="modal-add" style="display: none;">

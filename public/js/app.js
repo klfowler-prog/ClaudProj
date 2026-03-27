@@ -111,7 +111,7 @@ async function migrateLocalStorage() {
 // === Rendering ===
 function render() {
   renderStats();
-  renderDepartmentCards();
+  renderSidebarCounts();
   renderTaskList();
 }
 
@@ -127,23 +127,48 @@ function renderStats() {
   document.getElementById('stat-overdue').textContent = overdue;
 }
 
-function renderDepartmentCards() {
+function renderSidebarCounts() {
   for (const dept of DEPARTMENTS) {
     const key = DEPT_KEYS[dept];
-    const deptTasks = tasks.filter(t => t.department === dept);
-    const total = deptTasks.length;
-    const done = deptTasks.filter(t => t.status === 'Completed').length;
-    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-
-    document.getElementById(`dept-count-${key}`).textContent = `${total} task${total !== 1 ? 's' : ''}`;
-    document.getElementById(`dept-done-${key}`).textContent = `${done} done`;
-    document.getElementById(`dept-bar-${key}`).style.width = pct + '%';
+    const count = tasks.filter(t => t.department === dept && t.status !== 'Completed').length;
+    const el = document.getElementById(`sidebar-count-${key}`);
+    if (el) el.textContent = count;
   }
 
-  // Highlight active department filter
-  document.querySelectorAll('.dept-card').forEach(card => {
-    card.classList.toggle('active', card.dataset.dept === filters.department);
+  // Highlight active department in sidebar
+  document.querySelectorAll('.sidebar-dept-item').forEach(item => {
+    item.classList.toggle('active', item.dataset.dept === filters.department);
   });
+}
+
+// === View Switching ===
+let currentView = 'tasks';
+
+function switchView(view) {
+  currentView = view;
+  document.getElementById('view-tasks').style.display = view === 'tasks' ? 'block' : 'none';
+  document.getElementById('view-notes').style.display = view === 'notes' ? 'block' : 'none';
+  document.querySelectorAll('.sidebar-nav-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.view === view);
+  });
+}
+
+function toggleSidebarSection(sectionId, caretId) {
+  const subnav = document.getElementById(sectionId);
+  const caret = document.getElementById(caretId);
+  const isCollapsed = subnav.classList.contains('collapsed');
+  subnav.classList.toggle('collapsed');
+  caret.innerHTML = isCollapsed ? '&#9662;' : '&#9656;';
+}
+
+function openSidebar() {
+  document.getElementById('app-sidebar').classList.add('open');
+  document.getElementById('sidebar-overlay').classList.add('active');
+}
+
+function closeSidebar() {
+  document.getElementById('app-sidebar').classList.remove('open');
+  document.getElementById('sidebar-overlay').classList.remove('active');
 }
 
 function renderTaskItem(task) {
@@ -818,16 +843,33 @@ async function init() {
   document.getElementById('filter-sort').addEventListener('change', applyFilters);
   document.getElementById('filter-search').addEventListener('input', applyFilters);
 
-  // Department card clicks
-  document.querySelectorAll('.dept-card').forEach(card => {
-    card.addEventListener('click', () => {
-      const dept = card.dataset.dept;
-      const filterEl = document.getElementById('filter-department');
-      // Toggle: if already selected, go back to all
-      filterEl.value = filterEl.value === dept ? 'all' : dept;
-      applyFilters();
+  // Sidebar navigation
+  document.querySelectorAll('.sidebar-nav-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const view = item.dataset.view;
+      switchView(view);
+      // Toggle subnav
+      if (view === 'tasks') toggleSidebarSection('tasks-subnav', 'tasks-caret');
+      if (view === 'notes') toggleSidebarSection('notes-subnav', 'notes-caret');
+      closeSidebar();
     });
   });
+
+  // Sidebar department clicks (filter tasks)
+  document.querySelectorAll('.sidebar-dept-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const dept = item.dataset.dept;
+      document.getElementById('filter-department').value = dept;
+      applyFilters();
+      switchView('tasks');
+      closeSidebar();
+    });
+  });
+
+  // Sidebar toggle (mobile)
+  document.getElementById('sidebar-toggle').addEventListener('click', openSidebar);
+  document.getElementById('sidebar-close').addEventListener('click', closeSidebar);
+  document.getElementById('sidebar-overlay').addEventListener('click', closeSidebar);
 
   // Task list event delegation (for both active + completed lists)
   function handleTaskClick(e) {
@@ -973,7 +1015,7 @@ document.addEventListener('DOMContentLoaded', () => {
       authToken = await user.getIdToken();
       userEmail.textContent = user.email;
       loginScreen.style.display = 'none';
-      appContainer.style.display = 'block';
+      appContainer.style.display = 'flex';
       await init();
     } else {
       currentUser = null;
