@@ -1,3 +1,20 @@
+// === Toast Notifications ===
+function showToast(message, type = 'info', duration = 4000) {
+  const container = document.getElementById('toast-container');
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.innerHTML = `<span>${message}</span><button class="toast-close">&times;</button>`;
+  container.appendChild(toast);
+
+  const dismiss = () => {
+    toast.classList.add('toast-out');
+    toast.addEventListener('animationend', () => toast.remove());
+  };
+
+  toast.querySelector('.toast-close').addEventListener('click', dismiss);
+  setTimeout(dismiss, duration);
+}
+
 // === Constants ===
 const DEPARTMENTS = ['B2B Marketing', 'Internal Comms', 'Rev Ops', 'B2C Marketing'];
 const PRIORITIES = ['High', 'Medium', 'Low'];
@@ -68,7 +85,7 @@ async function loadTasks() {
 function saveTasks() {}
 
 // === localStorage Migration ===
-async function migrateLocalStorage() {
+function checkLocalStorageMigration() {
   if (localStorage.getItem(MIGRATION_KEY)) return;
 
   const data = localStorage.getItem(STORAGE_KEY);
@@ -93,19 +110,31 @@ async function migrateLocalStorage() {
   });
 
   const count = localTasks.length;
-  if (!confirm(`Found ${count} task${count !== 1 ? 's' : ''} saved locally on this device. Import them to your cloud account?`)) {
-    return;
-  }
 
-  try {
-    await api('POST', '/api/tasks/batch', { tasks: localTasks });
-    localStorage.setItem(MIGRATION_KEY, 'done');
-    alert(`Successfully imported ${count} task${count !== 1 ? 's' : ''} to the cloud!`);
-    await loadTasks();
-    render();
-  } catch (err) {
-    alert('Migration failed: ' + err.message + '. Your local tasks are still safe. Try again on next login.');
-  }
+  // Show non-blocking banner instead of confirm()
+  const banner = document.createElement('div');
+  banner.className = 'migration-banner';
+  banner.innerHTML = `
+    <span class="migration-banner-text">Found ${count} task${count !== 1 ? 's' : ''} saved locally. Import them to your cloud account?</span>
+    <div class="migration-banner-actions">
+      <button class="btn btn-primary" id="btn-migrate-yes">Import</button>
+      <button class="btn btn-ghost" id="btn-migrate-no">Dismiss</button>
+    </div>`;
+  document.getElementById('app-container').prepend(banner);
+
+  document.getElementById('btn-migrate-no').addEventListener('click', () => banner.remove());
+  document.getElementById('btn-migrate-yes').addEventListener('click', async () => {
+    try {
+      await api('POST', '/api/tasks/batch', { tasks: localTasks });
+      localStorage.setItem(MIGRATION_KEY, 'done');
+      banner.remove();
+      showToast(`Imported ${count} task${count !== 1 ? 's' : ''} to the cloud!`, 'success');
+      await loadTasks();
+      render();
+    } catch (err) {
+      showToast('Migration failed: ' + err.message + '. Your local tasks are still safe.', 'error');
+    }
+  });
 }
 
 // === Rendering ===
@@ -338,7 +367,7 @@ async function addTask(title, department, priority, notes, source, attachments, 
     render();
     return created;
   } catch (err) {
-    alert('Failed to create task: ' + err.message);
+    showToast('Failed to create task: ' + err.message, 'error');
     return null;
   }
 }
@@ -363,7 +392,7 @@ async function setTaskStatus(id, newStatus) {
     // Revert on failure
     await loadTasks();
     render();
-    alert('Failed to update status: ' + err.message);
+    showToast('Failed to update status: ' + err.message, 'error');
   }
 }
 
@@ -377,7 +406,7 @@ async function deleteTask(id) {
   } catch (err) {
     await loadTasks();
     render();
-    alert('Failed to delete task: ' + err.message);
+    showToast('Failed to delete task: ' + err.message, 'error');
   }
 }
 
@@ -455,7 +484,7 @@ function resetAddForm() {
 function handleFiles(files) {
   for (const file of files) {
     if (file.size > 2 * 1024 * 1024) {
-      alert(`File "${file.name}" is too large (max 2MB). Use a link instead.`);
+      showToast(`File "${escapeHtml(file.name)}" is too large (max 2MB). Use a link instead.`, 'error');
       continue;
     }
     const reader = new FileReader();
@@ -534,7 +563,7 @@ function showTaskDetail(id) {
     ${task.dueDate ? `<div class="detail-section"><div class="detail-section-title">Due Date</div><div>${formatDueDate(task.dueDate, task.status === 'Completed')} &mdash; ${new Date(task.dueDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</div></div>` : ''}
     <div class="detail-timestamp">Created ${dateStr}</div>
     <div class="detail-actions">
-      <button class="btn btn-primary" onclick="editTask('${task.id}')">Edit Task</button>
+      <button class="btn btn-primary" data-action="edit" data-id="${task.id}">Edit Task</button>
     </div>
   `;
   openModal('modal-detail');
@@ -639,13 +668,13 @@ async function handleSyncClick() {
         if (status.connected) {
           clearInterval(poll);
           await checkGmailStatus();
-          alert(`Connected to ${status.email}! Click "Sync Email" to import messages.`);
+          showToast(`Connected to ${escapeHtml(status.email)}! Click "Sync Email" to import messages.`, 'success');
         }
       }, 2000);
       // Stop polling after 5 minutes
       setTimeout(() => clearInterval(poll), 300000);
     } catch (err) {
-      alert('Failed to start Gmail authorization: ' + err.message);
+      showToast('Failed to start Gmail authorization: ' + err.message, 'error');
     }
     return;
   }
@@ -657,12 +686,12 @@ async function handleSyncClick() {
     if (result.synced > 0) {
       await loadTasks();
       render();
-      alert(`Synced ${result.synced} new email${result.synced !== 1 ? 's' : ''} as tasks!`);
+      showToast(`Synced ${result.synced} new email${result.synced !== 1 ? 's' : ''} as tasks!`, 'success');
     } else {
-      alert('No new unread emails to sync.');
+      showToast('No new unread emails to sync.', 'info');
     }
   } catch (err) {
-    alert('Sync failed: ' + err.message);
+    showToast('Sync failed: ' + err.message, 'error');
   }
   await checkGmailStatus();
 }
@@ -670,7 +699,7 @@ async function handleSyncClick() {
 // === Event Binding ===
 async function init() {
   await loadTasks();
-  await migrateLocalStorage();
+  checkLocalStorageMigration();
 
   // Add Task button
   document.getElementById('btn-add-task').addEventListener('click', () => {
@@ -716,7 +745,7 @@ async function init() {
         if (task) Object.assign(task, updates);
         render();
       } catch (err) {
-        alert('Failed to update task: ' + err.message);
+        showToast('Failed to update task: ' + err.message, 'error');
       }
     } else {
       await addTask(title, department, priority, notes, 'manual', allAttachments, dueDate);
@@ -805,6 +834,14 @@ async function init() {
   document.getElementById('completed-list').addEventListener('click', handleTaskClick);
   document.getElementById('completed-list').addEventListener('change', handleTaskChange);
 
+  // Detail modal event delegation (edit button)
+  document.getElementById('detail-content').addEventListener('click', (e) => {
+    const target = e.target.closest('[data-action="edit"]');
+    if (target) {
+      editTask(target.dataset.id);
+    }
+  });
+
   // Completed period filter
   document.getElementById('completed-period').addEventListener('change', render);
 
@@ -887,7 +924,7 @@ document.addEventListener('DOMContentLoaded', () => {
   btnLogin.addEventListener('click', () => {
     const provider = new firebase.auth.GoogleAuthProvider();
     firebase.auth().signInWithPopup(provider).catch(err => {
-      alert('Sign-in failed: ' + err.message);
+      showToast('Sign-in failed: ' + err.message, 'error');
     });
   });
 

@@ -2,6 +2,8 @@ const express = require('express');
 const admin = require('firebase-admin');
 const cors = require('cors');
 const path = require('path');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const { google } = require('googleapis');
 
 // Initialize Firebase Admin with default credentials (auto-detected on Cloud Run)
@@ -17,6 +19,31 @@ const PORT = process.env.PORT || 8080;
 const GMAIL_CLIENT_ID = process.env.GMAIL_CLIENT_ID;
 const GMAIL_CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET;
 const GMAIL_REDIRECT_URI = process.env.GMAIL_REDIRECT_URI || 'https://cmo-task-manager-951932541878.us-central1.run.app/api/gmail/callback';
+
+// Security headers
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "https://www.gstatic.com", "https://apis.google.com", "'unsafe-inline'"],
+      styleSrc: ["'self'", "https://fonts.googleapis.com", "'unsafe-inline'"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      connectSrc: ["'self'", "https://www.googleapis.com", "https://securetoken.googleapis.com", "https://identitytoolkit.googleapis.com"],
+      frameSrc: ["https://accounts.google.com", "https://cmo-task-app.firebaseapp.com"],
+      imgSrc: ["'self'", "data:", "https:"],
+    }
+  }
+}));
+
+// Rate limiting for API routes
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' }
+});
+app.use('/api/', apiLimiter);
 
 app.use(cors());
 app.use(express.json({ limit: '5mb' }));
@@ -42,6 +69,42 @@ async function authenticate(req, res, next) {
   }
 }
 
+// === Input Validation ===
+const VALID_DEPARTMENTS = ['B2B Marketing', 'Internal Comms', 'Rev Ops', 'B2C Marketing'];
+const VALID_PRIORITIES = ['High', 'Medium', 'Low'];
+const VALID_STATUSES = ['Not Started', 'In Progress', 'Awaiting Feedback', 'Completed'];
+
+function validateTask(body, isUpdate) {
+  const errors = [];
+  if (!isUpdate || body.title !== undefined) {
+    if (!body.title || typeof body.title !== 'string' || body.title.trim().length === 0) {
+      errors.push('title is required');
+    } else if (body.title.length > 500) {
+      errors.push('title must be 500 characters or less');
+    }
+  }
+  if (!isUpdate || body.department !== undefined) {
+    if (!isUpdate && !body.department) {
+      errors.push('department is required');
+    } else if (body.department && !VALID_DEPARTMENTS.includes(body.department)) {
+      errors.push('invalid department');
+    }
+  }
+  if (body.priority !== undefined && !VALID_PRIORITIES.includes(body.priority)) {
+    errors.push('invalid priority');
+  }
+  if (body.status !== undefined && !VALID_STATUSES.includes(body.status)) {
+    errors.push('invalid status');
+  }
+  if (body.notes !== undefined && typeof body.notes === 'string' && body.notes.length > 50000) {
+    errors.push('notes must be 50000 characters or less');
+  }
+  if (body.dueDate !== undefined && body.dueDate !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(body.dueDate)) {
+    errors.push('dueDate must be YYYY-MM-DD format');
+  }
+  return errors;
+}
+
 // === Task Endpoints ===
 
 // GET /api/tasks — List all tasks for the authenticated user
@@ -59,6 +122,10 @@ app.get('/api/tasks', authenticate, async (req, res) => {
 
 // POST /api/tasks — Create a new task
 app.post('/api/tasks', authenticate, async (req, res) => {
+  const errors = validateTask(req.body, false);
+  if (errors.length > 0) {
+    return res.status(400).json({ error: errors.join(', ') });
+  }
   try {
     const task = {
       title: req.body.title,
@@ -132,6 +199,11 @@ app.put('/api/tasks/:id', authenticate, async (req, res) => {
     const doc = await taskRef.get();
     if (!doc.exists) {
       return res.status(404).json({ error: 'Task not found' });
+    }
+
+    const valErrors = validateTask(req.body, true);
+    if (valErrors.length > 0) {
+      return res.status(400).json({ error: valErrors.join(', ') });
     }
 
     const updates = {};
