@@ -773,9 +773,10 @@ async function loadFolders() {
 
 function renderSidebarFolders() {
   const container = document.getElementById('sidebar-folders');
-  container.innerHTML = folders.map(f =>
-    `<button class="sidebar-dept-item ${activeFolderId === f.id ? 'active' : ''}" data-folder-id="${f.id}">${escapeHtml(f.name)}</button>`
-  ).join('');
+  container.innerHTML = `<button class="sidebar-dept-item ${!activeFolderId ? 'active' : ''}" data-folder-id="">All Notes</button>` +
+    folders.map(f =>
+      `<button class="sidebar-dept-item ${activeFolderId === f.id ? 'active' : ''}" data-folder-id="${f.id}">${escapeHtml(f.name)}</button>`
+    ).join('');
   container.querySelectorAll('[data-folder-id]').forEach(btn => {
     btn.addEventListener('click', async () => {
       // Save any pending note before switching
@@ -789,11 +790,11 @@ function renderSidebarFolders() {
       activeNoteId = null;
       document.getElementById('notes-editor-panel').style.display = 'none';
       document.getElementById('notes-no-selection').style.display = 'flex';
-      activeFolderId = btn.dataset.folderId;
+      activeFolderId = btn.dataset.folderId || null;
       switchView('notes');
       loadNotesList(activeFolderId);
       renderSidebarFolders();
-      const folder = folders.find(f => f.id === activeFolderId);
+      const folder = activeFolderId ? folders.find(f => f.id === activeFolderId) : null;
       document.getElementById('notes-folder-title').textContent = folder ? folder.name : 'All Notes';
       closeSidebar();
     });
@@ -981,7 +982,14 @@ async function init() {
       switchView(view);
       // Toggle subnav
       if (view === 'tasks') toggleSidebarSection('tasks-subnav', 'tasks-caret');
-      if (view === 'notes') toggleSidebarSection('notes-subnav', 'notes-caret');
+      if (view === 'notes') {
+        toggleSidebarSection('notes-subnav', 'notes-caret');
+        // Show all notes when clicking the header
+        activeFolderId = null;
+        loadNotesList(null);
+        renderSidebarFolders();
+        document.getElementById('notes-folder-title').textContent = 'All Notes';
+      }
       closeSidebar();
     });
   });
