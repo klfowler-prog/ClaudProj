@@ -1652,8 +1652,100 @@ body {
 .login-note {
   color: var(--color-text-light);
   font-size: 0.75rem;
-  margin-top: 1.25rem;
+  margin-top: 0.75rem;
 }
+
+.login-divider {
+  margin: 1rem 0;
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--color-text-light);
+  position: relative;
+}
+
+.login-divider::before, .login-divider::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 30%;
+  height: 1px;
+  background: var(--color-border);
+}
+.login-divider::before { left: 0; }
+.login-divider::after { right: 0; }
+
+.login-input {
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  font-family: 'Roboto', sans-serif;
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+}
+.login-input:focus { outline: none; border-color: var(--follett-medium-blue); }
+
+/* Notification badge */
+.notif-badge {
+  background: var(--follett-coral);
+  color: #fff;
+  font-size: 0.6rem;
+  font-weight: 700;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  position: absolute;
+  top: 0.3rem;
+  right: 0.5rem;
+}
+
+/* My Tasks / All Tasks toggle */
+.stat-toggle {
+  padding: 0.2rem 0.6rem;
+  font-size: 0.75rem;
+  font-family: 'Roboto', sans-serif;
+  font-weight: 500;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: var(--transition);
+}
+.stat-toggle.active {
+  background: var(--follett-dark-blue);
+  color: #fff;
+  border-color: var(--follett-dark-blue);
+}
+
+/* Team roster */
+.team-member-card {
+  background: var(--color-surface);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: var(--shadow);
+  margin-bottom: 0.5rem;
+}
+.team-member-info { flex: 1; }
+.team-member-name { font-weight: 500; font-size: 0.9rem; }
+.team-member-meta { font-size: 0.75rem; color: var(--color-text-muted); }
+.team-member-actions { display: flex; gap: 0.375rem; }
+
+/* Notification items */
+.notif-item {
+  background: var(--color-surface);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+  box-shadow: var(--shadow);
+  margin-bottom: 0.5rem;
+  cursor: pointer;
+  border-left: 3px solid var(--follett-medium-blue);
+}
+.notif-item:hover { box-shadow: var(--shadow-lg); }
+.notif-item-title { font-size: 0.85rem; font-weight: 500; }
+.notif-item-time { font-size: 0.7rem; color: var(--color-text-light); margin-top: 0.125rem; }
 
 /* Sign out button */
 .btn-sign-out {

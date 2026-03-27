@@ -58,7 +58,8 @@ let deleteConfirmId = null;  // track which task is awaiting delete confirm
 // === Persistence (API-backed) ===
 async function loadTasks() {
   try {
-    tasks = await api('GET', '/api/tasks');
+    const url = showMyTasksOnly ? '/api/tasks?mine=true' : '/api/tasks';
+    tasks = await api('GET', url);
   } catch (err) {
     console.error('Failed to load tasks:', err);
     tasks = [];
@@ -150,8 +151,10 @@ function switchView(view) {
   document.getElementById('view-tasks').style.display = view === 'tasks' ? 'block' : 'none';
   document.getElementById('view-notes').style.display = view === 'notes' ? 'flex' : 'none';
   document.getElementById('view-ai').style.display = view === 'ai' ? 'flex' : 'none';
+  document.getElementById('view-team').style.display = view === 'team' ? 'block' : 'none';
+  document.getElementById('view-notifications').style.display = view === 'notifications' ? 'block' : 'none';
   document.querySelectorAll('.sidebar-nav-item').forEach(el => {
-    const match = el.dataset.view === view || (el.id === 'btn-open-chat' && view === 'ai');
+    const match = el.dataset.view === view || (el.id === 'btn-open-chat' && view === 'ai') || (el.id === 'btn-notifications' && view === 'notifications');
     el.classList.toggle('active', match);
   });
 }
@@ -1171,6 +1174,30 @@ async function init() {
 
   // AI buttons
   // AI Chat (full-screen view)
+  // Notifications
+  document.getElementById('btn-notifications').addEventListener('click', () => { showNotifications(); closeSidebar(); });
+
+  // Team (CMO only)
+  document.getElementById('btn-invite-member') && document.getElementById('btn-invite-member').addEventListener('click', inviteMember);
+  document.querySelectorAll('[data-view="team"]').forEach(btn => {
+    btn.addEventListener('click', () => { showTeamView(); closeSidebar(); });
+  });
+
+  // My Tasks / All Tasks toggle
+  document.getElementById('btn-my-tasks').addEventListener('click', () => {
+    showMyTasksOnly = true;
+    document.getElementById('btn-my-tasks').classList.add('active');
+    document.getElementById('btn-all-tasks').classList.remove('active');
+    loadTasks().then(render);
+  });
+  document.getElementById('btn-all-tasks').addEventListener('click', () => {
+    showMyTasksOnly = false;
+    document.getElementById('btn-all-tasks').classList.add('active');
+    document.getElementById('btn-my-tasks').classList.remove('active');
+    loadTasks().then(render);
+  });
+
+  // AI Chat
   document.getElementById('btn-open-chat').addEventListener('click', () => { openAiView(); closeSidebar(); });
   document.getElementById('btn-send-chat').addEventListener('click', () => sendChatMessage());
   document.getElementById('chat-input').addEventListener('keydown', (e) => {
@@ -1321,46 +1348,181 @@ async function init() {
   render();
 }
 
+// === Team, Notifications, My Tasks ===
+let myProfile = null;
+let showMyTasksOnly = false;
+let teamMembers = [];
+
+async function loadProfile() {
+  try {
+    myProfile = await api('GET', '/api/me');
+    // Show Team section for CMO only
+    if (myProfile.role === 'cmo') {
+      document.getElementById('sidebar-team-section').style.display = 'block';
+    }
+  } catch (err) { console.error('Failed to load profile:', err); }
+}
+
+async function loadNotifications() {
+  try {
+    const notifs = await api('GET', '/api/notifications');
+    const badge = document.getElementById('notif-badge');
+    if (notifs.length > 0) {
+      badge.textContent = notifs.length;
+      badge.style.display = 'inline';
+    } else {
+      badge.style.display = 'none';
+    }
+    return notifs;
+  } catch { return []; }
+}
+
+async function showNotifications() {
+  switchView('notifications');
+  const notifs = await loadNotifications();
+  const container = document.getElementById('notifications-list');
+  const empty = document.getElementById('notifications-empty');
+  if (notifs.length === 0) { container.innerHTML = ''; empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+  container.innerHTML = notifs.map(n => {
+    const ago = timeAgo(n.createdAt);
+    return `<div class="notif-item" data-notif-id="${n.id}" data-task-id="${n.taskId || ''}">
+      <div class="notif-item-title">${escapeHtml(n.title)}</div>
+      <div class="notif-item-time">${ago}</div>
+    </div>`;
+  }).join('');
+  container.querySelectorAll('.notif-item').forEach(item => {
+    item.addEventListener('click', async () => {
+      await api('POST', `/api/notifications/${item.dataset.notifId}/read`).catch(() => {});
+      loadNotifications();
+      if (item.dataset.taskId) { switchView('tasks'); }
+    });
+  });
+}
+
+function timeAgo(iso) {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
+async function loadTeam() {
+  try { teamMembers = await api('GET', '/api/team'); } catch { teamMembers = []; }
+}
+
+async function showTeamView() {
+  switchView('team');
+  await loadTeam();
+  const container = document.getElementById('team-roster');
+  container.innerHTML = teamMembers.map(m => `
+    <div class="team-member-card">
+      <div class="team-member-info">
+        <div class="team-member-name">${escapeHtml(m.displayName)}</div>
+        <div class="team-member-meta">${escapeHtml(m.email)} &middot; ${m.role} &middot; ${m.department} &middot; ${m.status}</div>
+      </div>
+      <div class="team-member-actions">
+        ${m.status === 'active' && m.role !== 'cmo'
+          ? `<button class="btn btn-ghost btn-sm" onclick="disableMember('${m.id}')">Disable</button>`
+          : m.status === 'disabled'
+          ? `<button class="btn btn-ghost btn-sm" onclick="enableMember('${m.id}')">Enable</button>`
+          : ''}
+      </div>
+    </div>
+  `).join('');
+}
+
+async function inviteMember() {
+  const email = prompt('Team member email address:');
+  if (!email) return;
+  const name = prompt('Display name:') || email.split('@')[0];
+  const dept = prompt('Department (B2B Marketing, Internal Comms, Rev Ops, B2C Marketing, Personal):') || 'B2B Marketing';
+  const role = prompt('Role (lead or member):') || 'member';
+
+  try {
+    const result = await api('POST', '/api/team/invite', { email, displayName: name, department: dept, role });
+    alert(`Invited ${email}!\n\nSend them this password reset link:\n${result.resetLink}`);
+    showTeamView();
+  } catch (err) { alert('Failed to invite: ' + err.message); }
+}
+
+async function disableMember(id) {
+  if (!confirm('Disable this team member? They will lose access immediately.')) return;
+  try { await api('POST', `/api/team/${id}/disable`); showTeamView(); } catch (err) { alert(err.message); }
+}
+
+async function enableMember(id) {
+  try { await api('POST', `/api/team/${id}/enable`); showTeamView(); } catch (err) { alert(err.message); }
+}
+
 // === Firebase Auth & Boot ===
 document.addEventListener('DOMContentLoaded', () => {
   const loginScreen = document.getElementById('login-screen');
   const appContainer = document.getElementById('app-container');
-  const btnLogin = document.getElementById('btn-google-login');
-  const btnSignOut = document.getElementById('btn-sign-out');
-  const userEmail = document.getElementById('user-email');
 
-  btnLogin.addEventListener('click', () => {
+  // Google sign-in
+  document.getElementById('btn-google-login').addEventListener('click', () => {
     const provider = new firebase.auth.GoogleAuthProvider();
     firebase.auth().signInWithPopup(provider).catch(err => {
-      alert('Sign-in failed: ' + err.message);
+      document.getElementById('login-error').textContent = err.message;
     });
   });
 
-  btnSignOut.addEventListener('click', () => {
-    firebase.auth().signOut();
+  // Email/password sign-in
+  document.getElementById('btn-email-login').addEventListener('click', () => {
+    const email = document.getElementById('login-email').value.trim();
+    const password = document.getElementById('login-password').value;
+    if (!email || !password) { document.getElementById('login-error').textContent = 'Enter email and password'; return; }
+    firebase.auth().signInWithEmailAndPassword(email, password).catch(err => {
+      document.getElementById('login-error').textContent = err.message;
+    });
   });
+
+  // Enter key on password field
+  document.getElementById('login-password').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('btn-email-login').click();
+  });
+
+  // Forgot password
+  document.getElementById('btn-forgot-password').addEventListener('click', (e) => {
+    e.preventDefault();
+    const email = document.getElementById('login-email').value.trim();
+    if (!email) { document.getElementById('login-error').textContent = 'Enter your email first'; return; }
+    firebase.auth().sendPasswordResetEmail(email).then(() => {
+      document.getElementById('login-error').textContent = '';
+      alert('Password reset email sent to ' + email);
+    }).catch(err => { document.getElementById('login-error').textContent = err.message; });
+  });
+
+  // Sign out
+  document.getElementById('btn-sign-out').addEventListener('click', () => firebase.auth().signOut());
 
   firebase.auth().onAuthStateChanged(async (user) => {
     if (user) {
       currentUser = user;
       authToken = await user.getIdToken();
-      userEmail.textContent = user.email;
+      document.getElementById('user-email').textContent = user.email;
       loginScreen.style.display = 'none';
       appContainer.style.display = 'flex';
+      await loadProfile();
       await init();
+      loadNotifications();
+      // Poll notifications every 60 seconds
+      setInterval(loadNotifications, 60000);
     } else {
       currentUser = null;
       authToken = null;
+      myProfile = null;
       tasks = [];
       loginScreen.style.display = 'flex';
       appContainer.style.display = 'none';
     }
   });
 
-  // Refresh token before expiry (tokens last 1 hour)
   setInterval(async () => {
-    if (currentUser) {
-      authToken = await currentUser.getIdToken(true);
-    }
-  }, 50 * 60 * 1000); // Refresh every 50 minutes
+    if (currentUser) authToken = await currentUser.getIdToken(true);
+  }, 50 * 60 * 1000);
 });

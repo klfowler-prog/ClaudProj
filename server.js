@@ -36,21 +36,140 @@ async function authenticate(req, res, next) {
     const decoded = await admin.auth().verifyIdToken(token);
     req.userId = decoded.uid;
     req.userEmail = decoded.email;
+    req.userName = decoded.name || decoded.email;
     next();
   } catch (err) {
     return res.status(401).json({ error: 'Invalid or expired token' });
   }
 }
 
+// === Org Resolution Middleware ===
+// Looks up which org the user belongs to, sets req.orgId, req.memberRole, req.memberDept
+async function resolveOrg(req, res, next) {
+  try {
+    // Check if user has an org membership
+    const memberSnap = await db.collectionGroup('members')
+      .where('userId', '==', req.userId).where('status', '==', 'active').limit(1).get();
+
+    if (!memberSnap.empty) {
+      const memberDoc = memberSnap.docs[0];
+      const memberData = memberDoc.data();
+      req.orgId = memberDoc.ref.parent.parent.id;
+      req.memberRole = memberData.role;
+      req.memberDept = memberData.department;
+      req.memberName = memberData.displayName;
+      return next();
+    }
+
+    // No org found — check if we need to auto-create one (first-time CMO setup)
+    // Look for legacy user data to migrate
+    const legacyTasks = await db.collection('users').doc(req.userId).collection('tasks').limit(1).get();
+    const hasLegacyData = !legacyTasks.empty;
+
+    // Create a new org for this user
+    const orgRef = db.collection('orgs').doc();
+    const orgData = { name: 'Follett Marketing', createdAt: new Date().toISOString(), createdBy: req.userId };
+    await orgRef.set(orgData);
+
+    // Add user as CMO member
+    await orgRef.collection('members').doc(req.userId).set({
+      userId: req.userId,
+      email: req.userEmail,
+      displayName: req.userName,
+      role: 'cmo',
+      department: 'all',
+      status: 'active',
+      joinedAt: new Date().toISOString()
+    });
+
+    req.orgId = orgRef.id;
+    req.memberRole = 'cmo';
+    req.memberDept = 'all';
+    req.memberName = req.userName;
+
+    // Migrate legacy data if it exists
+    if (hasLegacyData) {
+      await migrateLegacyData(req.userId, orgRef.id);
+    }
+
+    // Seed default folders
+    const defaults = ['B2B Marketing', 'Internal Comms', 'Rev Ops', 'B2C Marketing', 'Personal'];
+    const batch = db.batch();
+    defaults.forEach((name, i) => {
+      const ref = orgRef.collection('folders').doc();
+      batch.set(ref, { name, order: i, createdAt: new Date().toISOString() });
+    });
+    await batch.commit();
+
+    next();
+  } catch (err) {
+    console.error('Org resolution failed:', err);
+    res.status(500).json({ error: 'Failed to resolve organization' });
+  }
+}
+
+async function migrateLegacyData(userId, orgId) {
+  const orgRef = db.collection('orgs').doc(orgId);
+  const userRef = db.collection('users').doc(userId);
+
+  // Migrate tasks
+  const tasksSnap = await userRef.collection('tasks').get();
+  for (const doc of tasksSnap.docs) {
+    await orgRef.collection('tasks').doc(doc.id).set({
+      ...doc.data(),
+      createdBy: userId,
+      assignedTo: userId,
+      sharedWith: []
+    });
+  }
+
+  // Migrate notes
+  const notesSnap = await userRef.collection('notes').get();
+  for (const doc of notesSnap.docs) {
+    await orgRef.collection('notes').doc(doc.id).set({
+      ...doc.data(),
+      createdBy: userId
+    });
+  }
+
+  // Migrate folders
+  const foldersSnap = await userRef.collection('folders').get();
+  for (const doc of foldersSnap.docs) {
+    await orgRef.collection('folders').doc(doc.id).set(doc.data());
+  }
+}
+
+// Helper: org-scoped collection reference
+function orgCol(req, collection) {
+  return db.collection('orgs').doc(req.orgId).collection(collection);
+}
+
+// Shorthand middleware chain
+const auth = [authenticate, resolveOrg];
+
 // === Task Endpoints ===
 
-// GET /api/tasks — List all tasks for the authenticated user
-app.get('/api/tasks', authenticate, async (req, res) => {
+// GET /api/tasks — List tasks (filtered by role/department)
+app.get('/api/tasks', auth, async (req, res) => {
   try {
-    const snapshot = await db.collection('users').doc(req.userId)
-      .collection('tasks').orderBy('createdAt', 'desc').get();
+    const snapshot = await orgCol(req, 'tasks').orderBy('createdAt', 'desc').get();
+    let tasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-    const tasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    // Filter by role: CMO sees all, others see their dept + assigned/shared
+    if (req.memberRole !== 'cmo') {
+      tasks = tasks.filter(t =>
+        t.department === req.memberDept ||
+        t.assignedTo === req.userId ||
+        (t.sharedWith && t.sharedWith.includes(req.userId)) ||
+        t.createdBy === req.userId
+      );
+    }
+
+    // Optional: filter to "my tasks" only
+    if (req.query.mine === 'true') {
+      tasks = tasks.filter(t => t.assignedTo === req.userId || t.createdBy === req.userId);
+    }
+
     res.json(tasks);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch tasks' });
@@ -58,7 +177,7 @@ app.get('/api/tasks', authenticate, async (req, res) => {
 });
 
 // POST /api/tasks — Create a new task
-app.post('/api/tasks', authenticate, async (req, res) => {
+app.post('/api/tasks', auth, async (req, res) => {
   try {
     const task = {
       title: req.body.title,
@@ -73,46 +192,53 @@ app.post('/api/tasks', authenticate, async (req, res) => {
       attachments: req.body.attachments || [],
       dueDate: req.body.dueDate || '',
       emailMessageId: req.body.emailMessageId || '',
-      recurring: req.body.recurring || 'none'
+      recurring: req.body.recurring || 'none',
+      createdBy: req.userId,
+      assignedTo: req.body.assignedTo || req.userId,
+      sharedWith: req.body.sharedWith || []
     };
 
-    const docRef = await db.collection('users').doc(req.userId)
-      .collection('tasks').add(task);
+    const docRef = await orgCol(req, 'tasks').add(task);
+    const created = { id: docRef.id, ...task };
 
-    res.status(201).json({ id: docRef.id, ...task });
+    // Send notification if assigned to someone else
+    if (task.assignedTo && task.assignedTo !== req.userId) {
+      await createNotification(req.orgId, task.assignedTo, {
+        type: 'task_assigned',
+        title: `${req.memberName} assigned you: ${task.title}`,
+        taskId: docRef.id,
+        fromUserId: req.userId,
+        fromName: req.memberName
+      });
+    }
+
+    res.status(201).json(created);
   } catch (err) {
     res.status(500).json({ error: 'Failed to create task' });
   }
 });
 
-// POST /api/tasks/batch — Bulk import tasks (for localStorage migration)
-app.post('/api/tasks/batch', authenticate, async (req, res) => {
+// POST /api/tasks/batch — Bulk import tasks
+app.post('/api/tasks/batch', auth, async (req, res) => {
   try {
     const tasks = req.body.tasks;
-    if (!Array.isArray(tasks)) {
-      return res.status(400).json({ error: 'tasks must be an array' });
-    }
+    if (!Array.isArray(tasks)) return res.status(400).json({ error: 'tasks must be an array' });
 
     const batch = db.batch();
-    const tasksRef = db.collection('users').doc(req.userId).collection('tasks');
+    const tasksRef = orgCol(req, 'tasks');
     const results = [];
 
     for (const task of tasks) {
       const docRef = tasksRef.doc();
       const taskData = {
-        title: task.title,
-        department: task.department,
-        priority: task.priority || 'Medium',
-        notes: task.notes || '',
-        status: task.status || 'Not Started',
-        completed: task.status === 'Completed',
-        completedAt: task.completedAt || '',
-        createdAt: task.createdAt || new Date().toISOString(),
-        source: task.source || 'manual',
-        attachments: task.attachments || [],
-        dueDate: task.dueDate || '',
-        emailMessageId: task.emailMessageId || '',
-        recurring: task.recurring || 'none'
+        title: task.title, department: task.department,
+        priority: task.priority || 'Medium', notes: task.notes || '',
+        status: task.status || 'Not Started', completed: task.status === 'Completed',
+        completedAt: task.completedAt || '', createdAt: task.createdAt || new Date().toISOString(),
+        source: task.source || 'manual', attachments: task.attachments || [],
+        dueDate: task.dueDate || '', emailMessageId: task.emailMessageId || '',
+        recurring: task.recurring || 'none',
+        createdBy: req.userId, assignedTo: task.assignedTo || req.userId, sharedWith: []
       };
       batch.set(docRef, taskData);
       results.push({ id: docRef.id, ...taskData });
@@ -126,49 +252,49 @@ app.post('/api/tasks/batch', authenticate, async (req, res) => {
 });
 
 // PUT /api/tasks/:id — Update a task
-app.put('/api/tasks/:id', authenticate, async (req, res) => {
+app.put('/api/tasks/:id', auth, async (req, res) => {
   try {
-    const taskRef = db.collection('users').doc(req.userId)
-      .collection('tasks').doc(req.params.id);
-
+    const taskRef = orgCol(req, 'tasks').doc(req.params.id);
     const doc = await taskRef.get();
-    if (!doc.exists) {
-      return res.status(404).json({ error: 'Task not found' });
-    }
+    if (!doc.exists) return res.status(404).json({ error: 'Task not found' });
 
+    const oldTask = doc.data();
     const updates = {};
     const allowedFields = ['title', 'department', 'priority', 'notes', 'status',
-      'completed', 'completedAt', 'dueDate', 'attachments', 'emailMessageId', 'recurring'];
+      'completed', 'completedAt', 'dueDate', 'attachments', 'emailMessageId', 'recurring',
+      'assignedTo', 'sharedWith'];
 
     for (const field of allowedFields) {
-      if (req.body[field] !== undefined) {
-        updates[field] = req.body[field];
-      }
+      if (req.body[field] !== undefined) updates[field] = req.body[field];
     }
 
-    // Keep completed in sync with status
-    if (updates.status) {
-      updates.completed = updates.status === 'Completed';
-    }
+    if (updates.status) updates.completed = updates.status === 'Completed';
 
     await taskRef.update(updates);
-    res.json({ id: req.params.id, ...doc.data(), ...updates });
+
+    // Notify if assignedTo changed to someone new
+    if (updates.assignedTo && updates.assignedTo !== oldTask.assignedTo && updates.assignedTo !== req.userId) {
+      await createNotification(req.orgId, updates.assignedTo, {
+        type: 'task_assigned',
+        title: `${req.memberName} assigned you: ${oldTask.title}`,
+        taskId: req.params.id,
+        fromUserId: req.userId,
+        fromName: req.memberName
+      });
+    }
+
+    res.json({ id: req.params.id, ...oldTask, ...updates });
   } catch (err) {
     res.status(500).json({ error: 'Failed to update task' });
   }
 });
 
 // DELETE /api/tasks/:id — Delete a task
-app.delete('/api/tasks/:id', authenticate, async (req, res) => {
+app.delete('/api/tasks/:id', auth, async (req, res) => {
   try {
-    const taskRef = db.collection('users').doc(req.userId)
-      .collection('tasks').doc(req.params.id);
-
+    const taskRef = orgCol(req, 'tasks').doc(req.params.id);
     const doc = await taskRef.get();
-    if (!doc.exists) {
-      return res.status(404).json({ error: 'Task not found' });
-    }
-
+    if (!doc.exists) return res.status(404).json({ error: 'Task not found' });
     await taskRef.delete();
     res.json({ deleted: true });
   } catch (err) {
@@ -178,167 +304,97 @@ app.delete('/api/tasks/:id', authenticate, async (req, res) => {
 
 // === Folder Endpoints ===
 
-// GET /api/folders — List all folders
-app.get('/api/folders', authenticate, async (req, res) => {
+app.get('/api/folders', auth, async (req, res) => {
   try {
-    const snapshot = await db.collection('users').doc(req.userId)
-      .collection('folders').orderBy('order').get();
-    const folders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-    // Seed default folders if none exist
-    if (folders.length === 0) {
-      const defaults = ['B2B Marketing', 'Internal Comms', 'Rev Ops', 'B2C Marketing', 'Personal'];
-      const batch = db.batch();
-      const seeded = [];
-      defaults.forEach((name, i) => {
-        const ref = db.collection('users').doc(req.userId).collection('folders').doc();
-        const folder = { name, order: i, createdAt: new Date().toISOString() };
-        batch.set(ref, folder);
-        seeded.push({ id: ref.id, ...folder });
-      });
-      await batch.commit();
-      return res.json(seeded);
-    }
-
-    res.json(folders);
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch folders' });
-  }
+    const snapshot = await orgCol(req, 'folders').orderBy('order').get();
+    res.json(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+  } catch (err) { res.status(500).json({ error: 'Failed to fetch folders' }); }
 });
 
-// POST /api/folders — Create a folder
-app.post('/api/folders', authenticate, async (req, res) => {
+app.post('/api/folders', auth, async (req, res) => {
   try {
-    const folder = {
-      name: req.body.name,
-      order: req.body.order || 99,
-      createdAt: new Date().toISOString()
-    };
-    const ref = await db.collection('users').doc(req.userId)
-      .collection('folders').add(folder);
+    const folder = { name: req.body.name, order: req.body.order || 99, createdAt: new Date().toISOString() };
+    const ref = await orgCol(req, 'folders').add(folder);
     res.status(201).json({ id: ref.id, ...folder });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to create folder' });
-  }
+  } catch (err) { res.status(500).json({ error: 'Failed to create folder' }); }
 });
 
-// PUT /api/folders/:id — Update a folder
-app.put('/api/folders/:id', authenticate, async (req, res) => {
+app.put('/api/folders/:id', auth, async (req, res) => {
   try {
-    const ref = db.collection('users').doc(req.userId)
-      .collection('folders').doc(req.params.id);
     const updates = {};
     if (req.body.name !== undefined) updates.name = req.body.name;
     if (req.body.order !== undefined) updates.order = req.body.order;
-    await ref.update(updates);
+    await orgCol(req, 'folders').doc(req.params.id).update(updates);
     res.json({ id: req.params.id, ...updates });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to update folder' });
-  }
+  } catch (err) { res.status(500).json({ error: 'Failed to update folder' }); }
 });
 
-// DELETE /api/folders/:id — Delete a folder (only if empty)
-app.delete('/api/folders/:id', authenticate, async (req, res) => {
+app.delete('/api/folders/:id', auth, async (req, res) => {
   try {
-    const notesInFolder = await db.collection('users').doc(req.userId)
-      .collection('notes').where('folderId', '==', req.params.id).limit(1).get();
-    if (!notesInFolder.empty) {
-      return res.status(400).json({ error: 'Folder is not empty. Delete or move notes first.' });
-    }
-    await db.collection('users').doc(req.userId)
-      .collection('folders').doc(req.params.id).delete();
+    const notesInFolder = await orgCol(req, 'notes').where('folderId', '==', req.params.id).limit(1).get();
+    if (!notesInFolder.empty) return res.status(400).json({ error: 'Folder not empty' });
+    await orgCol(req, 'folders').doc(req.params.id).delete();
     res.json({ deleted: true });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to delete folder' });
-  }
+  } catch (err) { res.status(500).json({ error: 'Failed to delete folder' }); }
 });
 
 // === Notes Endpoints ===
 
-// GET /api/notes — List notes (optionally filtered by folderId)
-app.get('/api/notes', authenticate, async (req, res) => {
+app.get('/api/notes', auth, async (req, res) => {
   try {
     let query;
     if (req.query.folderId) {
-      // Filter by folder — sort client-side to avoid needing a composite index
-      query = db.collection('users').doc(req.userId)
-        .collection('notes').where('folderId', '==', req.query.folderId);
+      query = orgCol(req, 'notes').where('folderId', '==', req.query.folderId);
     } else {
-      query = db.collection('users').doc(req.userId)
-        .collection('notes').orderBy('updatedAt', 'desc');
+      query = orgCol(req, 'notes').orderBy('updatedAt', 'desc');
     }
     const snapshot = await query.get();
     const notes = snapshot.docs.map(doc => {
       const d = doc.data();
-      return { id: doc.id, title: d.title, folderId: d.folderId, source: d.source, updatedAt: d.updatedAt, createdAt: d.createdAt };
+      return { id: doc.id, title: d.title, folderId: d.folderId, source: d.source, updatedAt: d.updatedAt, createdAt: d.createdAt, createdBy: d.createdBy };
     });
-    // Sort by updatedAt descending (needed when filtering by folder since we can't use orderBy with where)
     notes.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
     res.json(notes);
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch notes' });
-  }
+  } catch (err) { res.status(500).json({ error: 'Failed to fetch notes' }); }
 });
 
-// GET /api/notes/:id — Get a single note with full content
-app.get('/api/notes/:id', authenticate, async (req, res) => {
+app.get('/api/notes/:id', auth, async (req, res) => {
   try {
-    const doc = await db.collection('users').doc(req.userId)
-      .collection('notes').doc(req.params.id).get();
+    const doc = await orgCol(req, 'notes').doc(req.params.id).get();
     if (!doc.exists) return res.status(404).json({ error: 'Note not found' });
     res.json({ id: doc.id, ...doc.data() });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch note' });
-  }
+  } catch (err) { res.status(500).json({ error: 'Failed to fetch note' }); }
 });
 
-// POST /api/notes — Create a note
-app.post('/api/notes', authenticate, async (req, res) => {
+app.post('/api/notes', auth, async (req, res) => {
   try {
     const now = new Date().toISOString();
     const note = {
-      title: req.body.title || 'Untitled',
-      content: req.body.content || '',
-      folderId: req.body.folderId || '',
-      source: req.body.source || 'manual',
-      createdAt: now,
-      updatedAt: now,
-      aiSummary: ''
+      title: req.body.title || 'Untitled', content: req.body.content || '',
+      folderId: req.body.folderId || '', source: req.body.source || 'manual',
+      createdAt: now, updatedAt: now, aiSummary: '', createdBy: req.userId
     };
-    const ref = await db.collection('users').doc(req.userId)
-      .collection('notes').add(note);
+    const ref = await orgCol(req, 'notes').add(note);
     res.status(201).json({ id: ref.id, ...note });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to create note' });
-  }
+  } catch (err) { res.status(500).json({ error: 'Failed to create note' }); }
 });
 
-// PUT /api/notes/:id — Update a note
-app.put('/api/notes/:id', authenticate, async (req, res) => {
+app.put('/api/notes/:id', auth, async (req, res) => {
   try {
-    const ref = db.collection('users').doc(req.userId)
-      .collection('notes').doc(req.params.id);
+    const ref = orgCol(req, 'notes').doc(req.params.id);
     const updates = { updatedAt: new Date().toISOString() };
     const allowed = ['title', 'content', 'folderId', 'aiSummary'];
-    for (const f of allowed) {
-      if (req.body[f] !== undefined) updates[f] = req.body[f];
-    }
+    for (const f of allowed) { if (req.body[f] !== undefined) updates[f] = req.body[f]; }
     await ref.update(updates);
     res.json({ id: req.params.id, ...updates });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to update note' });
-  }
+  } catch (err) { res.status(500).json({ error: 'Failed to update note' }); }
 });
 
-// DELETE /api/notes/:id — Delete a note
-app.delete('/api/notes/:id', authenticate, async (req, res) => {
+app.delete('/api/notes/:id', auth, async (req, res) => {
   try {
-    await db.collection('users').doc(req.userId)
-      .collection('notes').doc(req.params.id).delete();
+    await orgCol(req, 'notes').doc(req.params.id).delete();
     res.json({ deleted: true });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to delete note' });
-  }
+  } catch (err) { res.status(500).json({ error: 'Failed to delete note' }); }
 });
 
 // === AI Endpoints (Gemini) ===
@@ -357,10 +413,9 @@ function stripHtml(html) {
 }
 
 // POST /api/notes/:id/summarize
-app.post('/api/notes/:id/summarize', authenticate, async (req, res) => {
+app.post('/api/notes/:id/summarize', auth, async (req, res) => {
   try {
-    const doc = await db.collection('users').doc(req.userId)
-      .collection('notes').doc(req.params.id).get();
+    const doc = await orgCol(req, 'notes').doc(req.params.id).get();
     if (!doc.exists) return res.status(404).json({ error: 'Note not found' });
 
     const note = doc.data();
@@ -375,8 +430,7 @@ app.post('/api/notes/:id/summarize', authenticate, async (req, res) => {
     const summary = result.response.text();
 
     // Cache the summary
-    await db.collection('users').doc(req.userId)
-      .collection('notes').doc(req.params.id).update({ aiSummary: summary });
+    await orgCol(req, 'notes').doc(req.params.id).update({ aiSummary: summary });
 
     res.json({ summary });
   } catch (err) {
@@ -385,13 +439,12 @@ app.post('/api/notes/:id/summarize', authenticate, async (req, res) => {
 });
 
 // POST /api/notes/:id/ask
-app.post('/api/notes/:id/ask', authenticate, async (req, res) => {
+app.post('/api/notes/:id/ask', auth, async (req, res) => {
   try {
     const { question } = req.body;
     if (!question) return res.status(400).json({ error: 'Question is required' });
 
-    const doc = await db.collection('users').doc(req.userId)
-      .collection('notes').doc(req.params.id).get();
+    const doc = await orgCol(req, 'notes').doc(req.params.id).get();
     if (!doc.exists) return res.status(404).json({ error: 'Note not found' });
 
     const note = doc.data();
@@ -409,10 +462,9 @@ app.post('/api/notes/:id/ask', authenticate, async (req, res) => {
 });
 
 // POST /api/notes/:id/generate-tasks
-app.post('/api/notes/:id/generate-tasks', authenticate, async (req, res) => {
+app.post('/api/notes/:id/generate-tasks', auth, async (req, res) => {
   try {
-    const doc = await db.collection('users').doc(req.userId)
-      .collection('notes').doc(req.params.id).get();
+    const doc = await orgCol(req, 'notes').doc(req.params.id).get();
     if (!doc.exists) return res.status(404).json({ error: 'Note not found' });
 
     const note = doc.data();
@@ -440,24 +492,21 @@ app.post('/api/notes/:id/generate-tasks', authenticate, async (req, res) => {
 });
 
 // === Global AI Chat ===
-app.post('/api/ai/chat', authenticate, async (req, res) => {
+app.post('/api/ai/chat', auth, async (req, res) => {
   try {
     const { message, history } = req.body;
     if (!message) return res.status(400).json({ error: 'Message is required' });
 
-    // Gather all tasks
-    const tasksSnap = await db.collection('users').doc(req.userId)
-      .collection('tasks').orderBy('createdAt', 'desc').get();
+    // Gather all tasks (CMO sees all, others see their dept)
+    const tasksSnap = await orgCol(req, 'tasks').orderBy('createdAt', 'desc').get();
     const allTasks = tasksSnap.docs.map(d => {
       const t = d.data();
       return `[${t.status}] ${t.title} | Dept: ${t.department} | Priority: ${t.priority}${t.dueDate ? ' | Due: ' + t.dueDate : ''}${t.notes ? ' | Notes: ' + t.notes.substring(0, 200) : ''}`;
     });
 
     // Gather all notes (titles + truncated content)
-    const notesSnap = await db.collection('users').doc(req.userId)
-      .collection('notes').get();
-    const foldersSnap = await db.collection('users').doc(req.userId)
-      .collection('folders').get();
+    const notesSnap = await orgCol(req, 'notes').get();
+    const foldersSnap = await orgCol(req, 'folders').get();
     const folderMap = {};
     foldersSnap.docs.forEach(d => { folderMap[d.id] = d.data().name; });
 
@@ -500,6 +549,141 @@ ${allNotes.join('\n---\n')}`;
   }
 });
 
+// === Notification System ===
+async function createNotification(orgId, toUserId, data) {
+  await db.collection('orgs').doc(orgId).collection('notifications').add({
+    toUserId,
+    ...data,
+    read: false,
+    createdAt: new Date().toISOString()
+  });
+
+  // Send email notification
+  try {
+    const memberDoc = await db.collection('orgs').doc(orgId).collection('members').doc(toUserId).get();
+    if (memberDoc.exists) {
+      const email = memberDoc.data().email;
+      // Use Firebase Auth to send email (via custom email or just log for now)
+      console.log(`NOTIFICATION: Email to ${email}: ${data.title}`);
+    }
+  } catch (err) { console.error('Failed to send email notification:', err); }
+}
+
+// GET /api/notifications — Get unread notifications for current user
+app.get('/api/notifications', auth, async (req, res) => {
+  try {
+    const snap = await orgCol(req, 'notifications')
+      .where('toUserId', '==', req.userId).where('read', '==', false).get();
+    const notifs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    notifs.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    res.json(notifs);
+  } catch (err) { res.status(500).json({ error: 'Failed to fetch notifications' }); }
+});
+
+// POST /api/notifications/:id/read — Mark notification as read
+app.post('/api/notifications/:id/read', auth, async (req, res) => {
+  try {
+    await orgCol(req, 'notifications').doc(req.params.id).update({ read: true });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: 'Failed to mark notification' }); }
+});
+
+// === Team Management Endpoints ===
+
+// GET /api/me — Get current user's profile and role
+app.get('/api/me', auth, async (req, res) => {
+  res.json({
+    userId: req.userId,
+    email: req.userEmail,
+    name: req.memberName,
+    role: req.memberRole,
+    department: req.memberDept,
+    orgId: req.orgId
+  });
+});
+
+// GET /api/team — List all team members (CMO only)
+app.get('/api/team', auth, async (req, res) => {
+  if (req.memberRole !== 'cmo') return res.status(403).json({ error: 'CMO only' });
+  try {
+    const snap = await orgCol(req, 'members').get();
+    res.json(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+  } catch (err) { res.status(500).json({ error: 'Failed to fetch team' }); }
+});
+
+// POST /api/team/invite — Invite a team member (CMO only)
+app.post('/api/team/invite', auth, async (req, res) => {
+  if (req.memberRole !== 'cmo') return res.status(403).json({ error: 'CMO only' });
+  try {
+    const { email, displayName, role, department } = req.body;
+    if (!email || !department) return res.status(400).json({ error: 'Email and department required' });
+
+    // Create Firebase Auth account with email/password
+    const tempPassword = Math.random().toString(36).slice(-12) + 'A1!';
+    const userRecord = await admin.auth().createUser({
+      email,
+      password: tempPassword,
+      displayName: displayName || email.split('@')[0]
+    });
+
+    // Add as org member
+    await orgCol(req, 'members').doc(userRecord.uid).set({
+      userId: userRecord.uid,
+      email,
+      displayName: displayName || email.split('@')[0],
+      role: role || 'member',
+      department,
+      status: 'active',
+      joinedAt: new Date().toISOString()
+    });
+
+    // Send password reset email so they can set their own password
+    const resetLink = await admin.auth().generatePasswordResetLink(email);
+
+    res.status(201).json({
+      userId: userRecord.uid,
+      email,
+      resetLink,
+      message: `Account created. Send this link to ${email} so they can set their password: ${resetLink}`
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to invite: ' + err.message });
+  }
+});
+
+// PUT /api/team/:id — Update a team member (CMO only)
+app.put('/api/team/:id', auth, async (req, res) => {
+  if (req.memberRole !== 'cmo') return res.status(403).json({ error: 'CMO only' });
+  try {
+    const updates = {};
+    if (req.body.role) updates.role = req.body.role;
+    if (req.body.department) updates.department = req.body.department;
+    if (req.body.displayName) updates.displayName = req.body.displayName;
+    await orgCol(req, 'members').doc(req.params.id).update(updates);
+    res.json({ id: req.params.id, ...updates });
+  } catch (err) { res.status(500).json({ error: 'Failed to update member' }); }
+});
+
+// POST /api/team/:id/disable — Disable a team member (CMO only)
+app.post('/api/team/:id/disable', auth, async (req, res) => {
+  if (req.memberRole !== 'cmo') return res.status(403).json({ error: 'CMO only' });
+  try {
+    await admin.auth().updateUser(req.params.id, { disabled: true });
+    await orgCol(req, 'members').doc(req.params.id).update({ status: 'disabled' });
+    res.json({ disabled: true });
+  } catch (err) { res.status(500).json({ error: 'Failed to disable member' }); }
+});
+
+// POST /api/team/:id/enable — Re-enable a team member (CMO only)
+app.post('/api/team/:id/enable', auth, async (req, res) => {
+  if (req.memberRole !== 'cmo') return res.status(403).json({ error: 'CMO only' });
+  try {
+    await admin.auth().updateUser(req.params.id, { disabled: false });
+    await orgCol(req, 'members').doc(req.params.id).update({ status: 'active' });
+    res.json({ enabled: true });
+  } catch (err) { res.status(500).json({ error: 'Failed to enable member' }); }
+});
+
 // === Gmail OAuth Endpoints ===
 
 function createOAuth2Client() {
@@ -507,7 +691,7 @@ function createOAuth2Client() {
 }
 
 // GET /api/gmail/status — Check if Gmail inbox is connected
-app.get('/api/gmail/status', authenticate, async (req, res) => {
+app.get('/api/gmail/status', auth, async (req, res) => {
   try {
     const doc = await db.collection('users').doc(req.userId).get();
     const data = doc.exists ? doc.data() : {};
@@ -518,7 +702,7 @@ app.get('/api/gmail/status', authenticate, async (req, res) => {
 });
 
 // GET /api/gmail/auth — Start OAuth flow for CMOtaskinbox Gmail
-app.get('/api/gmail/auth', authenticate, async (req, res) => {
+app.get('/api/gmail/auth', auth, async (req, res) => {
   const oauth2Client = createOAuth2Client();
   const state = Buffer.from(JSON.stringify({ userId: req.userId })).toString('base64');
   const url = oauth2Client.generateAuthUrl({
@@ -558,7 +742,7 @@ app.get('/api/gmail/callback', async (req, res) => {
 });
 
 // POST /api/gmail/disconnect — Remove Gmail connection
-app.post('/api/gmail/disconnect', authenticate, async (req, res) => {
+app.post('/api/gmail/disconnect', auth, async (req, res) => {
   try {
     await db.collection('users').doc(req.userId).set({
       gmailRefreshToken: admin.firestore.FieldValue.delete(),
@@ -590,7 +774,7 @@ function detectDept(text) {
 }
 
 // POST /api/sync — Sync emails from connected Gmail inbox
-app.post('/api/sync', authenticate, async (req, res) => {
+app.post('/api/sync', auth, async (req, res) => {
   try {
     const userDoc = await db.collection('users').doc(req.userId).get();
     const userData = userDoc.exists ? userDoc.data() : {};
@@ -603,8 +787,7 @@ app.post('/api/sync', authenticate, async (req, res) => {
     oauth2Client.setCredentials({ refresh_token: userData.gmailRefreshToken });
     const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
 
-    const existingSnapshot = await db.collection('users').doc(req.userId)
-      .collection('tasks').where('source', '==', 'email').get();
+    const existingSnapshot = await orgCol(req, 'tasks').where('source', '==', 'email').get();
 
     const existingIds = new Set();
     existingSnapshot.forEach(doc => {
@@ -621,7 +804,7 @@ app.post('/api/sync', authenticate, async (req, res) => {
     const messages = listRes.data.messages || [];
     let newCount = 0;
     const batch = db.batch();
-    const tasksRef = db.collection('users').doc(req.userId).collection('tasks');
+    const tasksRef = orgCol(req, 'tasks');
 
     for (const msg of messages) {
       if (existingIds.has(msg.id)) continue;
@@ -667,7 +850,10 @@ app.post('/api/sync', authenticate, async (req, res) => {
         source: 'email',
         attachments: [],
         dueDate: '',
-        emailMessageId: msg.id
+        emailMessageId: msg.id,
+        createdBy: req.userId,
+        assignedTo: req.userId,
+        sharedWith: []
       });
       newCount++;
     }
