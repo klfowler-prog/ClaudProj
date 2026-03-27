@@ -40,6 +40,10 @@
       <button id="sidebar-close" class="sidebar-close">&times;</button>
     </div>
 
+    <div class="sidebar-search">
+      <input type="text" id="global-search" class="sidebar-search-input" placeholder="Search tasks &amp; notes...">
+    </div>
+
     <div class="sidebar-nav">
       <!-- Tasks Section -->
       <div class="sidebar-section">
@@ -233,8 +237,7 @@
           <button class="editor-btn" data-cmd="formatBlock" data-value="H2" title="Heading">H</button>
           <span class="editor-divider"></span>
           <button class="editor-btn editor-btn-ai" id="btn-ai-summarize" title="AI Summarize">&#10024; Summarize</button>
-          <button class="editor-btn editor-btn-ai" id="btn-ai-ask" title="Ask AI a question">&#10024; Ask</button>
-          <button class="editor-btn editor-btn-ai" id="btn-ai-tasks" title="Generate tasks from note">&#10024; Tasks</button>
+          <button class="editor-btn editor-btn-ai" id="btn-ai-tasks" title="Generate tasks from note">&#10024; Create Tasks</button>
         </div>
         <div class="editor-content" id="editor-content" contenteditable="true" placeholder="Start writing..."></div>
         <!-- AI Results Panel -->
@@ -368,6 +371,15 @@
       <h2 style="font-family: 'IBM Plex Serif', Georgia, serif; font-size: 1.25rem; color: var(--follett-dark-blue); margin-bottom: 1rem;">Notifications</h2>
       <div id="notifications-list"></div>
       <div id="notifications-empty" style="display: none; text-align: center; padding: 2rem; color: var(--color-text-muted);">No new notifications</div>
+    </div>
+
+    <!-- Search Results View -->
+    <div id="view-search" style="display: none;">
+      <h2 style="font-family: 'IBM Plex Serif', Georgia, serif; font-size: 1.25rem; color: var(--follett-dark-blue); margin-bottom: 0.25rem;">Search Results</h2>
+      <p class="search-query-label" id="search-query-label" style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 1rem;"></p>
+      <div id="search-results-tasks"></div>
+      <div id="search-results-notes"></div>
+      <div id="search-no-results" style="display: none; text-align: center; padding: 2rem; color: var(--color-text-muted);">No results found</div>
     </div>
 
   </main><!-- /app-main -->
@@ -529,11 +541,11 @@
         <button class="modal-close" data-close="modal-ai-tasks">&times;</button>
       </div>
       <div style="padding: 0.75rem 1.5rem 1.5rem;">
-        <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 0.75rem;">Select the tasks you want to create:</p>
-        <div id="ai-tasks-list"></div>
+        <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 0.75rem;">Review and edit before creating. Uncheck any you don't want.</p>
+        <div id="ai-tasks-list" style="max-height: 50vh; overflow-y: auto;"></div>
         <div class="modal-actions">
           <button class="btn btn-ghost" data-close="modal-ai-tasks">Cancel</button>
-          <button class="btn btn-primary" id="btn-create-ai-tasks">Create Selected Tasks</button>
+          <button class="btn btn-primary" id="btn-create-ai-tasks">Create Tasks</button>
         </div>
       </div>
     </div>

@@ -497,6 +497,83 @@ app.delete('/api/notes/:id', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Failed to delete note' }); }
 });
 
+// === Search ===
+app.get('/api/search', auth, async (req, res) => {
+  try {
+    const q = (req.query.q || '').toLowerCase().trim();
+    if (!q || q.length < 2) return res.json({ tasks: [], notes: [] });
+
+    // Search tasks
+    const tasksSnap = await orgCol(req, 'tasks').get();
+    let taskResults = tasksSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(t => {
+      const searchable = `${t.title} ${t.notes} ${t.department}`.toLowerCase();
+      return searchable.includes(q);
+    });
+
+    // Filter by role
+    if (req.memberRole !== 'cmo') {
+      taskResults = taskResults.filter(t =>
+        req.memberDepts.includes(t.department) ||
+        t.assignedTo === req.userId ||
+        (t.sharedWith && t.sharedWith.includes(req.userId)) ||
+        t.createdBy === req.userId
+      );
+    }
+
+    // Search notes
+    const notesSnap = await orgCol(req, 'notes').get();
+    const foldersSnap = await orgCol(req, 'folders').get();
+    const folderMap = {};
+    const sharedFolderIds = new Set();
+    const leadersFolderIds = new Set();
+    foldersSnap.docs.forEach(d => {
+      folderMap[d.id] = d.data().name;
+      if (d.data().shared) sharedFolderIds.add(d.id);
+      if (d.data().leadersOnly) leadersFolderIds.add(d.id);
+    });
+
+    const membersSnap = await orgCol(req, 'members').get();
+    const memberNames = {};
+    membersSnap.docs.forEach(d => { memberNames[d.id] = d.data().displayName || d.data().email; });
+
+    let noteResults = notesSnap.docs.map(d => {
+      const n = d.data();
+      return {
+        id: d.id, title: n.title, folderId: n.folderId,
+        folderName: folderMap[n.folderId] || 'Unfiled',
+        updatedAt: n.updatedAt, createdBy: n.createdBy,
+        authorName: memberNames[n.createdBy] || 'Unknown',
+        sharedWith: n.sharedWith || [],
+        contentPreview: stripHtml(n.content || '').substring(0, 200)
+      };
+    }).filter(n => {
+      const searchable = `${n.title} ${n.contentPreview} ${n.folderName}`.toLowerCase();
+      return searchable.includes(q);
+    });
+
+    // Filter notes by access
+    if (req.memberRole !== 'cmo') {
+      noteResults = noteResults.filter(n => {
+        if (n.createdBy === req.userId) return true;
+        if (sharedFolderIds.has(n.folderId)) return true;
+        if (leadersFolderIds.has(n.folderId) && req.memberRole === 'lead') return true;
+        const sw = n.sharedWith || [];
+        if (sw.includes(req.userId)) return true;
+        if (req.memberDepts.some(d => sw.includes('dept:' + d))) return true;
+        if (sw.includes('all')) return true;
+        return false;
+      });
+    }
+
+    res.json({
+      tasks: taskResults.slice(0, 20),
+      notes: noteResults.slice(0, 20)
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Search failed: ' + err.message });
+  }
+});
+
 // === AI Endpoints (Gemini) ===
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;

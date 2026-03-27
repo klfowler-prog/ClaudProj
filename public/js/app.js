@@ -176,6 +176,7 @@ function switchView(view) {
   document.getElementById('view-ai').style.display = view === 'ai' ? 'flex' : 'none';
   document.getElementById('view-team').style.display = view === 'team' ? 'block' : 'none';
   document.getElementById('view-notifications').style.display = view === 'notifications' ? 'block' : 'none';
+  document.getElementById('view-search').style.display = view === 'search' ? 'block' : 'none';
   document.querySelectorAll('.sidebar-nav-item').forEach(el => {
     const match = el.dataset.view === view || (el.id === 'btn-open-chat' && view === 'ai') || (el.id === 'btn-notifications' && view === 'notifications');
     el.classList.toggle('active', match);
@@ -1041,16 +1042,33 @@ async function aiGenerateTasks() {
       alert('No actionable tasks found in this note.');
       return;
     }
-    // Show confirmation modal
+
+    const deptOptions = DEPARTMENTS.map(d => `<option value="${d}">${d}</option>`).join('');
+    const prioOptions = ['High', 'Medium', 'Low'].map(p => `<option value="${p}">${p}</option>`).join('');
+    const assignOptions = '<option value="">Me</option>' + teamMembers.filter(m => m.status === 'active' || !m.status).map(m =>
+      `<option value="${m.userId}">${escapeHtml(m.displayName)}</option>`
+    ).join('');
+
     const list = document.getElementById('ai-tasks-list');
     list.innerHTML = pendingAiTasks.map((t, i) => `
-      <div class="ai-task-item">
-        <input type="checkbox" checked data-ai-task-idx="${i}">
-        <div>
-          <div class="ai-task-item-title">${escapeHtml(t.title)}</div>
-          <div class="ai-task-item-meta">${escapeHtml(t.department)} &middot; ${t.priority} priority</div>
-          ${t.notes ? `<div class="ai-task-item-meta">${escapeHtml(t.notes)}</div>` : ''}
+      <div class="ai-task-item" style="flex-direction: column; align-items: stretch; gap: 0.5rem; padding: 0.75rem 0;">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <input type="checkbox" checked data-ai-task-idx="${i}" style="flex-shrink:0;">
+          <input type="text" class="ai-task-title" data-idx="${i}" value="${escapeHtml(t.title)}" style="flex:1; padding:0.3rem 0.5rem; border:1px solid var(--color-border); border-radius:var(--radius); font-size:0.85rem;">
         </div>
+        <div style="display: flex; gap: 0.375rem; flex-wrap: wrap; padding-left: 1.5rem;">
+          <select class="ai-task-dept" data-idx="${i}" style="padding:0.2rem 0.4rem; font-size:0.75rem; border-radius:var(--radius); border:1px solid var(--color-border);">
+            ${deptOptions.replace(`value="${t.department}"`, `value="${t.department}" selected`)}
+          </select>
+          <select class="ai-task-prio" data-idx="${i}" style="padding:0.2rem 0.4rem; font-size:0.75rem; border-radius:var(--radius); border:1px solid var(--color-border);">
+            ${prioOptions.replace(`value="${t.priority}"`, `value="${t.priority}" selected`)}
+          </select>
+          <select class="ai-task-assign" data-idx="${i}" style="padding:0.2rem 0.4rem; font-size:0.75rem; border-radius:var(--radius); border:1px solid var(--color-border);">
+            ${assignOptions}
+          </select>
+          <input type="date" class="ai-task-due" data-idx="${i}" style="padding:0.2rem 0.4rem; font-size:0.75rem; border-radius:var(--radius); border:1px solid var(--color-border);">
+        </div>
+        ${t.notes ? `<div style="padding-left:1.5rem; font-size:0.75rem; color:var(--color-text-muted);">${escapeHtml(t.notes)}</div>` : ''}
       </div>
     `).join('');
     openModal('modal-ai-tasks');
@@ -1061,34 +1079,115 @@ async function aiGenerateTasks() {
 
 async function createAiTasks() {
   const checkboxes = document.querySelectorAll('#ai-tasks-list input[type="checkbox"]');
-  const selected = [];
+  const tasksToCreate = [];
   checkboxes.forEach(cb => {
-    if (cb.checked) {
-      const idx = parseInt(cb.dataset.aiTaskIdx);
-      selected.push(pendingAiTasks[idx]);
-    }
+    if (!cb.checked) return;
+    const idx = parseInt(cb.dataset.aiTaskIdx);
+    const title = document.querySelector(`.ai-task-title[data-idx="${idx}"]`).value.trim();
+    const department = document.querySelector(`.ai-task-dept[data-idx="${idx}"]`).value;
+    const priority = document.querySelector(`.ai-task-prio[data-idx="${idx}"]`).value;
+    const assignedTo = document.querySelector(`.ai-task-assign[data-idx="${idx}"]`).value || undefined;
+    const dueDate = document.querySelector(`.ai-task-due[data-idx="${idx}"]`).value || '';
+    if (!title) return;
+    const task = {
+      title, department, priority,
+      notes: pendingAiTasks[idx].notes || '',
+      status: assignedTo ? 'Delegated' : 'Not Started',
+      source: 'manual', dueDate, recurring: 'none'
+    };
+    if (assignedTo) task.assignedTo = assignedTo;
+    tasksToCreate.push(task);
   });
-  if (selected.length === 0) { alert('No tasks selected.'); return; }
+  if (tasksToCreate.length === 0) { alert('No tasks selected.'); return; }
 
   try {
-    const tasksToCreate = selected.map(t => ({
-      title: t.title,
-      department: t.department || 'Personal',
-      priority: t.priority || 'Medium',
-      notes: t.notes || '',
-      status: 'Not Started',
-      source: 'manual',
-      dueDate: '',
-      recurring: 'none'
-    }));
     await api('POST', '/api/tasks/batch', { tasks: tasksToCreate });
     closeModal('modal-ai-tasks');
     await loadTasks();
     render();
-    alert(`Created ${selected.length} task${selected.length !== 1 ? 's' : ''}!`);
+    alert(`Created ${tasksToCreate.length} task${tasksToCreate.length !== 1 ? 's' : ''}!`);
   } catch (err) {
     alert('Failed to create tasks: ' + err.message);
   }
+}
+
+// === Search ===
+let searchTimeout = null;
+
+function handleSearch() {
+  const q = document.getElementById('global-search').value.trim();
+  if (searchTimeout) clearTimeout(searchTimeout);
+
+  if (q.length < 2) {
+    if (currentView === 'search') switchView('tasks');
+    return;
+  }
+
+  searchTimeout = setTimeout(async () => {
+    switchView('search');
+    document.getElementById('search-query-label').textContent = `Showing results for "${q}"`;
+    try {
+      const results = await api('GET', `/api/search?q=${encodeURIComponent(q)}`);
+      const tasksContainer = document.getElementById('search-results-tasks');
+      const notesContainer = document.getElementById('search-results-notes');
+      const noResults = document.getElementById('search-no-results');
+
+      if (results.tasks.length === 0 && results.notes.length === 0) {
+        tasksContainer.innerHTML = '';
+        notesContainer.innerHTML = '';
+        noResults.style.display = 'block';
+        return;
+      }
+
+      noResults.style.display = 'none';
+
+      // Render task results
+      if (results.tasks.length > 0) {
+        tasksContainer.innerHTML = `<div class="search-section-title">Tasks (${results.tasks.length})</div>` +
+          results.tasks.map(t => `
+            <div class="search-result-item search-task" data-search-task-id="${t.id}">
+              <div class="search-result-title">${escapeHtml(t.title)}</div>
+              <div class="search-result-meta">${t.department} · ${t.status} · ${t.priority}</div>
+            </div>
+          `).join('');
+
+        tasksContainer.querySelectorAll('[data-search-task-id]').forEach(el => {
+          el.addEventListener('click', () => {
+            document.getElementById('global-search').value = '';
+            switchView('tasks');
+            showTaskDetail(el.dataset.searchTaskId);
+          });
+        });
+      } else {
+        tasksContainer.innerHTML = '';
+      }
+
+      // Render note results
+      if (results.notes.length > 0) {
+        notesContainer.innerHTML = `<div class="search-section-title">Notes (${results.notes.length})</div>` +
+          results.notes.map(n => `
+            <div class="search-result-item search-note" data-search-note-id="${n.id}" data-search-note-folder="${n.folderId}">
+              <div class="search-result-title">${escapeHtml(n.title || 'Untitled')}</div>
+              <div class="search-result-meta">${n.folderName} · ${n.authorName}</div>
+              ${n.contentPreview ? `<div class="search-result-preview">${escapeHtml(n.contentPreview)}</div>` : ''}
+            </div>
+          `).join('');
+
+        notesContainer.querySelectorAll('[data-search-note-id]').forEach(el => {
+          el.addEventListener('click', () => {
+            document.getElementById('global-search').value = '';
+            activeFolderId = el.dataset.searchNoteFolder;
+            switchView('notes');
+            openNote(el.dataset.searchNoteId);
+          });
+        });
+      } else {
+        notesContainer.innerHTML = '';
+      }
+    } catch (err) {
+      console.error('Search failed:', err);
+    }
+  }, 300);
 }
 
 // === Global AI Chat (full-screen view) ===
@@ -1307,6 +1406,12 @@ async function init() {
   // AI buttons
   // AI Chat (full-screen view)
   // Notifications
+  // Search
+  document.getElementById('global-search').addEventListener('input', handleSearch);
+  document.getElementById('global-search').addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { document.getElementById('global-search').value = ''; if (currentView === 'search') switchView('tasks'); }
+  });
+
   document.getElementById('btn-notifications').addEventListener('click', () => { showNotifications(); closeSidebar(); });
 
   // Team (CMO only)
@@ -1342,7 +1447,6 @@ async function init() {
   });
 
   document.getElementById('btn-ai-summarize').addEventListener('click', aiSummarize);
-  document.getElementById('btn-ai-ask').addEventListener('click', aiAsk);
   document.getElementById('btn-ai-tasks').addEventListener('click', aiGenerateTasks);
   document.getElementById('ai-panel-close').addEventListener('click', hideAiPanel);
   document.getElementById('btn-create-ai-tasks').addEventListener('click', createAiTasks);
