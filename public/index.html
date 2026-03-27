@@ -79,6 +79,13 @@
       </div>
     </div>
 
+    <div class="sidebar-section" style="margin-top: auto; padding: 0.5rem 0;">
+      <button class="sidebar-nav-item" id="btn-open-chat">
+        <span class="sidebar-icon">&#10024;</span>
+        <span>AI Assistant</span>
+      </button>
+    </div>
+
     <div class="sidebar-footer">
       <span class="sidebar-email" id="user-email"></span>
       <button id="btn-sign-out" class="sidebar-sign-out">Sign out</button>
@@ -362,6 +369,21 @@
         <button class="modal-close" data-close="modal-detail">&times;</button>
       </div>
       <div id="detail-content"></div>
+    </div>
+  </div>
+
+  <!-- AI Chat Panel -->
+  <div id="chat-panel" class="chat-panel">
+    <div class="chat-header">
+      <span class="chat-header-title">&#10024; AI Assistant</span>
+      <button id="btn-close-chat" class="chat-close">&times;</button>
+    </div>
+    <div class="chat-messages" id="chat-messages">
+      <div class="chat-message chat-ai">Hi Leann! I can see all your tasks and notes. Ask me anything — status updates, priorities, summaries, or strategy questions.</div>
+    </div>
+    <div class="chat-input-area">
+      <input type="text" id="chat-input" class="chat-input" placeholder="Ask about your tasks, notes, or strategy...">
+      <button id="btn-send-chat" class="btn btn-primary btn-sm">Send</button>
     </div>
   </div>
 

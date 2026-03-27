@@ -986,6 +986,54 @@ async function createAiTasks() {
   }
 }
 
+// === Global AI Chat ===
+let chatHistory = [];
+
+function openChat() {
+  document.getElementById('chat-panel').classList.add('open');
+  document.getElementById('chat-input').focus();
+}
+
+function closeChat() {
+  document.getElementById('chat-panel').classList.remove('open');
+}
+
+function addChatMessage(role, text) {
+  const container = document.getElementById('chat-messages');
+  const div = document.createElement('div');
+  div.className = `chat-message ${role === 'user' ? 'chat-user' : 'chat-ai'}`;
+  div.innerHTML = role === 'user' ? escapeHtml(text) : escapeHtmlWithLinks(text);
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+  return div;
+}
+
+async function sendChatMessage() {
+  const input = document.getElementById('chat-input');
+  const message = input.value.trim();
+  if (!message) return;
+
+  input.value = '';
+  addChatMessage('user', message);
+  const loadingDiv = addChatMessage('ai', 'Thinking...');
+  loadingDiv.classList.add('loading');
+
+  chatHistory.push({ role: 'user', text: message });
+
+  try {
+    const result = await api('POST', '/api/ai/chat', {
+      message,
+      history: chatHistory.slice(-10) // Keep last 10 messages for context
+    });
+    loadingDiv.classList.remove('loading');
+    loadingDiv.innerHTML = escapeHtmlWithLinks(result.reply);
+    chatHistory.push({ role: 'model', text: result.reply });
+  } catch (err) {
+    loadingDiv.classList.remove('loading');
+    loadingDiv.textContent = 'Error: ' + err.message;
+  }
+}
+
 // === Event Binding ===
 async function init() {
   await loadTasks();
@@ -1116,6 +1164,14 @@ async function init() {
   document.getElementById('editor-content').addEventListener('input', scheduleAutoSave);
 
   // AI buttons
+  // AI Chat
+  document.getElementById('btn-open-chat').addEventListener('click', () => { openChat(); closeSidebar(); });
+  document.getElementById('btn-close-chat').addEventListener('click', closeChat);
+  document.getElementById('btn-send-chat').addEventListener('click', sendChatMessage);
+  document.getElementById('chat-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') sendChatMessage();
+  });
+
   document.getElementById('btn-ai-summarize').addEventListener('click', aiSummarize);
   document.getElementById('btn-ai-ask').addEventListener('click', aiAsk);
   document.getElementById('btn-ai-tasks').addEventListener('click', aiGenerateTasks);

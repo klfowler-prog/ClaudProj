@@ -438,6 +438,67 @@ app.post('/api/notes/:id/generate-tasks', authenticate, async (req, res) => {
   }
 });
 
+// === Global AI Chat ===
+app.post('/api/ai/chat', authenticate, async (req, res) => {
+  try {
+    const { message, history } = req.body;
+    if (!message) return res.status(400).json({ error: 'Message is required' });
+
+    // Gather all tasks
+    const tasksSnap = await db.collection('users').doc(req.userId)
+      .collection('tasks').orderBy('createdAt', 'desc').get();
+    const allTasks = tasksSnap.docs.map(d => {
+      const t = d.data();
+      return `[${t.status}] ${t.title} | Dept: ${t.department} | Priority: ${t.priority}${t.dueDate ? ' | Due: ' + t.dueDate : ''}${t.notes ? ' | Notes: ' + t.notes.substring(0, 200) : ''}`;
+    });
+
+    // Gather all notes (titles + truncated content)
+    const notesSnap = await db.collection('users').doc(req.userId)
+      .collection('notes').get();
+    const foldersSnap = await db.collection('users').doc(req.userId)
+      .collection('folders').get();
+    const folderMap = {};
+    foldersSnap.docs.forEach(d => { folderMap[d.id] = d.data().name; });
+
+    const allNotes = notesSnap.docs.map(d => {
+      const n = d.data();
+      const folder = folderMap[n.folderId] || 'Unfiled';
+      const content = stripHtml(n.content || '').substring(0, 500);
+      return `[${folder}] ${n.title}\n${content}`;
+    });
+
+    const today = new Date().toISOString().split('T')[0];
+
+    const systemPrompt = `You are an AI assistant for Leann, a CMO at Follett Higher Education. You have access to her complete task list and strategy notes. Be concise, actionable, and strategic. Today's date is ${today}.
+
+TASKS (${allTasks.length} total):
+${allTasks.join('\n')}
+
+NOTES (${allNotes.length} total):
+${allNotes.join('\n---\n')}`;
+
+    const model = getGeminiModel();
+
+    // Build conversation with history
+    const contents = [];
+    if (history && Array.isArray(history)) {
+      for (const h of history) {
+        contents.push({ role: h.role === 'user' ? 'user' : 'model', parts: [{ text: h.text }] });
+      }
+    }
+    contents.push({ role: 'user', parts: [{ text: message }] });
+
+    const result = await model.generateContent({
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+      contents
+    });
+
+    res.json({ reply: result.response.text() });
+  } catch (err) {
+    res.status(500).json({ error: 'AI chat failed: ' + err.message });
+  }
+});
+
 // === Gmail OAuth Endpoints ===
 
 function createOAuth2Client() {
