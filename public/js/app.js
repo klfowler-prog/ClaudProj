@@ -147,7 +147,7 @@ let currentView = 'tasks';
 function switchView(view) {
   currentView = view;
   document.getElementById('view-tasks').style.display = view === 'tasks' ? 'block' : 'none';
-  document.getElementById('view-notes').style.display = view === 'notes' ? 'block' : 'none';
+  document.getElementById('view-notes').style.display = view === 'notes' ? 'flex' : 'none';
   document.querySelectorAll('.sidebar-nav-item').forEach(el => {
     el.classList.toggle('active', el.dataset.view === view);
   });

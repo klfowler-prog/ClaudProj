@@ -187,7 +187,7 @@ app.get('/api/folders', authenticate, async (req, res) => {
 
     // Seed default folders if none exist
     if (folders.length === 0) {
-      const defaults = ['B2B Marketing', 'Internal Comms', 'Rev Ops', 'B2C Marketing'];
+      const defaults = ['B2B Marketing', 'Internal Comms', 'Rev Ops', 'B2C Marketing', 'Personal'];
       const batch = db.batch();
       const seeded = [];
       defaults.forEach((name, i) => {
