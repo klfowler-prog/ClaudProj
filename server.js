@@ -44,53 +44,66 @@ async function authenticate(req, res, next) {
 }
 
 // === Org Resolution Middleware ===
-// Looks up which org the user belongs to, sets req.orgId, req.memberRole, req.memberDept
+// Uses users/{userId} doc to store orgId for fast lookup (no collectionGroup index needed)
 async function resolveOrg(req, res, next) {
   try {
-    // Check if user has an org membership
-    const memberSnap = await db.collectionGroup('members')
-      .where('userId', '==', req.userId).where('status', '==', 'active').limit(1).get();
+    // Check if user already has an orgId stored
+    const userDoc = await db.collection('users').doc(req.userId).get();
+    const userData = userDoc.exists ? userDoc.data() : {};
 
-    if (!memberSnap.empty) {
-      const memberDoc = memberSnap.docs[0];
-      const memberData = memberDoc.data();
-      req.orgId = memberDoc.ref.parent.parent.id;
-      req.memberRole = memberData.role;
-      req.memberDept = memberData.department;
-      req.memberName = memberData.displayName;
-      return next();
+    if (userData.orgId) {
+      // Known user — look up their member record
+      const memberDoc = await db.collection('orgs').doc(userData.orgId)
+        .collection('members').doc(req.userId).get();
+
+      if (memberDoc.exists && memberDoc.data().status === 'active') {
+        const m = memberDoc.data();
+        req.orgId = userData.orgId;
+        req.memberRole = m.role;
+        req.memberDept = m.department;
+        req.memberName = m.displayName;
+        return next();
+      }
     }
 
-    // No org found — check if we need to auto-create one (first-time CMO setup)
-    // Look for legacy user data to migrate
+    // Check if this user was invited (member doc exists in some org but user doc doesn't have orgId yet)
+    // Search all orgs for a member with this userId
+    const orgsSnap = await db.collection('orgs').get();
+    for (const orgDoc of orgsSnap.docs) {
+      const memberDoc = await orgDoc.ref.collection('members').doc(req.userId).get();
+      if (memberDoc.exists && memberDoc.data().status === 'active') {
+        const m = memberDoc.data();
+        // Store orgId on user doc for fast future lookups
+        await db.collection('users').doc(req.userId).set({ orgId: orgDoc.id }, { merge: true });
+        req.orgId = orgDoc.id;
+        req.memberRole = m.role;
+        req.memberDept = m.department;
+        req.memberName = m.displayName;
+        return next();
+      }
+    }
+
+    // No org found — create one (first-time CMO setup)
     const legacyTasks = await db.collection('users').doc(req.userId).collection('tasks').limit(1).get();
     const hasLegacyData = !legacyTasks.empty;
 
-    // Create a new org for this user
     const orgRef = db.collection('orgs').doc();
-    const orgData = { name: 'Follett Marketing', createdAt: new Date().toISOString(), createdBy: req.userId };
-    await orgRef.set(orgData);
+    await orgRef.set({ name: 'Follett Marketing', createdAt: new Date().toISOString(), createdBy: req.userId });
 
-    // Add user as CMO member
     await orgRef.collection('members').doc(req.userId).set({
-      userId: req.userId,
-      email: req.userEmail,
-      displayName: req.userName,
-      role: 'cmo',
-      department: 'all',
-      status: 'active',
-      joinedAt: new Date().toISOString()
+      userId: req.userId, email: req.userEmail, displayName: req.userName,
+      role: 'cmo', department: 'all', status: 'active', joinedAt: new Date().toISOString()
     });
+
+    // Store orgId on user doc
+    await db.collection('users').doc(req.userId).set({ orgId: orgRef.id }, { merge: true });
 
     req.orgId = orgRef.id;
     req.memberRole = 'cmo';
     req.memberDept = 'all';
     req.memberName = req.userName;
 
-    // Migrate legacy data if it exists
-    if (hasLegacyData) {
-      await migrateLegacyData(req.userId, orgRef.id);
-    }
+    if (hasLegacyData) await migrateLegacyData(req.userId, orgRef.id);
 
     // Seed default folders
     const defaults = ['B2B Marketing', 'Internal Comms', 'Rev Ops', 'B2C Marketing', 'Personal'];
@@ -636,6 +649,9 @@ app.post('/api/team/invite', auth, async (req, res) => {
       status: 'active',
       joinedAt: new Date().toISOString()
     });
+
+    // Store orgId on the invited user's doc for fast lookup on login
+    await db.collection('users').doc(userRecord.uid).set({ orgId: req.orgId }, { merge: true });
 
     // Send password reset email so they can set their own password
     const resetLink = await admin.auth().generatePasswordResetLink(email);
