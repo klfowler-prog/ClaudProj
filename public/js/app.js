@@ -1,5 +1,5 @@
 // === Constants ===
-const DEPARTMENTS = ['B2B Marketing', 'Internal Comms', 'Rev Ops', 'B2C Marketing'];
+const DEPARTMENTS = ['B2B Marketing', 'Internal Comms', 'Rev Ops', 'B2C Marketing', 'Personal'];
 const PRIORITIES = ['High', 'Medium', 'Low'];
 const STATUSES = ['Not Started', 'In Progress', 'Awaiting Feedback', 'Completed'];
 const STORAGE_KEY = 'cmo_tasks';
@@ -28,7 +28,8 @@ const DEPT_KEYS = {
   'B2B Marketing': 'b2b',
   'Internal Comms': 'comms',
   'Rev Ops': 'revops',
-  'B2C Marketing': 'b2c'
+  'B2C Marketing': 'b2c',
+  'Personal': 'personal'
 };
 
 const STATUS_KEYS = {

@@ -34,6 +34,8 @@
   --color-revops-light: #f8e0df;
   --color-b2c: var(--follett-dark-blue);
   --color-b2c-light: #d4e2eb;
+  --color-personal: var(--follett-dark-gray);
+  --color-personal-light: #dfe6e8;
 
   /* Priority colors */
   --color-high: var(--follett-coral);
@@ -691,6 +693,7 @@ body {
 .dept-comms { background: var(--color-comms); }
 .dept-revops { background: var(--color-revops); }
 .dept-b2c { background: var(--color-b2c); }
+.dept-personal { background: var(--follett-dark-gray); }
 
 /* === Task List === */
 .task-list-container {
@@ -809,6 +812,7 @@ body {
 .badge-comms { background: var(--color-comms-light); color: #5e8a4e; }
 .badge-revops { background: var(--color-revops-light); color: #b84e4b; }
 .badge-b2c { background: var(--color-b2c-light); color: var(--follett-dark-blue); }
+.badge-personal { background: var(--color-personal-light); color: var(--follett-dark-gray); }
 
 .badge-high { background: var(--color-high-light); color: var(--color-high); }
 .badge-medium { background: var(--color-medium-light); color: #a17508; }
