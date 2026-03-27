@@ -376,7 +376,37 @@
     <!-- Search Results View -->
     <div id="view-search" style="display: none;">
       <h2 style="font-family: 'IBM Plex Serif', Georgia, serif; font-size: 1.25rem; color: var(--follett-dark-blue); margin-bottom: 0.25rem;">Search Results</h2>
-      <p class="search-query-label" id="search-query-label" style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 1rem;"></p>
+      <p class="search-query-label" id="search-query-label" style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 0.75rem;"></p>
+      <div class="search-filters">
+        <select id="search-filter-type" class="filter-select-compact">
+          <option value="all">All Results</option>
+          <option value="tasks">Tasks Only</option>
+          <option value="notes">Notes Only</option>
+        </select>
+        <select id="search-filter-status" class="filter-select-compact">
+          <option value="all">Any Status</option>
+          <option value="Not Started">Not Started</option>
+          <option value="In Progress">In Progress</option>
+          <option value="Awaiting Feedback">Awaiting Feedback</option>
+          <option value="Delegated">Delegated</option>
+          <option value="Completed">Completed</option>
+        </select>
+        <select id="search-filter-dept" class="filter-select-compact">
+          <option value="all">All Departments</option>
+          <option value="B2B Marketing">B2B Marketing</option>
+          <option value="Internal Comms">Internal Comms</option>
+          <option value="Rev Ops">Rev Ops</option>
+          <option value="B2C Marketing">B2C Marketing</option>
+          <option value="Personal">Personal</option>
+        </select>
+        <select id="search-filter-date" class="filter-select-compact">
+          <option value="all">Any Time</option>
+          <option value="today">Today</option>
+          <option value="week">This Week</option>
+          <option value="month">This Month</option>
+          <option value="quarter">This Quarter</option>
+        </select>
+      </div>
       <div id="search-results-tasks"></div>
       <div id="search-results-notes"></div>
       <div id="search-no-results" style="display: none; text-align: center; padding: 2rem; color: var(--color-text-muted);">No results found</div>

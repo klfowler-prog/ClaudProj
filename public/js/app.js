@@ -1125,6 +1125,7 @@ async function createAiTasks() {
 
 // === Search ===
 let searchTimeout = null;
+let lastSearchResults = { tasks: [], notes: [] };
 
 function handleSearch() {
   const q = document.getElementById('global-search').value.trim();
@@ -1139,67 +1140,100 @@ function handleSearch() {
     switchView('search');
     document.getElementById('search-query-label').textContent = `Showing results for "${q}"`;
     try {
-      const results = await api('GET', `/api/search?q=${encodeURIComponent(q)}`);
-      const tasksContainer = document.getElementById('search-results-tasks');
-      const notesContainer = document.getElementById('search-results-notes');
-      const noResults = document.getElementById('search-no-results');
-
-      if (results.tasks.length === 0 && results.notes.length === 0) {
-        tasksContainer.innerHTML = '';
-        notesContainer.innerHTML = '';
-        noResults.style.display = 'block';
-        return;
-      }
-
-      noResults.style.display = 'none';
-
-      // Render task results
-      if (results.tasks.length > 0) {
-        tasksContainer.innerHTML = `<div class="search-section-title">Tasks (${results.tasks.length})</div>` +
-          results.tasks.map(t => `
-            <div class="search-result-item search-task" data-search-task-id="${t.id}">
-              <div class="search-result-title">${escapeHtml(t.title)}</div>
-              <div class="search-result-meta">${t.department} · ${t.status} · ${t.priority}</div>
-            </div>
-          `).join('');
-
-        tasksContainer.querySelectorAll('[data-search-task-id]').forEach(el => {
-          el.addEventListener('click', () => {
-            document.getElementById('global-search').value = '';
-            switchView('tasks');
-            showTaskDetail(el.dataset.searchTaskId);
-          });
-        });
-      } else {
-        tasksContainer.innerHTML = '';
-      }
-
-      // Render note results
-      if (results.notes.length > 0) {
-        notesContainer.innerHTML = `<div class="search-section-title">Notes (${results.notes.length})</div>` +
-          results.notes.map(n => `
-            <div class="search-result-item search-note" data-search-note-id="${n.id}" data-search-note-folder="${n.folderId}">
-              <div class="search-result-title">${escapeHtml(n.title || 'Untitled')}</div>
-              <div class="search-result-meta">${n.folderName} · ${n.authorName}</div>
-              ${n.contentPreview ? `<div class="search-result-preview">${escapeHtml(n.contentPreview)}</div>` : ''}
-            </div>
-          `).join('');
-
-        notesContainer.querySelectorAll('[data-search-note-id]').forEach(el => {
-          el.addEventListener('click', () => {
-            document.getElementById('global-search').value = '';
-            activeFolderId = el.dataset.searchNoteFolder;
-            switchView('notes');
-            openNote(el.dataset.searchNoteId);
-          });
-        });
-      } else {
-        notesContainer.innerHTML = '';
-      }
+      lastSearchResults = await api('GET', `/api/search?q=${encodeURIComponent(q)}`);
+      renderSearchResults();
     } catch (err) {
       console.error('Search failed:', err);
     }
   }, 300);
+}
+
+function getDateCutoff(period) {
+  const now = new Date();
+  if (period === 'today') return new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+  if (period === 'week') { const d = new Date(now); d.setDate(d.getDate() - 7); return d.toISOString(); }
+  if (period === 'month') { const d = new Date(now); d.setMonth(d.getMonth() - 1); return d.toISOString(); }
+  if (period === 'quarter') { const d = new Date(now); d.setMonth(d.getMonth() - 3); return d.toISOString(); }
+  return '';
+}
+
+function renderSearchResults() {
+  const typeFilter = document.getElementById('search-filter-type').value;
+  const statusFilter = document.getElementById('search-filter-status').value;
+  const deptFilter = document.getElementById('search-filter-dept').value;
+  const dateFilter = document.getElementById('search-filter-date').value;
+  const dateCutoff = getDateCutoff(dateFilter);
+
+  const tasksContainer = document.getElementById('search-results-tasks');
+  const notesContainer = document.getElementById('search-results-notes');
+  const noResults = document.getElementById('search-no-results');
+
+  // Filter tasks
+  let filteredTasks = typeFilter === 'notes' ? [] : lastSearchResults.tasks.filter(t => {
+    if (statusFilter !== 'all' && t.status !== statusFilter) return false;
+    if (deptFilter !== 'all' && t.department !== deptFilter) return false;
+    if (dateCutoff && t.createdAt < dateCutoff) return false;
+    return true;
+  });
+
+  // Filter notes
+  let filteredNotes = typeFilter === 'tasks' ? [] : lastSearchResults.notes.filter(n => {
+    if (deptFilter !== 'all' && n.folderName !== deptFilter) return false;
+    if (dateCutoff && n.updatedAt < dateCutoff) return false;
+    return true;
+  });
+
+  if (filteredTasks.length === 0 && filteredNotes.length === 0) {
+    tasksContainer.innerHTML = '';
+    notesContainer.innerHTML = '';
+    noResults.style.display = 'block';
+    return;
+  }
+
+  noResults.style.display = 'none';
+
+  if (filteredTasks.length > 0) {
+    tasksContainer.innerHTML = `<div class="search-section-title">Tasks (${filteredTasks.length})</div>` +
+      filteredTasks.map(t => {
+        const dueLine = t.dueDate ? ` · Due ${t.dueDate}` : '';
+        return `<div class="search-result-item search-task" data-search-task-id="${t.id}">
+          <div class="search-result-title">${escapeHtml(t.title)}</div>
+          <div class="search-result-meta">${t.department} · ${t.status} · ${t.priority}${dueLine}</div>
+        </div>`;
+      }).join('');
+
+    tasksContainer.querySelectorAll('[data-search-task-id]').forEach(el => {
+      el.addEventListener('click', () => {
+        document.getElementById('global-search').value = '';
+        switchView('tasks');
+        showTaskDetail(el.dataset.searchTaskId);
+      });
+    });
+  } else {
+    tasksContainer.innerHTML = '';
+  }
+
+  if (filteredNotes.length > 0) {
+    notesContainer.innerHTML = `<div class="search-section-title">Notes (${filteredNotes.length})</div>` +
+      filteredNotes.map(n => `
+        <div class="search-result-item search-note" data-search-note-id="${n.id}" data-search-note-folder="${n.folderId}">
+          <div class="search-result-title">${escapeHtml(n.title || 'Untitled')}</div>
+          <div class="search-result-meta">${n.folderName} · ${n.authorName}</div>
+          ${n.contentPreview ? `<div class="search-result-preview">${escapeHtml(n.contentPreview)}</div>` : ''}
+        </div>
+      `).join('');
+
+    notesContainer.querySelectorAll('[data-search-note-id]').forEach(el => {
+      el.addEventListener('click', () => {
+        document.getElementById('global-search').value = '';
+        activeFolderId = el.dataset.searchNoteFolder;
+        switchView('notes');
+        openNote(el.dataset.searchNoteId);
+      });
+    });
+  } else {
+    notesContainer.innerHTML = '';
+  }
 }
 
 // === Global AI Chat (full-screen view) ===
@@ -1422,6 +1456,9 @@ async function init() {
   document.getElementById('global-search').addEventListener('input', handleSearch);
   document.getElementById('global-search').addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { document.getElementById('global-search').value = ''; if (currentView === 'search') switchView('tasks'); }
+  });
+  ['search-filter-type', 'search-filter-status', 'search-filter-dept', 'search-filter-date'].forEach(id => {
+    document.getElementById(id).addEventListener('change', renderSearchResults);
   });
 
   document.getElementById('btn-notifications').addEventListener('click', () => { showNotifications(); closeSidebar(); });

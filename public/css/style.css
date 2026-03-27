@@ -168,6 +168,15 @@ body {
 .search-result-meta { font-size: 0.7rem; color: var(--color-text-muted); margin-top: 0.125rem; }
 .search-result-preview { font-size: 0.8rem; color: var(--color-text-light); margin-top: 0.25rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+.search-filters {
+  display: flex;
+  gap: 0.375rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
 .sidebar-nav {
   flex: 1;
   padding: 0.75rem 0;
