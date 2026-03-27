@@ -228,6 +228,28 @@
       </div>
     </div><!-- /view-notes -->
 
+    <!-- AI Assistant View -->
+    <div id="view-ai" class="ai-view" style="display: none;">
+      <div class="ai-chat-container">
+        <div class="ai-welcome" id="ai-welcome">
+          <div class="ai-welcome-icon">&#10024;</div>
+          <h2 class="ai-welcome-title">How can I help?</h2>
+          <p class="ai-welcome-subtitle">I can see all your tasks and notes. Ask me about priorities, status updates, strategy, or anything else.</p>
+          <div class="ai-suggestions">
+            <button class="ai-suggestion" data-q="What should I focus on today?">What should I focus on today?</button>
+            <button class="ai-suggestion" data-q="Summarize what's happening across all departments">Summarize all departments</button>
+            <button class="ai-suggestion" data-q="What did I accomplish this week?">What did I accomplish this week?</button>
+            <button class="ai-suggestion" data-q="Draft a weekly status update for leadership">Draft a status update</button>
+          </div>
+        </div>
+        <div class="ai-messages" id="ai-messages"></div>
+        <div class="ai-input-area">
+          <input type="text" id="chat-input" class="ai-input" placeholder="Ask about your tasks, notes, or strategy...">
+          <button id="btn-send-chat" class="btn btn-primary">Send</button>
+        </div>
+      </div>
+    </div><!-- /view-ai -->
+
   </main><!-- /app-main -->
 
   <!-- Add/Edit Task Modal -->
@@ -369,21 +391,6 @@
         <button class="modal-close" data-close="modal-detail">&times;</button>
       </div>
       <div id="detail-content"></div>
-    </div>
-  </div>
-
-  <!-- AI Chat Panel -->
-  <div id="chat-panel" class="chat-panel">
-    <div class="chat-header">
-      <span class="chat-header-title">&#10024; AI Assistant</span>
-      <button id="btn-close-chat" class="chat-close">&times;</button>
-    </div>
-    <div class="chat-messages" id="chat-messages">
-      <div class="chat-message chat-ai">Hi Leann! I can see all your tasks and notes. Ask me anything — status updates, priorities, summaries, or strategy questions.</div>
-    </div>
-    <div class="chat-input-area">
-      <input type="text" id="chat-input" class="chat-input" placeholder="Ask about your tasks, notes, or strategy...">
-      <button id="btn-send-chat" class="btn btn-primary btn-sm">Send</button>
     </div>
   </div>
 

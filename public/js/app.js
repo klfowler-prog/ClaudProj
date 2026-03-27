@@ -149,8 +149,10 @@ function switchView(view) {
   currentView = view;
   document.getElementById('view-tasks').style.display = view === 'tasks' ? 'block' : 'none';
   document.getElementById('view-notes').style.display = view === 'notes' ? 'flex' : 'none';
+  document.getElementById('view-ai').style.display = view === 'ai' ? 'flex' : 'none';
   document.querySelectorAll('.sidebar-nav-item').forEach(el => {
-    el.classList.toggle('active', el.dataset.view === view);
+    const match = el.dataset.view === view || (el.id === 'btn-open-chat' && view === 'ai');
+    el.classList.toggle('active', match);
   });
 }
 
@@ -986,31 +988,35 @@ async function createAiTasks() {
   }
 }
 
-// === Global AI Chat ===
+// === Global AI Chat (full-screen view) ===
 let chatHistory = [];
+let chatStarted = false;
 
-function openChat() {
-  document.getElementById('chat-panel').classList.add('open');
-  document.getElementById('chat-input').focus();
-}
-
-function closeChat() {
-  document.getElementById('chat-panel').classList.remove('open');
+function openAiView() {
+  switchView('ai');
+  setTimeout(() => document.getElementById('chat-input').focus(), 100);
 }
 
 function addChatMessage(role, text) {
-  const container = document.getElementById('chat-messages');
+  // Hide welcome screen on first message
+  if (!chatStarted) {
+    chatStarted = true;
+    document.getElementById('ai-welcome').style.display = 'none';
+    document.getElementById('ai-messages').style.display = 'flex';
+  }
+
+  const container = document.getElementById('ai-messages');
   const div = document.createElement('div');
-  div.className = `chat-message ${role === 'user' ? 'chat-user' : 'chat-ai'}`;
+  div.className = `ai-msg ${role === 'user' ? 'ai-msg-user' : 'ai-msg-ai'}`;
   div.innerHTML = role === 'user' ? escapeHtml(text) : escapeHtmlWithLinks(text);
   container.appendChild(div);
   container.scrollTop = container.scrollHeight;
   return div;
 }
 
-async function sendChatMessage() {
+async function sendChatMessage(messageOverride) {
   const input = document.getElementById('chat-input');
-  const message = input.value.trim();
+  const message = messageOverride || input.value.trim();
   if (!message) return;
 
   input.value = '';
@@ -1023,7 +1029,7 @@ async function sendChatMessage() {
   try {
     const result = await api('POST', '/api/ai/chat', {
       message,
-      history: chatHistory.slice(-10) // Keep last 10 messages for context
+      history: chatHistory.slice(-10)
     });
     loadingDiv.classList.remove('loading');
     loadingDiv.innerHTML = escapeHtmlWithLinks(result.reply);
@@ -1164,12 +1170,15 @@ async function init() {
   document.getElementById('editor-content').addEventListener('input', scheduleAutoSave);
 
   // AI buttons
-  // AI Chat
-  document.getElementById('btn-open-chat').addEventListener('click', () => { openChat(); closeSidebar(); });
-  document.getElementById('btn-close-chat').addEventListener('click', closeChat);
-  document.getElementById('btn-send-chat').addEventListener('click', sendChatMessage);
+  // AI Chat (full-screen view)
+  document.getElementById('btn-open-chat').addEventListener('click', () => { openAiView(); closeSidebar(); });
+  document.getElementById('btn-send-chat').addEventListener('click', () => sendChatMessage());
   document.getElementById('chat-input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') sendChatMessage();
+  });
+  // Suggestion button clicks
+  document.querySelectorAll('.ai-suggestion').forEach(btn => {
+    btn.addEventListener('click', () => sendChatMessage(btn.dataset.q));
   });
 
   document.getElementById('btn-ai-summarize').addEventListener('click', aiSummarize);
