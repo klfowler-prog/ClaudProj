@@ -482,6 +482,15 @@ app.post('/api/notes', auth, async (req, res) => {
 app.put('/api/notes/:id', auth, async (req, res) => {
   try {
     const ref = orgCol(req, 'notes').doc(req.params.id);
+    const doc = await ref.get();
+    if (!doc.exists) return res.status(404).json({ error: 'Note not found' });
+
+    // Only creator and CMO can edit
+    const note = doc.data();
+    if (req.memberRole !== 'cmo' && note.createdBy !== req.userId) {
+      return res.status(403).json({ error: 'Only the note creator can edit this note' });
+    }
+
     const updates = { updatedAt: new Date().toISOString() };
     const allowed = ['title', 'content', 'folderId', 'aiSummary', 'sharedWith'];
     for (const f of allowed) { if (req.body[f] !== undefined) updates[f] = req.body[f]; }

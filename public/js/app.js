@@ -874,6 +874,18 @@ async function openNote(noteId) {
     document.getElementById('notes-no-selection').style.display = 'none';
     document.getElementById('editor-saved').textContent = '';
 
+    // Check if user can edit this note (creator or CMO)
+    const canEdit = myProfile && (myProfile.role === 'cmo' || note.createdBy === myProfile.userId);
+    document.getElementById('editor-title').readOnly = !canEdit;
+    document.getElementById('editor-content').contentEditable = canEdit ? 'true' : 'false';
+    document.getElementById('editor-content').style.opacity = canEdit ? '1' : '0.85';
+    document.querySelector('.editor-toolbar').style.display = canEdit ? 'flex' : 'none';
+    document.getElementById('btn-delete-note').style.display = canEdit ? '' : 'none';
+    document.getElementById('note-folder-select').disabled = !canEdit;
+    if (!canEdit) {
+      document.getElementById('editor-saved').textContent = 'Read-only';
+    }
+
     // Populate folder dropdown and set current folder
     const folderSelect = document.getElementById('note-folder-select');
     folderSelect.innerHTML = folders.map(f =>
