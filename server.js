@@ -365,6 +365,8 @@ app.put('/api/folders/:id', auth, async (req, res) => {
     const updates = {};
     if (req.body.name !== undefined) updates.name = req.body.name;
     if (req.body.order !== undefined) updates.order = req.body.order;
+    if (req.body.shared !== undefined) updates.shared = req.body.shared;
+    if (req.body.leadersOnly !== undefined) updates.leadersOnly = req.body.leadersOnly;
     await orgCol(req, 'folders').doc(req.params.id).update(updates);
     res.json({ id: req.params.id, ...updates });
   } catch (err) { res.status(500).json({ error: 'Failed to update folder' }); }
@@ -406,17 +408,22 @@ app.get('/api/notes', auth, async (req, res) => {
       };
     });
 
-    // Build set of shared folder IDs (visible to everyone)
+    // Build folder visibility maps
     const foldersSnap = await orgCol(req, 'folders').get();
     const sharedFolderIds = new Set();
-    foldersSnap.docs.forEach(d => { if (d.data().shared) sharedFolderIds.add(d.id); });
+    const leadersFolderIds = new Set();
+    foldersSnap.docs.forEach(d => {
+      if (d.data().shared) sharedFolderIds.add(d.id);
+      if (d.data().leadersOnly) leadersFolderIds.add(d.id);
+    });
 
-    // Notes are private: only show your own + shared with you/your dept/all + notes in shared folders
+    // Notes are private: only show your own + shared + leaders-only (if lead/cmo) + dept-shared
     // CMO sees all
     if (req.memberRole !== 'cmo') {
       notes = notes.filter(n => {
         if (n.createdBy === req.userId) return true;
         if (sharedFolderIds.has(n.folderId)) return true;
+        if (leadersFolderIds.has(n.folderId) && req.memberRole === 'lead') return true;
         const sw = n.sharedWith || [];
         if (sw.includes(req.userId)) return true;
         if (req.memberDepts.some(d => sw.includes('dept:' + d))) return true;
@@ -440,14 +447,18 @@ app.get('/api/notes/:id', auth, async (req, res) => {
     const note = doc.data();
     // Non-CMO can only read their own notes, shared notes, or notes in shared folders
     if (req.memberRole !== 'cmo' && note.createdBy !== req.userId) {
-      // Check if note is in a shared folder
-      let inSharedFolder = false;
+      // Check if note is in a shared or leaders-only folder
+      let hasAccess = false;
       if (note.folderId) {
         const folderDoc = await orgCol(req, 'folders').doc(note.folderId).get();
-        if (folderDoc.exists && folderDoc.data().shared) inSharedFolder = true;
+        if (folderDoc.exists) {
+          const fd = folderDoc.data();
+          if (fd.shared) hasAccess = true;
+          if (fd.leadersOnly && req.memberRole === 'lead') hasAccess = true;
+        }
       }
       const sw = note.sharedWith || [];
-      if (!inSharedFolder && !sw.includes(req.userId) && !req.memberDepts.some(d => sw.includes('dept:' + d)) && !sw.includes('all')) {
+      if (!hasAccess && !sw.includes(req.userId) && !req.memberDepts.some(d => sw.includes('dept:' + d)) && !sw.includes('all')) {
         return res.status(403).json({ error: 'Access denied' });
       }
     }
