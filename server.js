@@ -666,12 +666,16 @@ app.get('/api/me', auth, async (req, res) => {
   });
 });
 
-// GET /api/team — List all team members (CMO only)
+// GET /api/team — List team members (full details for CMO, limited for others)
 app.get('/api/team', auth, async (req, res) => {
-  if (req.memberRole !== 'cmo') return res.status(403).json({ error: 'CMO only' });
   try {
     const snap = await orgCol(req, 'members').get();
-    res.json(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    const members = snap.docs.map(d => {
+      const m = d.data();
+      if (req.memberRole === 'cmo') return { id: d.id, ...m };
+      return { id: d.id, userId: m.userId, displayName: m.displayName, department: m.department };
+    });
+    res.json(members);
   } catch (err) { res.status(500).json({ error: 'Failed to fetch team' }); }
 });
 

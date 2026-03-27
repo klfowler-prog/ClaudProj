@@ -1343,10 +1343,8 @@ async function init() {
   // Load folders for sidebar
   await loadFolders();
 
-  // Load team members for Assign To dropdown
-  if (myProfile && myProfile.role === 'cmo') {
-    await loadTeam();
-  }
+  // Load team members for Assign To dropdown (all users need this)
+  await loadTeam();
 
   // Task list event delegation (for both active + completed lists)
   function handleTaskClick(e) {
