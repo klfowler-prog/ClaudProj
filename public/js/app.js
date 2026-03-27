@@ -1,7 +1,7 @@
 // === Constants ===
 const DEPARTMENTS = ['B2B Marketing', 'Internal Comms', 'Rev Ops', 'B2C Marketing', 'Personal'];
 const PRIORITIES = ['High', 'Medium', 'Low'];
-const STATUSES = ['Not Started', 'In Progress', 'Awaiting Feedback', 'Completed'];
+const STATUSES = ['Not Started', 'In Progress', 'Awaiting Feedback', 'Delegated', 'Completed'];
 const STORAGE_KEY = 'cmo_tasks';
 const MIGRATION_KEY = 'cmo_migrated_to_cloud';
 
@@ -36,6 +36,7 @@ const STATUS_KEYS = {
   'Not Started': 'not-started',
   'In Progress': 'in-progress',
   'Awaiting Feedback': 'awaiting',
+  'Delegated': 'delegated',
   'Completed': 'completed'
 };
 
@@ -275,7 +276,7 @@ function renderTaskList() {
     emptyState.style.display = 'none';
     // Group by status
     const grouped = {};
-    ['Awaiting Feedback', 'In Progress', 'Not Started'].forEach(s => {
+    ['Awaiting Feedback', 'Delegated', 'In Progress', 'Not Started'].forEach(s => {
       const group = sortTasks(activeTasks.filter(t => t.status === s));
       if (group.length > 0) grouped[s] = group;
     });
@@ -416,7 +417,10 @@ async function addTask(title, department, priority, notes, source, attachments, 
     dueDate: dueDate || '',
     recurring: recurring || 'none'
   };
-  if (assignedTo) taskData.assignedTo = assignedTo;
+  if (assignedTo) {
+    taskData.assignedTo = assignedTo;
+    taskData.status = 'Delegated';
+  }
 
   try {
     const created = await api('POST', '/api/tasks', taskData);
@@ -1115,7 +1119,10 @@ async function init() {
 
     if (editingTaskId) {
       const updates = { title, department, priority, notes, dueDate, recurring, attachments: allAttachments };
-      if (assignTo) updates.assignedTo = assignTo;
+      if (assignTo) {
+        updates.assignedTo = assignTo;
+        updates.status = 'Delegated';
+      }
       try {
         await api('PUT', `/api/tasks/${editingTaskId}`, updates);
         const task = tasks.find(t => t.id === editingTaskId);

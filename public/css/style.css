@@ -1083,6 +1083,11 @@ body {
   color: #a17508;
 }
 
+.status-select.status-delegated {
+  background-color: var(--color-b2c-light);
+  color: var(--follett-dark-blue);
+}
+
 .status-select.status-completed {
   background-color: var(--color-comms-light);
   color: #5e8a4e;
@@ -1115,17 +1120,20 @@ body {
 .status-header-not-started { color: var(--follett-dark-gray); }
 .status-header-in-progress { color: var(--follett-medium-blue); }
 .status-header-awaiting { color: #a17508; }
+.status-header-delegated { color: var(--follett-dark-blue); }
 
 /* Status badge for detail view */
 .badge-status-not-started { background: var(--follett-light-gray); color: var(--follett-dark-gray); }
 .badge-status-in-progress { background: var(--color-b2b-light); color: #2e7aaa; }
 .badge-status-awaiting { background: var(--color-medium-light); color: #a17508; }
+.badge-status-delegated { background: var(--color-b2c-light); color: var(--follett-dark-blue); }
 .badge-status-completed { background: var(--color-comms-light); color: #5e8a4e; }
 
 /* Task left border by status */
 .task-item.status-in-progress { border-left-color: var(--follett-medium-blue); }
 .task-item.status-awaiting { border-left-color: #d4960a; }
 .task-item.status-not-started { border-left-color: transparent; }
+.task-item.status-delegated { border-left-color: var(--follett-dark-blue); }
 .task-item.status-completed { border-left-color: var(--follett-sage); }
 
 /* === Completed Section === */

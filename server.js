@@ -320,7 +320,22 @@ app.delete('/api/tasks/:id', auth, async (req, res) => {
 app.get('/api/folders', auth, async (req, res) => {
   try {
     const snapshot = await orgCol(req, 'folders').orderBy('order').get();
-    res.json(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    const all = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+    // Deduplicate folders by name (delete extras, keep first)
+    const seen = new Set();
+    const unique = [];
+    for (const f of all) {
+      if (seen.has(f.name)) {
+        // Delete the duplicate
+        await orgCol(req, 'folders').doc(f.id).delete();
+      } else {
+        seen.add(f.name);
+        unique.push(f);
+      }
+    }
+
+    res.json(unique);
   } catch (err) { res.status(500).json({ error: 'Failed to fetch folders' }); }
 });
 
