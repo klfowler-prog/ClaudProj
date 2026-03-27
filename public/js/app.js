@@ -1179,6 +1179,7 @@ async function init() {
 
   // Team (CMO only)
   document.getElementById('btn-invite-member') && document.getElementById('btn-invite-member').addEventListener('click', inviteMember);
+  document.getElementById('form-invite') && document.getElementById('form-invite').addEventListener('submit', submitInvite);
   document.querySelectorAll('[data-view="team"]').forEach(btn => {
     btn.addEventListener('click', () => { showTeamView(); closeSidebar(); });
   });
@@ -1435,18 +1436,38 @@ async function showTeamView() {
   `).join('');
 }
 
-async function inviteMember() {
-  const email = prompt('Team member email address:');
-  if (!email) return;
-  const name = prompt('Display name:') || email.split('@')[0];
-  const dept = prompt('Department (B2B Marketing, Internal Comms, Rev Ops, B2C Marketing, Personal):') || 'B2B Marketing';
-  const role = prompt('Role (lead or member):') || 'member';
+function inviteMember() {
+  document.getElementById('form-invite').reset();
+  document.getElementById('invite-result').style.display = 'none';
+  document.getElementById('form-invite').style.display = 'block';
+  openModal('modal-invite');
+}
+
+async function submitInvite(e) {
+  e.preventDefault();
+  const name = document.getElementById('invite-name').value.trim();
+  const email = document.getElementById('invite-email').value.trim();
+  const department = document.getElementById('invite-department').value;
+  const role = document.getElementById('invite-role').value;
+
+  if (!name || !email || !department) return;
 
   try {
-    const result = await api('POST', '/api/team/invite', { email, displayName: name, department: dept, role });
-    alert(`Invited ${email}!\n\nSend them this password reset link:\n${result.resetLink}`);
+    const result = await api('POST', '/api/team/invite', { email, displayName: name, department, role });
+    // Show success with the reset link
+    document.getElementById('form-invite').style.display = 'none';
+    document.getElementById('invite-result').style.display = 'block';
+    document.getElementById('invite-result-text').textContent = `Send this link to ${name} so they can set their password and log in:`;
+
+    document.getElementById('btn-copy-invite-link').onclick = () => {
+      navigator.clipboard.writeText(result.resetLink).then(() => {
+        document.getElementById('btn-copy-invite-link').textContent = 'Copied!';
+        setTimeout(() => { document.getElementById('btn-copy-invite-link').textContent = 'Copy Link'; }, 2000);
+      });
+    };
+
     showTeamView();
-  } catch (err) { alert('Failed to invite: ' + err.message); }
+  } catch (err) { alert('Failed to add member: ' + err.message); }
 }
 
 async function disableMember(id) {
