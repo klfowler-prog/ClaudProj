@@ -645,7 +645,17 @@ function showTaskDetail(id) {
   const deptKey = DEPT_KEYS[task.department] || 'b2b';
   const prioKey = task.priority.toLowerCase();
   const date = new Date(task.createdAt);
-  const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const assignedMember = teamMembers.find(m => m.userId === task.assignedTo);
+  const assignedName = assignedMember ? assignedMember.displayName : 'Me';
+  const createdMember = teamMembers.find(m => m.userId === task.createdBy);
+  const createdName = createdMember ? createdMember.displayName : 'Me';
+
+  // Build assignee dropdown options
+  const assignOptions = '<option value="">Me</option>' + teamMembers
+    .filter(m => m.status === 'active' || !m.status)
+    .map(m => `<option value="${m.userId}" ${m.userId === task.assignedTo ? 'selected' : ''}>${escapeHtml(m.displayName)}</option>`)
+    .join('');
 
   let attachmentsHtml = '';
   if (task.attachments && task.attachments.length > 0) {
@@ -665,31 +675,86 @@ function showTaskDetail(id) {
 
   document.getElementById('detail-title').textContent = task.title;
   document.getElementById('detail-content').innerHTML = `
-    <div class="detail-badges">
-      <span class="badge badge-${deptKey}">${escapeHtml(task.department)}</span>
-      <span class="badge badge-${prioKey}">${task.priority}</span>
-      ${task.source !== 'manual' ? `<span class="badge badge-low">${task.source === 'email' ? '&#9993; Email' : '# Slack'}</span>` : ''}
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1rem;">
+      <div>
+        <div class="detail-section-title">Status</div>
+        <span class="badge badge-status-${STATUS_KEYS[task.status] || 'not-started'}">${task.status}</span>
+        ${task.recurring && task.recurring !== 'none' ? `<span style="font-size:0.75rem;color:var(--follett-medium-blue);margin-left:0.375rem;">&#8635; ${task.recurring}</span>` : ''}
+      </div>
+      <div>
+        <div class="detail-section-title">Priority</div>
+        <span class="badge badge-${prioKey}">${task.priority}</span>
+      </div>
+      <div>
+        <div class="detail-section-title">Department</div>
+        <span class="badge badge-${deptKey}">${escapeHtml(task.department)}</span>
+      </div>
+      <div>
+        <div class="detail-section-title">Due Date</div>
+        ${task.dueDate ? `<span>${formatDueDate(task.dueDate, task.status === 'Completed')} ${new Date(task.dueDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>` : '<span style="color:var(--color-text-light);font-size:0.85rem;">Not set</span>'}
+      </div>
+      <div>
+        <div class="detail-section-title">Assigned To</div>
+        <select class="filter-select-compact" onchange="reassignTask('${task.id}', this.value)" style="font-size:0.8rem;">
+          ${assignOptions}
+        </select>
+      </div>
+      <div>
+        <div class="detail-section-title">Created By</div>
+        <span style="font-size:0.85rem;">${escapeHtml(createdName)} &middot; ${dateStr}</span>
+      </div>
     </div>
+
     ${task.notes ? `<div class="detail-section"><div class="detail-section-title">Notes</div><div class="detail-notes">${escapeHtmlWithLinks(task.notes)}</div></div>` : ''}
     ${attachmentsHtml}
-    <div class="detail-section">
-      <div class="detail-section-title">Status</div>
-      <span class="badge badge-status-${STATUS_KEYS[task.status] || 'not-started'}">${task.status}</span>
-      ${task.completedAt ? `<span style="font-size: 0.8rem; color: var(--color-text-light); margin-left: 0.5rem;">Completed ${new Date(task.completedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>` : ''}
-      ${task.recurring && task.recurring !== 'none' ? `<span style="font-size: 0.8rem; color: var(--follett-medium-blue); margin-left: 0.5rem;">&#8635; Repeats ${{ daily: 'daily', weekly: 'weekly', biweekly: 'every 2 weeks', monthly: 'monthly' }[task.recurring]}</span>` : ''}
-    </div>
-    ${task.dueDate ? `<div class="detail-section"><div class="detail-section-title">Due Date</div><div>${formatDueDate(task.dueDate, task.status === 'Completed')} &mdash; ${new Date(task.dueDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</div></div>` : ''}
-    <div class="detail-timestamp">Created ${dateStr}</div>
+    ${task.completedAt ? `<div style="font-size:0.8rem;color:var(--color-text-light);margin-bottom:0.75rem;">Completed ${new Date(task.completedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>` : ''}
+
     <div class="detail-section" id="detail-subtasks">
-      <div class="detail-section-title">Sub-tasks <button class="btn btn-ghost btn-sm" onclick="addSubtask('${task.id}', '${escapeHtml(task.department)}')">+ Add</button></div>
-      <div id="subtask-list" style="color: var(--color-text-muted); font-size: 0.85rem;">Loading...</div>
+      <div class="detail-section-title" style="display:flex;justify-content:space-between;align-items:center;">
+        Sub-tasks
+        <button class="btn btn-ghost btn-sm" onclick="showSubtaskForm('${task.id}', '${escapeHtml(task.department)}')" id="btn-show-subtask-form" style="font-size:0.75rem;">+ Add Sub-task</button>
+      </div>
+      <div id="subtask-form" style="display:none;margin:0.5rem 0;padding:0.625rem;background:var(--follett-light-gray);border-radius:var(--radius);">
+        <input type="text" id="subtask-title" placeholder="What needs to be done?" style="width:100%;padding:0.4rem 0.6rem;border:1px solid var(--color-border);border-radius:var(--radius);font-size:0.85rem;margin-bottom:0.375rem;">
+        <div style="display:flex;gap:0.375rem;flex-wrap:wrap;">
+          <select id="subtask-assign" class="filter-select-compact" style="font-size:0.75rem;flex:1;">
+            ${assignOptions}
+          </select>
+          <input type="date" id="subtask-due" class="filter-select-compact" style="font-size:0.75rem;">
+          <button class="btn btn-primary btn-sm" onclick="submitSubtask('${task.id}', '${escapeHtml(task.department)}')" style="font-size:0.75rem;">Add</button>
+          <button class="btn btn-ghost btn-sm" onclick="hideSubtaskForm()" style="font-size:0.75rem;">Cancel</button>
+        </div>
+      </div>
+      <div id="subtask-list" style="font-size: 0.85rem;">Loading...</div>
     </div>
+
     <div class="detail-actions">
       <button class="btn btn-primary" onclick="editTask('${task.id}')">Edit Task</button>
     </div>
   `;
   openModal('modal-detail');
   loadSubtasks(task.id);
+}
+
+function showSubtaskForm(parentId, dept) {
+  document.getElementById('subtask-form').style.display = 'block';
+  document.getElementById('subtask-title').value = '';
+  document.getElementById('subtask-due').value = '';
+  document.getElementById('subtask-title').focus();
+}
+
+function hideSubtaskForm() {
+  document.getElementById('subtask-form').style.display = 'none';
+}
+
+async function reassignTask(taskId, newAssignee) {
+  try {
+    const updates = { assignedTo: newAssignee || undefined };
+    if (newAssignee && newAssignee !== myProfile.userId) updates.status = 'Delegated';
+    await api('PUT', `/api/tasks/${taskId}`, updates);
+    await loadTasks();
+    render();
+  } catch (err) { alert('Failed to reassign: ' + err.message); }
 }
 
 async function loadSubtasks(parentId) {
@@ -739,17 +804,23 @@ async function toggleSubtask(subtaskId, currentStatus) {
   } catch (err) { alert('Failed to update sub-task: ' + err.message); }
 }
 
-async function addSubtask(parentId, department) {
-  const title = prompt('Sub-task title:');
+async function submitSubtask(parentId, department) {
+  const title = document.getElementById('subtask-title').value.trim();
   if (!title) return;
+  const assignedTo = document.getElementById('subtask-assign').value || undefined;
+  const dueDate = document.getElementById('subtask-due').value || '';
   try {
     await api('POST', '/api/tasks', {
       title,
       department,
       priority: 'Medium',
-      status: 'Not Started',
-      parentTaskId: parentId
+      status: assignedTo ? 'Delegated' : 'Not Started',
+      parentTaskId: parentId,
+      assignedTo,
+      dueDate
     });
+    document.getElementById('subtask-title').value = '';
+    document.getElementById('subtask-due').value = '';
     loadSubtasks(parentId);
     await loadTasks();
     render();
