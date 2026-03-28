@@ -386,6 +386,23 @@ body {
   color: var(--follett-coral);
 }
 
+.stat-pill-clickable {
+  cursor: pointer;
+  transition: var(--transition);
+}
+.stat-pill-clickable:hover {
+  background: var(--follett-light-gray);
+  border-color: var(--follett-medium-blue);
+}
+.stat-pill-clickable.active {
+  background: var(--follett-dark-blue);
+  color: #fff;
+  border-color: var(--follett-dark-blue);
+}
+.stat-pill-clickable.active strong {
+  color: #fff;
+}
+
 .filter-select-compact {
   padding: 0.3rem 0.5rem;
   border: 1px solid var(--color-border);

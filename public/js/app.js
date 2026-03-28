@@ -50,7 +50,7 @@ const DEPT_KEYWORDS = {
 
 // === State ===
 let tasks = [];
-let filters = { department: 'all', priority: 'all', search: '', sort: 'due-date' };
+let filters = { department: 'all', priority: 'all', search: '', sort: 'due-date', statFilter: 'none' };
 let pendingAttachments = []; // temp attachments for the add-task form
 let pendingLinks = [];       // temp links for the add-task form
 let editingTaskId = null;    // null = adding, string = editing
@@ -252,8 +252,21 @@ function renderTaskList() {
   const completedList = document.getElementById('completed-list');
   const completedCount = document.getElementById('completed-count');
 
-  const activeTasks = filtered.filter(t => t.status !== 'Completed');
+  const today = new Date().toISOString().split('T')[0];
+  let activeTasks = filtered.filter(t => t.status !== 'Completed');
   const completedTasks = getFilteredCompletedTasks();
+
+  // Apply stat filter
+  if (filters.statFilter === 'active') {
+    // already filtered to non-completed
+  } else if (filters.statFilter === 'awaiting') {
+    activeTasks = activeTasks.filter(t => t.status === 'Awaiting Feedback');
+  } else if (filters.statFilter === 'overdue') {
+    activeTasks = activeTasks.filter(t => t.dueDate && t.dueDate < today);
+  } else if (filters.statFilter === 'completed') {
+    // Show completed instead of active
+    activeTasks = [];
+  }
 
   // Active tasks
   if (activeTasks.length === 0 && completedTasks.length === 0) {
@@ -1469,6 +1482,22 @@ async function init() {
     document.getElementById('btn-all-tasks').classList.add('active');
     document.getElementById('btn-my-tasks').classList.remove('active');
     loadTasks().then(render);
+  });
+
+  // Stat pill filters
+  document.querySelectorAll('.stat-pill-clickable').forEach(pill => {
+    pill.addEventListener('click', () => {
+      const filter = pill.dataset.statFilter;
+      filters.statFilter = filters.statFilter === filter ? 'none' : filter;
+      document.querySelectorAll('.stat-pill-clickable').forEach(p => {
+        p.classList.toggle('active', p.dataset.statFilter === filters.statFilter);
+      });
+      if (filters.statFilter === 'completed') {
+        document.getElementById('completed-list').style.display = 'flex';
+        document.getElementById('completed-toggle').textContent = 'Hide';
+      }
+      render();
+    });
   });
 
   // AI Chat
