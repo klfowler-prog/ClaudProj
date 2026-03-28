@@ -509,16 +509,37 @@ app.post('/api/upload', auth, upload.single('file'), async (req, res) => {
       metadata: { uploadedBy: req.userId, orgId: req.orgId }
     });
 
-    // Make file publicly readable
-    const url = `https://storage.googleapis.com/${BUCKET_NAME}/${fileName}`;
+    // Store the GCS path (not a public URL) — download via signed URL endpoint
     res.json({
-      url,
+      gcsPath: fileName,
       name: req.file.originalname,
       size: req.file.size,
       type: req.file.mimetype
     });
   } catch (err) {
     res.status(500).json({ error: 'Upload failed: ' + err.message });
+  }
+});
+
+// GET /api/file-url?path=... — Generate a signed download URL (1 hour expiry)
+app.get('/api/file-url', auth, async (req, res) => {
+  try {
+    const filePath = req.query.path;
+    if (!filePath) return res.status(400).json({ error: 'path is required' });
+
+    // Security: only allow files from the user's org
+    if (!filePath.startsWith(req.orgId + '/')) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const bucket = storage.bucket(BUCKET_NAME);
+    const [url] = await bucket.file(filePath).getSignedUrl({
+      action: 'read',
+      expires: Date.now() + 60 * 60 * 1000 // 1 hour
+    });
+    res.json({ url });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to generate download URL: ' + err.message });
   }
 });
 
@@ -547,8 +568,7 @@ app.post('/api/migrate-files', auth, async (req, res) => {
           const fileName = `${req.orgId}/migrated-${Date.now()}-${(att.name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_')}`;
           const blob = bucket.file(fileName);
           await blob.save(buffer, { contentType: mimeType });
-          const url = `https://storage.googleapis.com/${BUCKET_NAME}/${fileName}`;
-          newAttachments.push({ type: 'file', name: att.name, url, size: buffer.length });
+          newAttachments.push({ type: 'file', name: att.name, gcsPath: fileName, size: buffer.length });
           changed = true;
           migratedCount++;
         } else {
@@ -577,8 +597,7 @@ app.post('/api/migrate-files', auth, async (req, res) => {
           const fileName = `${req.orgId}/migrated-${Date.now()}-${(link.name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_')}`;
           const blob = bucket.file(fileName);
           await blob.save(buffer, { contentType: mimeType });
-          const url = `https://storage.googleapis.com/${BUCKET_NAME}/${fileName}`;
-          newLinks.push({ type: 'file', name: link.name, url, size: buffer.length });
+          newLinks.push({ type: 'file', name: link.name, gcsPath: fileName, size: buffer.length });
           changed = true;
           migratedCount++;
         } else {

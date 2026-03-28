@@ -1336,8 +1336,11 @@ function renderNoteLinks(canEdit) {
     const isFile = l.type === 'file';
     const icon = isFile ? getFileIcon(l.name) : '🔗';
     const sizeLabel = isFile && l.size ? ` · ${formatFileSize(l.size)}` : '';
+    const hasGcs = isFile && l.gcsPath;
+    const href = hasGcs ? '#' : escapeHtml(l.url || '');
+    const clickHandler = hasGcs ? `onclick="downloadFile('${escapeHtml(l.gcsPath)}');return false;"` : '';
     return `<div class="note-link-item">
-      <a href="${escapeHtml(l.url)}" target="_blank" rel="noopener">${icon} ${escapeHtml(l.name || l.url)}<span style="color:var(--color-text-light);font-size:0.7rem;">${sizeLabel}</span></a>
+      <a href="${href}" ${hasGcs ? '' : 'target="_blank" rel="noopener"'} ${clickHandler}>${icon} ${escapeHtml(l.name || l.url || l.gcsPath)}<span style="color:var(--color-text-light);font-size:0.7rem;">${sizeLabel}</span></a>
       ${canEdit ? `<button class="note-link-remove" data-link-idx="${i}">&times;</button>` : ''}
     </div>`;
   }).join('');
@@ -1369,7 +1372,7 @@ async function uploadNoteFile(files) {
       if (!res.ok) throw new Error((await res.json()).error || 'Upload failed');
       const result = await res.json();
       currentNoteLinks.push({
-        type: 'file', name: result.name, url: result.url, size: result.size
+        type: 'file', name: result.name, gcsPath: result.gcsPath, size: result.size
       });
     } catch (err) {
       alert('Upload failed: ' + err.message);
@@ -1378,6 +1381,15 @@ async function uploadNoteFile(files) {
   status.style.display = 'none';
   renderNoteLinks(true);
   await saveNoteLinks();
+}
+
+async function downloadFile(gcsPath) {
+  try {
+    const result = await api('GET', `/api/file-url?path=${encodeURIComponent(gcsPath)}`);
+    window.open(result.url, '_blank');
+  } catch (err) {
+    alert('Failed to get download link: ' + err.message);
+  }
 }
 
 async function addNoteLink() {
