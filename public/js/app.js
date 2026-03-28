@@ -360,7 +360,11 @@ function escapeHtmlWithLinks(str) {
   const escaped = escapeHtml(str);
   return escaped.replace(
     /(https?:\/\/[^\s<>"']+)/g,
-    '<a href="$1" target="_blank" rel="noopener" class="inline-link">$1</a>'
+    function(url) {
+      // Unescape &amp; back to & for the href attribute
+      const cleanUrl = url.replace(/&amp;/g, '&');
+      return `<a href="${cleanUrl}" target="_blank" rel="noopener" class="inline-link">${url}</a>`;
+    }
   );
 }
 

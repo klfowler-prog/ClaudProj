@@ -431,7 +431,7 @@ app.get('/api/tasks/:id/comments', auth, async (req, res) => {
       });
     }
 
-    comments.sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+    comments.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
     res.json(comments);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch comments' });
