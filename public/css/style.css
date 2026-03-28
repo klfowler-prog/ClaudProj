@@ -515,6 +515,26 @@ body {
   margin-top: 0.125rem;
 }
 
+.note-pinned {
+  background: rgba(174, 234, 252, 0.08);
+}
+
+.note-pin-btn {
+  cursor: pointer;
+  font-size: 0.7rem;
+  opacity: 0.3;
+  transition: opacity 0.2s;
+}
+
+.note-list-item:hover .note-pin-btn { opacity: 0.7; }
+.note-pin-btn.pinned { opacity: 1; }
+.note-pin-btn:hover { opacity: 1 !important; }
+
+.note-pin-icon {
+  font-size: 0.7rem;
+  opacity: 0.5;
+}
+
 .notes-empty {
   padding: 2rem 1rem;
   text-align: center;

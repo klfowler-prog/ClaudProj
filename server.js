@@ -430,7 +430,8 @@ app.get('/api/notes', auth, async (req, res) => {
         id: doc.id, title: d.title, folderId: d.folderId, source: d.source,
         updatedAt: d.updatedAt, createdAt: d.createdAt, createdBy: d.createdBy,
         sharedWith: d.sharedWith || [],
-        authorName: memberNames[d.createdBy] || 'Unknown'
+        authorName: memberNames[d.createdBy] || 'Unknown',
+        pinned: d.pinned || false
       };
     });
 
@@ -461,7 +462,12 @@ app.get('/api/notes', auth, async (req, res) => {
       notes = notes.filter(n => n.createdBy === req.userId);
     }
 
-    notes.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+    // Pinned notes first, then sort by updatedAt
+    notes.sort((a, b) => {
+      if (a.pinned && !b.pinned) return -1;
+      if (!a.pinned && b.pinned) return 1;
+      return (b.updatedAt || '').localeCompare(a.updatedAt || '');
+    });
     res.json(notes);
   } catch (err) { res.status(500).json({ error: 'Failed to fetch notes' }); }
 });
@@ -499,7 +505,8 @@ app.post('/api/notes', authWrite, async (req, res) => {
       title: req.body.title || 'Untitled', content: req.body.content || '',
       folderId: req.body.folderId || '', source: req.body.source || 'manual',
       createdAt: now, updatedAt: now, aiSummary: '', createdBy: req.userId,
-      links: req.body.links || []
+      links: req.body.links || [],
+      pinned: false
     };
     const ref = await orgCol(req, 'notes').add(note);
     res.status(201).json({ id: ref.id, ...note });
@@ -519,7 +526,7 @@ app.put('/api/notes/:id', authWrite, async (req, res) => {
     }
 
     const updates = { updatedAt: new Date().toISOString() };
-    const allowed = ['title', 'content', 'folderId', 'aiSummary', 'sharedWith', 'links'];
+    const allowed = ['title', 'content', 'folderId', 'aiSummary', 'sharedWith', 'links', 'pinned'];
     for (const f of allowed) { if (req.body[f] !== undefined) updates[f] = req.body[f]; }
     await ref.update(updates);
     res.json({ id: req.params.id, ...updates });

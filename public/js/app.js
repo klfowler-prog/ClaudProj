@@ -851,17 +851,45 @@ function renderNotesList() {
   const empty = document.getElementById('notes-empty');
   if (notesList.length === 0) { container.innerHTML = ''; empty.style.display = 'block'; return; }
   empty.style.display = 'none';
+  const canPin = myProfile && (myProfile.role === 'cmo' || myProfile.role === 'lead');
   container.innerHTML = notesList.map(n => {
     const date = new Date(n.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     const isOwn = myProfile && n.createdBy === myProfile.userId;
     const authorLabel = isOwn ? '' : ` &middot; ${escapeHtml(n.authorName || 'Unknown')}`;
-    return `<button class="note-list-item ${activeNoteId === n.id ? 'active' : ''}" data-note-id="${n.id}">
-      <div class="note-list-item-title">${escapeHtml(n.title || 'Untitled')}</div>
-      <div class="note-list-item-date">${date}${authorLabel}</div>
+    const pinIcon = n.pinned ? '&#128204;' : '';
+    const pinBtn = (canPin || isOwn) ? `<span class="note-pin-btn ${n.pinned ? 'pinned' : ''}" data-pin-id="${n.id}" title="${n.pinned ? 'Unpin' : 'Pin to top'}">${n.pinned ? '&#128204;' : '&#128205;'}</span>` : (n.pinned ? '<span class="note-pin-icon">&#128204;</span>' : '');
+    return `<button class="note-list-item ${activeNoteId === n.id ? 'active' : ''} ${n.pinned ? 'note-pinned' : ''}" data-note-id="${n.id}">
+      <div class="note-list-item-title">${pinIcon ? '' : ''}${escapeHtml(n.title || 'Untitled')}</div>
+      <div class="note-list-item-date">${date}${authorLabel} ${pinBtn}</div>
     </button>`;
   }).join('');
   container.querySelectorAll('[data-note-id]').forEach(btn => {
-    btn.addEventListener('click', () => openNote(btn.dataset.noteId));
+    btn.addEventListener('click', (e) => {
+      // Don't open note if clicking pin button
+      if (e.target.closest('.note-pin-btn')) return;
+      openNote(btn.dataset.noteId);
+    });
+  });
+
+  // Pin button handlers
+  container.querySelectorAll('.note-pin-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const noteId = btn.dataset.pinId;
+      const note = notesList.find(n => n.id === noteId);
+      if (!note) return;
+      try {
+        await api('PUT', `/api/notes/${noteId}`, { pinned: !note.pinned });
+        note.pinned = !note.pinned;
+        // Re-sort: pinned first
+        notesList.sort((a, b) => {
+          if (a.pinned && !b.pinned) return -1;
+          if (!a.pinned && b.pinned) return 1;
+          return (b.updatedAt || '').localeCompare(a.updatedAt || '');
+        });
+        renderNotesList();
+      } catch (err) { console.error('Failed to pin:', err); }
+    });
   });
 }
 
