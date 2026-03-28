@@ -216,7 +216,8 @@ function renderTaskItem(task) {
   const isRecurring = task.recurring && task.recurring !== 'none';
   const recurringLabel = { daily: 'Daily', weekly: 'Weekly', biweekly: 'Biweekly', monthly: 'Monthly' }[task.recurring] || '';
   const isSubtask = !!task.parentTaskId;
-  const prioDot = task.priority === 'High' ? '🔴' : task.priority === 'Low' ? '⚪' : '🟡';
+  const prioClass = task.priority === 'High' ? 'prio-high' : task.priority === 'Low' ? 'prio-low' : 'prio-medium';
+  const prioDot = `<span class="prio-dot ${prioClass}"></span>`;
 
   const statusOptions = STATUSES.map(s =>
     `<option value="${s}" ${s === task.status ? 'selected' : ''}>${s}</option>`
