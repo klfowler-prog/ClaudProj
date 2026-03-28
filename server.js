@@ -287,13 +287,30 @@ app.post('/api/tasks/batch', authWrite, async (req, res) => {
 });
 
 // PUT /api/tasks/:id — Update a task
-app.put('/api/tasks/:id', authWrite, async (req, res) => {
+app.put('/api/tasks/:id', auth, async (req, res) => {
   try {
     const taskRef = orgCol(req, 'tasks').doc(req.params.id);
     const doc = await taskRef.get();
     if (!doc.exists) return res.status(404).json({ error: 'Task not found' });
 
     const oldTask = doc.data();
+
+    // Viewers can only update status on tasks assigned to them
+    if (req.memberRole === 'viewer') {
+      if (oldTask.assignedTo !== req.userId) {
+        return res.status(403).json({ error: 'Viewers can only update tasks assigned to them' });
+      }
+      const updates = {};
+      if (req.body.status) {
+        updates.status = req.body.status;
+        updates.completed = req.body.status === 'Completed';
+        updates.completedAt = req.body.status === 'Completed' ? new Date().toISOString() : '';
+      }
+      if (Object.keys(updates).length === 0) return res.status(403).json({ error: 'Viewers can only change task status' });
+      await taskRef.update(updates);
+      return res.json({ id: req.params.id, ...oldTask, ...updates });
+    }
+
     const updates = {};
     const allowedFields = ['title', 'department', 'priority', 'notes', 'status',
       'completed', 'completedAt', 'dueDate', 'attachments', 'emailMessageId', 'recurring',
