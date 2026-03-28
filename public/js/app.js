@@ -2620,6 +2620,13 @@ function inviteMember() {
   document.getElementById('form-invite').reset();
   document.getElementById('invite-result').style.display = 'none';
   document.getElementById('form-invite').style.display = 'block';
+
+  // Populate Reports To dropdown with leads and CMO
+  const reportsToSelect = document.getElementById('invite-reports-to');
+  const leads = teamMembers.filter(m => (m.role === 'lead' || m.role === 'cmo') && m.status === 'active');
+  reportsToSelect.innerHTML = '<option value="">None</option>' +
+    leads.map(l => `<option value="${l.userId}">${escapeHtml(l.displayName)}</option>`).join('');
+
   openModal('modal-invite');
 }
 
@@ -2629,12 +2636,15 @@ async function submitInvite(e) {
   const email = document.getElementById('invite-email').value.trim();
   const departments = [];
   document.querySelectorAll('.invite-dept-cb:checked').forEach(cb => departments.push(cb.value));
+  const subDepartments = [];
+  document.querySelectorAll('.invite-subdept-cb:checked').forEach(cb => subDepartments.push(cb.value));
   const role = document.getElementById('invite-role').value;
+  const reportsTo = document.getElementById('invite-reports-to').value;
 
   if (!name || !email || departments.length === 0) { alert('Select at least one department'); return; }
 
   try {
-    const result = await api('POST', '/api/team/invite', { email, displayName: name, departments, role });
+    const result = await api('POST', '/api/team/invite', { email, displayName: name, departments, subDepartments, role, reportsTo });
     // Show success with the reset link
     document.getElementById('form-invite').style.display = 'none';
     document.getElementById('invite-result').style.display = 'block';
