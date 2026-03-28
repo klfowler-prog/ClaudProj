@@ -1476,15 +1476,44 @@ app.post('/api/feature-request', auth, async (req, res) => {
   }
 });
 
-// GET /api/feature-requests — List all feature requests (CMO only)
+// GET /api/feature-requests — List all feature requests (all users)
 app.get('/api/feature-requests', auth, async (req, res) => {
-  if (req.memberRole !== 'cmo') return res.status(403).json({ error: 'CMO only' });
   try {
     const snap = await orgCol(req, 'featureRequests').get();
-    const requests = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    requests.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    const requests = snap.docs.map(d => {
+      const data = d.data();
+      const votes = data.votes || {};
+      const upvotes = Object.values(votes).filter(v => v === 'up').length;
+      const downvotes = Object.values(votes).filter(v => v === 'down').length;
+      return {
+        id: d.id, summary: data.summary, description: data.description,
+        requestedByName: data.requestedByName, status: data.status || 'new',
+        createdAt: data.createdAt, upvotes, downvotes, score: upvotes - downvotes,
+        myVote: votes[req.userId] || null
+      };
+    });
+    requests.sort((a, b) => b.score - a.score || (b.createdAt || '').localeCompare(a.createdAt || ''));
     res.json(requests);
   } catch (err) { res.status(500).json({ error: 'Failed to fetch requests' }); }
+});
+
+// POST /api/feature-requests/:id/vote — Vote on a feature request
+app.post('/api/feature-requests/:id/vote', auth, async (req, res) => {
+  try {
+    const { vote } = req.body; // 'up', 'down', or 'none' (remove vote)
+    const ref = orgCol(req, 'featureRequests').doc(req.params.id);
+    const doc = await ref.get();
+    if (!doc.exists) return res.status(404).json({ error: 'Request not found' });
+
+    const votes = doc.data().votes || {};
+    if (vote === 'none') {
+      delete votes[req.userId];
+    } else {
+      votes[req.userId] = vote;
+    }
+    await ref.update({ votes });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: 'Failed to vote' }); }
 });
 
 // === Gmail OAuth Endpoints ===

@@ -106,9 +106,9 @@
         <span class="sidebar-icon">&#10024;</span>
         <span>AI Assistant</span>
       </button>
-      <button class="sidebar-nav-item" id="btn-suggest-feature">
+      <button class="sidebar-nav-item" id="btn-feature-requests" data-view="features">
         <span class="sidebar-icon">&#128161;</span>
-        <span>Suggest Improvement</span>
+        <span>Ideas &amp; Feedback</span>
       </button>
     </div>
 
@@ -427,6 +427,16 @@
       <h2 style="font-family: 'IBM Plex Serif', Georgia, serif; font-size: 1.25rem; color: var(--follett-dark-blue); margin-bottom: 1rem;">Notifications</h2>
       <div id="notifications-list"></div>
       <div id="notifications-empty" style="display: none; text-align: center; padding: 2rem; color: var(--color-text-muted);">No new notifications</div>
+    </div>
+
+    <!-- Feature Requests View -->
+    <div id="view-features" style="display: none;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+        <h2 style="font-family: 'IBM Plex Serif', Georgia, serif; font-size: 1.25rem; color: var(--follett-dark-blue);">Ideas &amp; Feedback</h2>
+        <button class="btn btn-primary btn-sm" id="btn-suggest-feature-inline">&#128161; Suggest Improvement</button>
+      </div>
+      <div id="feature-requests-list"></div>
+      <div id="feature-requests-empty" style="display:none;text-align:center;padding:2rem;color:var(--color-text-muted);">No suggestions yet. Be the first!</div>
     </div>
 
     <!-- Search Results View -->

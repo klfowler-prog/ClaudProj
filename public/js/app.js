@@ -223,6 +223,7 @@ function switchView(view) {
   document.getElementById('view-team').style.display = view === 'team' ? 'block' : 'none';
   document.getElementById('view-notifications').style.display = view === 'notifications' ? 'block' : 'none';
   document.getElementById('view-search').style.display = view === 'search' ? 'block' : 'none';
+  document.getElementById('view-features').style.display = view === 'features' ? 'block' : 'none';
   document.querySelectorAll('.sidebar-nav-item').forEach(el => {
     const match = el.dataset.view === view || (el.id === 'btn-open-chat' && view === 'ai') || (el.id === 'btn-notifications' && view === 'notifications');
     el.classList.toggle('active', match);
@@ -2192,15 +2193,24 @@ async function init() {
 
   // AI Chat
   document.getElementById('btn-open-chat').addEventListener('click', () => { openAiView(); closeSidebar(); });
-  document.getElementById('btn-suggest-feature').addEventListener('click', () => {
+  // Feature requests
+  document.getElementById('btn-feature-requests').addEventListener('click', () => {
+    switchView('features');
+    loadFeatureRequests();
+    closeSidebar();
+  });
+  function openSuggestModal() {
     document.getElementById('suggest-text').value = '';
     document.getElementById('suggest-result').style.display = 'none';
     document.getElementById('btn-submit-suggestion').textContent = 'Submit';
     document.getElementById('btn-submit-suggestion').disabled = false;
     openModal('modal-suggest');
-    closeSidebar();
+  }
+  document.getElementById('btn-suggest-feature-inline').addEventListener('click', openSuggestModal);
+  document.getElementById('btn-submit-suggestion').addEventListener('click', async () => {
+    await submitSuggestion();
+    loadFeatureRequests();
   });
-  document.getElementById('btn-submit-suggestion').addEventListener('click', submitSuggestion);
   document.getElementById('btn-send-chat').addEventListener('click', () => sendChatMessage());
   document.getElementById('chat-input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') sendChatMessage();
@@ -2711,6 +2721,49 @@ async function deleteMember(id, name) {
 }
 
 // === Feature Requests ===
+async function loadFeatureRequests() {
+  try {
+    const requests = await api('GET', '/api/feature-requests');
+    const container = document.getElementById('feature-requests-list');
+    const empty = document.getElementById('feature-requests-empty');
+
+    if (requests.length === 0) {
+      container.innerHTML = '';
+      empty.style.display = 'block';
+      return;
+    }
+    empty.style.display = 'none';
+
+    container.innerHTML = requests.map(r => {
+      const ago = timeAgo(r.createdAt);
+      return `<div class="feature-card">
+        <div class="feature-votes">
+          <button class="feature-vote-btn ${r.myVote === 'up' ? 'voted-up' : ''}" data-vote-id="${r.id}" data-vote="up" title="Upvote">&#128077;</button>
+          <span class="feature-score">${r.score}</span>
+          <button class="feature-vote-btn ${r.myVote === 'down' ? 'voted-down' : ''}" data-vote-id="${r.id}" data-vote="down" title="Downvote">&#128078;</button>
+        </div>
+        <div class="feature-content">
+          <div class="feature-summary">${escapeHtml(r.summary)}</div>
+          <div class="feature-meta">${escapeHtml(r.requestedByName)} &middot; ${ago}</div>
+        </div>
+      </div>`;
+    }).join('');
+
+    // Vote click handlers
+    container.querySelectorAll('.feature-vote-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.voteId;
+        const currentVote = btn.classList.contains('voted-up') ? 'up' : btn.classList.contains('voted-down') ? 'down' : null;
+        const newVote = btn.dataset.vote === currentVote ? 'none' : btn.dataset.vote;
+        try {
+          await api('POST', `/api/feature-requests/${id}/vote`, { vote: newVote });
+          loadFeatureRequests();
+        } catch (err) { alert('Failed to vote: ' + err.message); }
+      });
+    });
+  } catch (err) { console.error('Failed to load feature requests:', err); }
+}
+
 async function submitSuggestion() {
   const text = document.getElementById('suggest-text').value.trim();
   if (!text) return;
