@@ -2401,15 +2401,18 @@ async function loadProfile() {
 // === Daily Briefing / Onboarding ===
 async function showBriefingIfNeeded() {
   console.log('[Briefing] myProfile:', myProfile ? myProfile.name : 'null');
-  if (!myProfile) return;
+  if (!myProfile) { console.warn('[Briefing] No profile, skipping'); return; }
 
   const overlay = document.getElementById('briefing-overlay');
   const content = document.getElementById('briefing-content');
+  if (!overlay || !content) { console.warn('[Briefing] Overlay element not found in DOM'); return; }
 
   // First-time onboarding: show once ever
   const onboardingKey = `onboarding_complete_${currentUser.uid}`;
+  console.log('[Briefing] onboarding key:', onboardingKey, 'value:', localStorage.getItem(onboardingKey));
   if (!localStorage.getItem(onboardingKey)) {
     const firstName = (myProfile.name || myProfile.displayName || 'there').split(' ')[0];
+    console.log('[Briefing] Showing onboarding for', firstName);
     content.innerHTML = `
       <div class="briefing-greeting">Welcome to Follett Marketing, ${escapeHtml(firstName)}!</div>
       <p style="font-size:0.9rem;color:var(--color-text-muted);margin-bottom:1.25rem;">Here are a few things to get you started:</p>
@@ -2992,7 +2995,7 @@ document.addEventListener('DOMContentLoaded', () => {
       await loadProfile();
       await init();
       loadNotifications();
-      await showBriefingIfNeeded();
+      try { await showBriefingIfNeeded(); } catch (e) { console.error('[Briefing] Error:', e); }
       // Poll notifications every 60 seconds
       setInterval(loadNotifications, 60000);
     } else {
