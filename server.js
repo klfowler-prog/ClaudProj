@@ -51,6 +51,12 @@ function getMemberDepts(m) {
   return [];
 }
 
+function getMemberSubDepts(m) {
+  if (m.subDepartments && Array.isArray(m.subDepartments)) return m.subDepartments;
+  if (m.subDepartment) return [m.subDepartment];
+  return [];
+}
+
 // === Org Resolution Middleware ===
 async function resolveOrg(req, res, next) {
   try {
@@ -70,6 +76,7 @@ async function resolveOrg(req, res, next) {
         req.memberDepts = getMemberDepts(m);
         req.memberName = m.displayName;
         req.memberReportsTo = m.reportsTo || '';
+        req.memberSubDepts = getMemberSubDepts(m);
         return next();
       }
     }
@@ -88,6 +95,7 @@ async function resolveOrg(req, res, next) {
         req.memberDepts = getMemberDepts(m);
         req.memberName = m.displayName;
         req.memberReportsTo = m.reportsTo || '';
+        req.memberSubDepts = getMemberSubDepts(m);
         return next();
       }
     }
@@ -226,6 +234,22 @@ app.get('/api/tasks', auth, async (req, res) => {
       tasks = tasks.filter(t => t.assignedTo === req.userId || t.createdBy === req.userId);
     }
 
+    // Optional: filter to "my team" (me + my direct reports)
+    if (req.query.team === 'true') {
+      const myReportIds = new Set();
+      const membersSnap = await orgCol(req, 'members').get();
+      membersSnap.docs.forEach(d => {
+        if (d.data().reportsTo === req.userId) myReportIds.add(d.data().userId);
+      });
+      myReportIds.add(req.userId);
+      tasks = tasks.filter(t => myReportIds.has(t.assignedTo) || myReportIds.has(t.createdBy));
+    }
+
+    // Optional: filter by sub-department
+    if (req.query.subDept) {
+      tasks = tasks.filter(t => t.subDepartment === req.query.subDept);
+    }
+
     // Separate sub-tasks from parent tasks
     const subTasks = tasks.filter(t => t.parentTaskId);
     const parentTasks = tasks.filter(t => !t.parentTaskId);
@@ -258,6 +282,7 @@ app.post('/api/tasks', authWrite, async (req, res) => {
     const task = {
       title: req.body.title,
       department: req.body.department,
+      subDepartment: req.body.subDepartment || '',
       priority: req.body.priority || 'Medium',
       notes: req.body.notes || '',
       status: req.body.status || 'Not Started',
@@ -356,7 +381,7 @@ app.put('/api/tasks/:id', auth, async (req, res) => {
     const updates = {};
     const allowedFields = ['title', 'department', 'priority', 'notes', 'status',
       'completed', 'completedAt', 'dueDate', 'attachments', 'emailMessageId', 'recurring',
-      'assignedTo', 'sharedWith', 'parentTaskId'];
+      'assignedTo', 'sharedWith', 'parentTaskId', 'subDepartment'];
 
     for (const field of allowedFields) {
       if (req.body[field] !== undefined) updates[field] = req.body[field];
@@ -1230,6 +1255,7 @@ app.get('/api/me', auth, async (req, res) => {
     role: req.memberRole,
     departments: req.memberDepts,
     reportsTo: req.memberReportsTo,
+    subDepartments: req.memberSubDepts,
     orgId: req.orgId
   });
 });
@@ -1290,6 +1316,7 @@ app.post('/api/team/invite', auth, async (req, res) => {
       role: role || 'member',
       departments: Array.isArray(departments) ? departments : [departments],
       reportsTo: req.memberRole === 'lead' ? req.userId : (req.body.reportsTo || ''),
+      subDepartments: req.body.subDepartments || [],
       status: 'active',
       joinedAt: new Date().toISOString()
     });
@@ -1328,6 +1355,7 @@ app.put('/api/team/:id', auth, async (req, res) => {
     if (req.body.departments) updates.departments = req.body.departments;
     if (req.body.displayName) updates.displayName = req.body.displayName;
     if (req.body.reportsTo !== undefined) updates.reportsTo = req.body.reportsTo;
+    if (req.body.subDepartments) updates.subDepartments = req.body.subDepartments;
     await orgCol(req, 'members').doc(req.params.id).update(updates);
     res.json({ id: req.params.id, ...updates });
   } catch (err) { res.status(500).json({ error: 'Failed to update member' }); }

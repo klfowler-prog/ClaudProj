@@ -129,7 +129,8 @@
       <div class="stats-bar">
         <div class="stats-bar-left">
           <button class="stat-toggle active" id="btn-my-tasks">My Tasks</button>
-          <button class="stat-toggle" id="btn-all-tasks">All Tasks</button>
+          <button class="stat-toggle" id="btn-my-team">My Team</button>
+          <button class="stat-toggle" id="btn-all-tasks">All</button>
           <button class="stat-pill stat-pill-clickable" id="pill-not-started" data-stat-filter="not-started"><strong id="stat-not-started">0</strong> Not Started</button>
           <button class="stat-pill stat-pill-clickable" id="pill-in-progress" data-stat-filter="in-progress"><strong id="stat-in-progress">0</strong> In Progress</button>
           <button class="stat-pill stat-pill-awaiting stat-pill-clickable" id="pill-awaiting" data-stat-filter="awaiting"><strong id="stat-awaiting">0</strong> Awaiting</button>
@@ -470,12 +471,15 @@
           <div class="form-group">
             <label for="input-department">Department <span class="required">*</span></label>
             <select id="input-department" required>
-              <option value="">Select department</option>
               <option value="B2B Marketing">B2B Marketing</option>
-              <option value="Internal Comms">Internal Comms</option>
-              <option value="Rev Ops">Rev Ops</option>
               <option value="B2C Marketing">B2C Marketing</option>
               <option value="Personal">Personal</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="input-sub-department">Area</label>
+            <select id="input-sub-department">
+              <option value="">General</option>
             </select>
           </div>
           <div class="form-group">

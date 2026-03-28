@@ -1,5 +1,10 @@
 // === Constants ===
-const DEPARTMENTS = ['B2B Marketing', 'Internal Comms', 'Rev Ops', 'B2C Marketing', 'Personal'];
+const DEPARTMENTS = ['B2B Marketing', 'B2C Marketing', 'Personal'];
+const SUB_DEPARTMENTS = {
+  'B2B Marketing': ['Biz Dev', 'Growth & Brand', 'Rev Ops', 'Internal Comms'],
+  'B2C Marketing': [] // Robert will define later
+};
+const ALL_SUB_DEPTS = Object.values(SUB_DEPARTMENTS).flat();
 const PRIORITIES = ['High', 'Medium', 'Low'];
 const STATUSES = ['Not Started', 'In Progress', 'Awaiting Feedback', 'Delegated', 'Completed'];
 const STORAGE_KEY = 'cmo_tasks';
@@ -61,7 +66,10 @@ let deleteConfirmId = null;  // track which task is awaiting delete confirm
 // === Persistence (API-backed) ===
 async function loadTasks() {
   try {
-    const url = showMyTasksOnly ? '/api/tasks?mine=true' : '/api/tasks';
+    let url = '/api/tasks';
+    if (showMyTasksOnly) url += '?mine=true';
+    else if (showMyTeam) url += '?team=true';
+    if (activeSubDept) url += (url.includes('?') ? '&' : '?') + `subDept=${encodeURIComponent(activeSubDept)}`;
     tasks = await api('GET', url);
   } catch (err) {
     console.error('Failed to load tasks:', err);
@@ -151,22 +159,34 @@ function renderSidebarCounts() {
     visibleDepts = DEPARTMENTS.filter(d => myDepts.includes(d) || deptsWithTasks.has(d));
   }
 
-  let html = '<button class="sidebar-dept-item ' + (filters.department === 'all' ? 'active' : '') + '" data-dept="all">All Tasks</button>';
+  let html = '<button class="sidebar-dept-item ' + (filters.department === 'all' && !activeSubDept ? 'active' : '') + '" data-dept="all">All Tasks</button>';
   for (const dept of visibleDepts) {
     const key = DEPT_KEYS[dept];
     const count = tasks.filter(t => t.department === dept && t.status !== 'Completed').length;
-    const isActive = filters.department === dept;
+    const isActive = filters.department === dept && !activeSubDept;
     html += `<button class="sidebar-dept-item ${isActive ? 'active' : ''}" data-dept="${dept}">
       <span class="dept-dot dept-${key}"></span> ${dept} <span class="sidebar-count">${count}</span>
     </button>`;
+    // Sub-departments
+    const subDepts = SUB_DEPARTMENTS[dept] || [];
+    if (subDepts.length > 0) {
+      for (const sub of subDepts) {
+        const subCount = tasks.filter(t => t.department === dept && t.subDepartment === sub && t.status !== 'Completed').length;
+        const subActive = activeSubDept === sub;
+        html += `<button class="sidebar-dept-item sidebar-subdept ${subActive ? 'active' : ''}" data-dept="${dept}" data-subdept="${sub}">
+          ${sub} <span class="sidebar-count">${subCount}</span>
+        </button>`;
+      }
+    }
   }
   container.innerHTML = html;
 
   // Re-attach click handlers
   container.querySelectorAll('.sidebar-dept-item').forEach(item => {
     item.addEventListener('click', () => {
+      activeSubDept = item.dataset.subdept || null;
       document.getElementById('filter-department').value = item.dataset.dept;
-      applyFilters();
+      applyFilters(!!activeSubDept);
       switchView('tasks');
       closeSidebar();
     });
@@ -236,6 +256,7 @@ function renderTaskItem(task) {
         <div class="task-meta">
           ${isSubtask ? `<span class="task-parent-label">Part of: ${escapeHtml(task.parentTaskTitle || '...')}</span>` : ''}
           <span class="badge badge-${deptKey}">${escapeHtml(task.department)}</span>
+          ${task.subDepartment ? `<span style="font-size:0.65rem;color:var(--color-text-muted);">${escapeHtml(task.subDepartment)}</span>` : ''}
           ${prioDot}
           ${dueDateHtml}
           ${isRecurring ? `<span class="task-recurring" title="${recurringLabel}">&#8635; ${recurringLabel}</span>` : ''}
@@ -430,18 +451,23 @@ function getFilteredTasks() {
   });
 }
 
-function applyFilters() {
+function applyFilters(reload) {
   filters.department = document.getElementById('filter-department').value;
   filters.priority = document.getElementById('filter-priority').value;
   filters.search = document.getElementById('filter-search').value;
   filters.sort = document.getElementById('filter-sort').value;
-  render();
+  if (reload) {
+    loadTasks().then(render);
+  } else {
+    render();
+  }
 }
 
 // === Task Operations (API-backed) ===
-async function addTask(title, department, priority, notes, source, attachments, dueDate, recurring, assignedTo) {
+async function addTask(title, department, priority, notes, source, attachments, dueDate, recurring, assignedTo, subDepartment) {
   const taskData = {
     title: title.trim(),
+    subDepartment: subDepartment || '',
     department,
     priority: priority || 'Medium',
     notes: notes || '',
@@ -553,6 +579,8 @@ function editTask(id) {
   document.getElementById('input-due-date').value = task.dueDate || '';
   document.getElementById('input-notes').value = task.notes || '';
   document.getElementById('input-recurring').value = task.recurring || 'none';
+  updateSubDeptDropdown();
+  document.getElementById('input-sub-department').value = task.subDepartment || '';
   document.getElementById('input-assign-to').value = task.assignedTo || '';
 
   // Load existing attachments into pending lists
@@ -609,6 +637,26 @@ function resetAddForm() {
   pendingLinks = [];
   renderPendingAttachments();
   renderPendingLinks();
+
+  // Context-aware: pre-fill department from user's profile
+  const deptSelect = document.getElementById('input-department');
+  if (myProfile && myProfile.role !== 'cmo' && myProfile.departments && myProfile.departments.length > 0) {
+    deptSelect.value = myProfile.departments[0];
+  }
+  updateSubDeptDropdown();
+
+  // Pre-fill sub-department if user only has one
+  if (myProfile && myProfile.subDepartments && myProfile.subDepartments.length === 1) {
+    document.getElementById('input-sub-department').value = myProfile.subDepartments[0];
+  }
+}
+
+function updateSubDeptDropdown() {
+  const dept = document.getElementById('input-department').value;
+  const subSelect = document.getElementById('input-sub-department');
+  const subs = SUB_DEPARTMENTS[dept] || [];
+  subSelect.innerHTML = '<option value="">General</option>' +
+    subs.map(s => `<option value="${s}">${s}</option>`).join('');
 }
 
 // === Attachment Handling ===
@@ -1888,6 +1936,7 @@ async function init() {
     const notes = document.getElementById('input-notes').value.trim();
     const dueDate = document.getElementById('input-due-date').value;
     const recurring = document.getElementById('input-recurring').value;
+    const subDepartment = document.getElementById('input-sub-department').value || '';
     const assignTo = document.getElementById('input-assign-to').value || undefined;
 
     if (!title || !department) return;
@@ -1895,7 +1944,7 @@ async function init() {
     const allAttachments = [...pendingAttachments, ...pendingLinks];
 
     if (editingTaskId) {
-      const updates = { title, department, priority, notes, dueDate, recurring, attachments: allAttachments };
+      const updates = { title, department, subDepartment, priority, notes, dueDate, recurring, attachments: allAttachments };
       if (assignTo) {
         const existingTask = tasks.find(t => t.id === editingTaskId);
         const assigneeChanged = existingTask && assignTo !== existingTask.assignedTo;
@@ -1914,7 +1963,7 @@ async function init() {
         alert('Failed to update task: ' + err.message);
       }
     } else {
-      await addTask(title, department, priority, notes, 'manual', allAttachments, dueDate, recurring, assignTo);
+      await addTask(title, department, priority, notes, 'manual', allAttachments, dueDate, recurring, assignTo, subDepartment);
     }
 
     closeModal('modal-add');
@@ -2086,18 +2135,20 @@ async function init() {
   });
 
   // My Tasks / All Tasks toggle
-  document.getElementById('btn-my-tasks').addEventListener('click', () => {
-    showMyTasksOnly = true;
-    document.getElementById('btn-my-tasks').classList.add('active');
-    document.getElementById('btn-all-tasks').classList.remove('active');
+  function setTaskToggle(mode) {
+    showMyTasksOnly = mode === 'mine';
+    showMyTeam = mode === 'team';
+    document.getElementById('btn-my-tasks').classList.toggle('active', mode === 'mine');
+    document.getElementById('btn-my-team').classList.toggle('active', mode === 'team');
+    document.getElementById('btn-all-tasks').classList.toggle('active', mode === 'all');
     loadTasks().then(render);
-  });
-  document.getElementById('btn-all-tasks').addEventListener('click', () => {
-    showMyTasksOnly = false;
-    document.getElementById('btn-all-tasks').classList.add('active');
-    document.getElementById('btn-my-tasks').classList.remove('active');
-    loadTasks().then(render);
-  });
+  }
+  document.getElementById('btn-my-tasks').addEventListener('click', () => setTaskToggle('mine'));
+  document.getElementById('btn-my-team').addEventListener('click', () => setTaskToggle('team'));
+  document.getElementById('btn-all-tasks').addEventListener('click', () => setTaskToggle('all'));
+
+  // Department change updates sub-department dropdown
+  document.getElementById('input-department').addEventListener('change', updateSubDeptDropdown);
 
   // Stat pill filters
   document.querySelectorAll('.stat-pill-clickable').forEach(pill => {
@@ -2282,6 +2333,8 @@ async function init() {
 // === Team, Notifications, My Tasks ===
 let myProfile = null;
 let showMyTasksOnly = true;
+let showMyTeam = false;
+let activeSubDept = null;
 let teamMembers = [];
 
 async function loadProfile() {

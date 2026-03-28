@@ -263,6 +263,11 @@ body {
   font-weight: 500;
 }
 
+.sidebar-subdept {
+  padding-left: 3.25rem;
+  font-size: 0.75rem;
+}
+
 .sidebar-dept-item .dept-dot {
   width: 8px;
   height: 8px;
