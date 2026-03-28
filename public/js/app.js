@@ -2362,24 +2362,21 @@ let activeSubDept = null;
 let expandedDepts = new Set();
 let teamMembers = [];
 
+function applyRoleUI() {
+  if (!myProfile) return;
+  const r = myProfile.role;
+  document.getElementById('sidebar-team-section').style.display = (r === 'cmo' || r === 'lead') ? 'block' : 'none';
+  document.getElementById('btn-sync-email').style.display = r === 'cmo' ? '' : 'none';
+  document.getElementById('btn-add-task').style.display = r === 'viewer' ? 'none' : '';
+  document.getElementById('btn-quick-import').style.display = r === 'viewer' ? 'none' : '';
+  document.getElementById('btn-new-note').style.display = r === 'viewer' ? 'none' : '';
+}
+
 async function loadProfile() {
   try {
     myProfile = await api('GET', '/api/me');
-    // Show Team section for CMO and dept leads
-    if (myProfile.role === 'cmo' || myProfile.role === 'lead') {
-      document.getElementById('sidebar-team-section').style.display = 'block';
-    }
-    // Sync Email only for CMO
-    if (myProfile.role === 'cmo') {
-      document.getElementById('btn-sync-email').style.display = '';
-    }
-    // Hide create/edit UI for viewers
-    if (myProfile.role === 'viewer') {
-      document.getElementById('btn-add-task').style.display = 'none';
-      document.getElementById('btn-quick-import').style.display = 'none';
-      document.getElementById('btn-sync-email').style.display = 'none';
-      document.getElementById('btn-new-note').style.display = 'none';
-    }
+    applyRoleUI();
+    // (viewer UI hiding handled above)
   } catch (err) { console.error('Failed to load profile:', err); }
 }
 
@@ -2530,6 +2527,7 @@ async function viewAs(userId) {
     if (realProfile) {
       myProfile = realProfile;
       realProfile = null;
+      applyRoleUI();
       document.getElementById('impersonation-banner').style.display = 'none';
       await loadTasks();
       render();
@@ -2543,6 +2541,7 @@ async function viewAs(userId) {
     if (!realProfile) realProfile = { ...myProfile };
     const profile = await api('GET', '/api/me'); // Get profile as impersonated user
     myProfile = profile;
+    applyRoleUI();
     // Show banner
     let banner = document.getElementById('impersonation-banner');
     if (!banner) {
