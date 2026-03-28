@@ -173,7 +173,26 @@ function orgCol(req, collection) {
 }
 
 // Shorthand middleware chain
-const auth = [authenticate, resolveOrg];
+const auth = [authenticate, resolveOrg, applyViewAs];
+
+// View As: CMO can impersonate another user for data filtering
+function applyViewAs(req, res, next) {
+  const viewAsUserId = req.headers['x-view-as'];
+  if (!viewAsUserId || req.memberRole !== 'cmo') return next();
+
+  // Look up the target member
+  orgCol(req, 'members').doc(viewAsUserId).get().then(doc => {
+    if (!doc.exists) return next();
+    const m = doc.data();
+    req.realUserId = req.userId; // Preserve real identity
+    req.userId = m.userId;
+    req.memberRole = m.role;
+    req.memberDepts = getMemberDepts(m);
+    req.memberName = m.displayName;
+    req.memberReportsTo = m.reportsTo || '';
+    next();
+  }).catch(() => next());
+}
 
 // Middleware: block viewers from write operations
 function requireEditor(req, res, next) {
@@ -182,7 +201,7 @@ function requireEditor(req, res, next) {
   }
   next();
 }
-const authWrite = [authenticate, resolveOrg, requireEditor];
+const authWrite = [authenticate, resolveOrg, applyViewAs, requireEditor];
 
 // === Task Endpoints ===
 

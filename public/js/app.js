@@ -8,6 +8,7 @@ const MIGRATION_KEY = 'cmo_migrated_to_cloud';
 // === Auth State ===
 let authToken = null;
 let currentUser = null;
+let viewAsUserId = null; // CMO impersonation
 
 // === API Helper ===
 async function api(method, path, body) {
@@ -15,6 +16,7 @@ async function api(method, path, body) {
     method,
     headers: { 'Authorization': `Bearer ${authToken}`, 'Content-Type': 'application/json' }
   };
+  if (viewAsUserId) opts.headers['X-View-As'] = viewAsUserId;
   if (body) opts.body = JSON.stringify(body);
   const res = await fetch(path, opts);
   if (!res.ok) {
@@ -2442,6 +2444,7 @@ let realProfile = null;
 async function viewAs(userId) {
   if (!userId) {
     // Exit impersonation
+    viewAsUserId = null;
     if (realProfile) {
       myProfile = realProfile;
       realProfile = null;
@@ -2449,12 +2452,14 @@ async function viewAs(userId) {
       await loadTasks();
       render();
       await loadFolders();
+      await loadNotesList(activeFolderId);
     }
     return;
   }
   try {
-    const profile = await api('GET', `/api/team/${userId}/profile`);
+    viewAsUserId = userId; // This makes all API calls filter as this user
     if (!realProfile) realProfile = { ...myProfile };
+    const profile = await api('GET', '/api/me'); // Get profile as impersonated user
     myProfile = profile;
     // Show banner
     let banner = document.getElementById('impersonation-banner');
@@ -2469,8 +2474,12 @@ async function viewAs(userId) {
     await loadTasks();
     render();
     await loadFolders();
+    await loadNotesList(activeFolderId);
     switchView('tasks');
-  } catch (err) { alert('Failed to impersonate: ' + err.message); }
+  } catch (err) {
+    viewAsUserId = null;
+    alert('Failed to impersonate: ' + err.message);
+  }
 }
 
 function inviteMember() {
