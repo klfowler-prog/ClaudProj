@@ -1033,15 +1033,58 @@ async function createNote() {
   } catch (err) { alert('Failed to create note: ' + err.message); }
 }
 
+function autoLinkUrls(element) {
+  // Find text nodes containing URLs that aren't already inside <a> tags
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null);
+  const urlRegex = /(https?:\/\/[^\s<>"']+)/g;
+  const nodesToProcess = [];
+
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    if (node.parentElement.tagName === 'A') continue;
+    if (urlRegex.test(node.textContent)) {
+      nodesToProcess.push(node);
+    }
+    urlRegex.lastIndex = 0;
+  }
+
+  nodesToProcess.forEach(node => {
+    const frag = document.createDocumentFragment();
+    const text = node.textContent;
+    let lastIndex = 0;
+    let match;
+    urlRegex.lastIndex = 0;
+    while ((match = urlRegex.exec(text)) !== null) {
+      if (match.index > lastIndex) {
+        frag.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
+      }
+      const a = document.createElement('a');
+      a.href = match[1];
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.textContent = match[1];
+      frag.appendChild(a);
+      lastIndex = urlRegex.lastIndex;
+    }
+    if (lastIndex < text.length) {
+      frag.appendChild(document.createTextNode(text.slice(lastIndex)));
+    }
+    node.parentNode.replaceChild(frag, node);
+  });
+}
+
 function scheduleAutoSave() {
   if (saveTimeout) clearTimeout(saveTimeout);
   document.getElementById('editor-saved').textContent = 'Saving...';
   saveTimeout = setTimeout(async () => {
     if (!activeNoteId) return;
+    // Auto-link URLs before saving
+    const editorEl = document.getElementById('editor-content');
+    autoLinkUrls(editorEl);
     try {
       await api('PUT', `/api/notes/${activeNoteId}`, {
         title: document.getElementById('editor-title').value || 'Untitled',
-        content: document.getElementById('editor-content').innerHTML
+        content: editorEl.innerHTML
       });
       document.getElementById('editor-saved').textContent = 'Saved';
       const item = notesList.find(n => n.id === activeNoteId);
@@ -1725,6 +1768,17 @@ async function init() {
   document.getElementById('btn-add-folder').addEventListener('click', createFolder);
   document.getElementById('editor-title').addEventListener('input', scheduleAutoSave);
   document.getElementById('editor-content').addEventListener('input', scheduleAutoSave);
+
+  // Make links clickable in editor (Ctrl/Cmd+click when editing, regular click when read-only)
+  document.getElementById('editor-content').addEventListener('click', (e) => {
+    const link = e.target.closest('a');
+    if (!link) return;
+    const isEditable = document.getElementById('editor-content').contentEditable === 'true';
+    if (!isEditable || e.metaKey || e.ctrlKey) {
+      e.preventDefault();
+      window.open(link.href, '_blank', 'noopener');
+    }
+  });
 
   // AI buttons
   // AI Chat (full-screen view)

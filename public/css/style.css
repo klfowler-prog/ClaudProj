@@ -648,7 +648,11 @@ body {
   margin: 0.5rem 0;
 }
 
-.editor-content a { color: var(--follett-medium-blue); }
+.editor-content a {
+  color: var(--follett-medium-blue);
+  text-decoration: underline;
+  cursor: pointer;
+}
 
 /* AI buttons and panel */
 .editor-btn-ai { color: var(--follett-medium-blue) !important; font-weight: 500 !important; }
