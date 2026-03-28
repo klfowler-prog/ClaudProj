@@ -778,6 +778,7 @@ function showTaskDetail(id) {
       <div>
         <div class="detail-section-title">Department</div>
         <span class="badge badge-${deptKey}">${escapeHtml(task.department)}</span>
+        ${task.subDepartment ? `<span style="font-size:0.8rem;color:var(--color-text-muted);margin-left:0.25rem;">${escapeHtml(task.subDepartment)}</span>` : ''}
       </div>
       <div>
         <div class="detail-section-title">Due Date</div>
@@ -966,73 +967,6 @@ async function submitSubtask(parentId, department) {
     await loadTasks();
     render();
   } catch (err) { alert('Failed to create sub-task: ' + err.message); }
-}
-
-// === Quick Import Logic ===
-function parseImportText(text) {
-  const lines = text.trim().split('\n');
-  let title = '';
-  let notes = '';
-  let source = 'manual';
-
-  // Try to detect email format (Subject: / From: headers)
-  const subjectMatch = text.match(/^Subject:\s*(.+)$/mi);
-  const fromMatch = text.match(/^From:\s*(.+)$/mi);
-
-  if (subjectMatch) {
-    title = subjectMatch[1].trim();
-    // Remove common forwarding prefixes
-    title = title.replace(/^(Fw|Fwd|Re):\s*/i, '');
-    notes = text;
-    source = 'email';
-  } else {
-    // First line = title, rest = notes
-    title = lines[0].trim();
-    if (title.length > 120) title = title.substring(0, 120) + '...';
-    notes = lines.slice(1).join('\n').trim();
-  }
-
-  // Detect if it looks like email or slack
-  if (fromMatch || text.includes('Subject:') || text.includes('From:')) {
-    source = 'email';
-  } else if (text.includes('#') && text.match(/#[\w-]+/)) {
-    source = 'slack';
-  }
-
-  const detectedDept = detectDepartment(text);
-  return { title, notes, source, detectedDept };
-}
-
-function handleImport(e) {
-  e.preventDefault();
-  const pasteText = document.getElementById('import-paste').value.trim();
-  if (!pasteText) return;
-
-  const department = document.getElementById('import-department').value;
-  const priority = document.getElementById('import-priority').value;
-  const dueDate = document.getElementById('import-due-date').value;
-
-  const parsed = parseImportText(pasteText);
-  const finalDept = department || parsed.detectedDept || 'B2B Marketing';
-
-  addTask(parsed.title, finalDept, priority, parsed.notes, parsed.source, [], dueDate);
-  closeModal('modal-import');
-  document.getElementById('form-import').reset();
-  document.getElementById('import-preview').style.display = 'none';
-}
-
-function updateImportPreview() {
-  const text = document.getElementById('import-paste').value.trim();
-  const preview = document.getElementById('import-preview');
-  if (!text) {
-    preview.style.display = 'none';
-    return;
-  }
-  const parsed = parseImportText(text);
-  document.getElementById('import-preview-title').textContent = parsed.title || '(no title)';
-  const dept = document.getElementById('import-department').value || parsed.detectedDept;
-  document.getElementById('import-preview-dept').textContent = dept ? `Department: ${dept}` : 'Department: Auto-detect';
-  preview.style.display = 'block';
 }
 
 // === Gmail Sync ===
@@ -1817,7 +1751,7 @@ function renderSearchResults() {
   // Filter tasks
   let filteredTasks = typeFilter === 'notes' ? [] : lastSearchResults.tasks.filter(t => {
     if (statusFilter !== 'all' && t.status !== statusFilter) return false;
-    if (deptFilter !== 'all' && t.department !== deptFilter) return false;
+    if (deptFilter !== 'all' && t.department !== deptFilter && (t.subDepartment || '') !== deptFilter) return false;
     if (dateCutoff && t.createdAt < dateCutoff) return false;
     return true;
   });
@@ -1969,6 +1903,11 @@ async function init() {
       const parsed = await api('POST', '/api/ai/quick-add', { text });
       document.getElementById('parsed-title').value = parsed.title || text;
       document.getElementById('parsed-dept').value = parsed.department || 'Personal';
+      // Populate sub-dept dropdown based on parsed department
+      const parsedSubSelect = document.getElementById('parsed-subdept');
+      const parsedSubs = SUB_DEPARTMENTS[parsed.department] || [];
+      parsedSubSelect.innerHTML = '<option value="">General</option>' + parsedSubs.map(s => `<option value="${s}">${s}</option>`).join('');
+      if (parsed.subDepartment) parsedSubSelect.value = parsed.subDepartment;
       document.getElementById('parsed-priority').value = parsed.priority || 'Medium';
       document.getElementById('parsed-due').value = parsed.dueDate || '';
       document.getElementById('parsed-recurring').value = parsed.recurring || 'none';
@@ -1982,18 +1921,27 @@ async function init() {
     btn.disabled = false;
   });
 
+  // Update sub-dept when parsed dept changes
+  document.getElementById('parsed-dept').addEventListener('change', () => {
+    const dept = document.getElementById('parsed-dept').value;
+    const subSelect = document.getElementById('parsed-subdept');
+    const subs = SUB_DEPARTMENTS[dept] || [];
+    subSelect.innerHTML = '<option value="">General</option>' + subs.map(s => `<option value="${s}">${s}</option>`).join('');
+  });
+
   // Create parsed task button
   document.getElementById('btn-create-parsed-task').addEventListener('click', async () => {
     const title = document.getElementById('parsed-title').value.trim();
     if (!title) return;
     const dept = document.getElementById('parsed-dept').value;
+    const subDept = document.getElementById('parsed-subdept').value || '';
     const priority = document.getElementById('parsed-priority').value;
     const dueDate = document.getElementById('parsed-due').value;
     const recurring = document.getElementById('parsed-recurring').value;
     const assignedTo = document.getElementById('parsed-assign').value || undefined;
     const notes = document.getElementById('parsed-notes').value.trim();
 
-    await addTask(title, dept, priority, notes, 'manual', [], dueDate, recurring, assignedTo);
+    await addTask(title, dept, priority, notes, 'manual', [], dueDate, recurring, assignedTo, subDept);
     closeModal('modal-import');
   });
 

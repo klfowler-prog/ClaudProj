@@ -350,7 +350,8 @@ app.post('/api/tasks/batch', authWrite, async (req, res) => {
         source: task.source || 'manual', attachments: task.attachments || [],
         dueDate: task.dueDate || '', emailMessageId: task.emailMessageId || '',
         recurring: task.recurring || 'none',
-        createdBy: req.userId, assignedTo: task.assignedTo || req.userId, sharedWith: []
+        createdBy: req.userId, assignedTo: task.assignedTo || req.userId, sharedWith: [],
+        subDepartment: task.subDepartment || '', parentTaskId: task.parentTaskId || ''
       };
       batch.set(docRef, taskData);
       results.push({ id: docRef.id, ...taskData });
@@ -898,7 +899,7 @@ app.get('/api/search', auth, async (req, res) => {
     // Search tasks
     const tasksSnap = await orgCol(req, 'tasks').get();
     let taskResults = tasksSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(t => {
-      const searchable = `${t.title} ${t.notes} ${t.department}`.toLowerCase();
+      const searchable = `${t.title} ${t.notes} ${t.department} ${t.subDepartment || ''}`.toLowerCase();
       return searchable.includes(q);
     });
 
@@ -1059,7 +1060,8 @@ Return ONLY a JSON object (no markdown, no code fences) with this structure:
     {
       "parent": {
         "title": "Main project or initiative name",
-        "department": "B2B Marketing" | "Internal Comms" | "Rev Ops" | "B2C Marketing" | "Personal",
+        "department": "B2B Marketing" | "B2C Marketing" | "Personal",
+        "subDepartment": "Biz Dev" | "Growth & Brand" | "Rev Ops" | "Internal Comms" | "" (only for B2B Marketing),
         "priority": "High" | "Medium" | "Low",
         "notes": "Brief context",
         "assignedTo": "userId if a team member name is mentioned, otherwise empty string"
@@ -1126,7 +1128,8 @@ app.post('/api/ai/quick-add', auth, async (req, res) => {
 
 Return ONLY a JSON object (no markdown, no code fences) with these fields:
 - "title": string (clear, concise task title)
-- "department": one of "B2B Marketing", "Internal Comms", "Rev Ops", "B2C Marketing", "Personal" (infer from context, default to "Personal" if unclear)
+- "department": one of "B2B Marketing", "B2C Marketing", "Personal" (infer from context, default to "Personal" if unclear)
+- "subDepartment": if department is "B2B Marketing", one of "Biz Dev", "Growth & Brand", "Rev Ops", "Internal Comms" or "" if unclear. If department is "B2C Marketing" or "Personal", use ""
 - "priority": one of "High", "Medium", "Low" (infer from urgency words, default to "Medium")
 - "dueDate": string in YYYY-MM-DD format (calculate from relative dates like "next Tuesday", "end of week", "tomorrow". If no date mentioned, use "")
 - "assignedTo": string (match to a team member userId if a name is mentioned. Available team members: ${memberList}. If no name mentioned or no match, use "")
@@ -1167,7 +1170,7 @@ app.post('/api/ai/chat', auth, async (req, res) => {
       );
     }
     const allTasks = taskDocs.map(t =>
-      `[${t.status}] ${t.title} | Dept: ${t.department} | Priority: ${t.priority}${t.dueDate ? ' | Due: ' + t.dueDate : ''}${t.notes ? ' | Notes: ' + t.notes.substring(0, 200) : ''}`
+      `[${t.status}] ${t.title} | Dept: ${t.department}${t.subDepartment ? '/' + t.subDepartment : ''} | Priority: ${t.priority}${t.dueDate ? ' | Due: ' + t.dueDate : ''}${t.notes ? ' | Notes: ' + t.notes.substring(0, 200) : ''}`
     );
 
     // Gather notes — apply same access filtering as notes list
@@ -1298,7 +1301,7 @@ app.get('/api/team', auth, async (req, res) => {
     const members = snap.docs.map(d => {
       const m = d.data();
       if (req.memberRole === 'cmo') return { id: d.id, ...m };
-      return { id: d.id, userId: m.userId, displayName: m.displayName, department: m.department };
+      return { id: d.id, userId: m.userId, displayName: m.displayName, department: m.department, departments: getMemberDepts(m), subDepartments: getMemberSubDepts(m) };
     });
     res.json(members);
   } catch (err) { res.status(500).json({ error: 'Failed to fetch team' }); }
@@ -1591,6 +1594,7 @@ app.post('/api/sync', auth, async (req, res) => {
       batch.set(docRef, {
         title: subject || 'Forwarded email',
         department: detectDept(subject + ' ' + body),
+        subDepartment: '',
         priority: 'Medium',
         notes,
         status: 'Not Started',
