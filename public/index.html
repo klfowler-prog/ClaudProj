@@ -240,6 +240,19 @@
           <button class="editor-btn editor-btn-ai" id="btn-ai-tasks" title="Generate tasks from note">&#10024; Create Tasks</button>
         </div>
         <div class="editor-content" id="editor-content" contenteditable="true" placeholder="Start writing..."></div>
+        <!-- Note Links -->
+        <div class="note-links-section" id="note-links-section">
+          <div class="note-links-header">
+            <span class="note-links-title">Links</span>
+            <button class="btn btn-ghost btn-sm" id="btn-add-note-link" style="font-size: 0.7rem;">+ Add Link</button>
+          </div>
+          <div class="note-links-input" id="note-links-input" style="display: none;">
+            <input type="text" id="note-link-name" placeholder="Link name" class="filter-select-compact" style="flex:1;">
+            <input type="url" id="note-link-url" placeholder="https://..." class="filter-select-compact" style="flex:2;">
+            <button class="btn btn-primary btn-sm" id="btn-save-note-link">Add</button>
+          </div>
+          <div class="note-links-list" id="note-links-list"></div>
+        </div>
         <!-- AI Results Panel -->
         <div class="ai-panel" id="ai-panel" style="display: none;">
           <div class="ai-panel-header">

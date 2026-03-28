@@ -887,6 +887,12 @@ async function openNote(noteId) {
       document.getElementById('editor-saved').textContent = 'Read-only';
     }
 
+    // Load note links
+    currentNoteLinks = note.links || [];
+    renderNoteLinks(canEdit);
+    document.getElementById('btn-add-note-link').style.display = canEdit ? '' : 'none';
+    document.getElementById('note-links-input').style.display = 'none';
+
     // Populate folder dropdown and set current folder
     const folderSelect = document.getElementById('note-folder-select');
     folderSelect.innerHTML = folders.map(f =>
@@ -944,6 +950,48 @@ async function createFolder() {
     folders.push(folder);
     renderSidebarFolders();
   } catch (err) { alert('Failed to create folder: ' + err.message); }
+}
+
+// === Note Links ===
+let currentNoteLinks = [];
+
+function renderNoteLinks(canEdit) {
+  const list = document.getElementById('note-links-list');
+  list.innerHTML = currentNoteLinks.map((l, i) => `
+    <div class="note-link-item">
+      <a href="${escapeHtml(l.url)}" target="_blank" rel="noopener">&#128279; ${escapeHtml(l.name || l.url)}</a>
+      ${canEdit ? `<button class="note-link-remove" data-link-idx="${i}">&times;</button>` : ''}
+    </div>
+  `).join('');
+
+  if (canEdit) {
+    list.querySelectorAll('.note-link-remove').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        currentNoteLinks.splice(parseInt(btn.dataset.linkIdx), 1);
+        renderNoteLinks(true);
+        await saveNoteLinks();
+      });
+    });
+  }
+}
+
+async function addNoteLink() {
+  const name = document.getElementById('note-link-name').value.trim();
+  const url = document.getElementById('note-link-url').value.trim();
+  if (!url) return;
+  currentNoteLinks.push({ name: name || url, url });
+  document.getElementById('note-link-name').value = '';
+  document.getElementById('note-link-url').value = '';
+  document.getElementById('note-links-input').style.display = 'none';
+  renderNoteLinks(true);
+  await saveNoteLinks();
+}
+
+async function saveNoteLinks() {
+  if (!activeNoteId) return;
+  try {
+    await api('PUT', `/api/notes/${activeNoteId}`, { links: currentNoteLinks });
+  } catch (err) { console.error('Failed to save links:', err); }
 }
 
 // === Note Sharing ===
@@ -1433,6 +1481,16 @@ async function init() {
   });
   document.getElementById('btn-delete-note').addEventListener('click', deleteNote);
   document.getElementById('btn-share-note').addEventListener('click', openShareModal);
+
+  // Note links
+  document.getElementById('btn-add-note-link').addEventListener('click', () => {
+    document.getElementById('note-links-input').style.display = 'flex';
+    document.getElementById('note-link-url').focus();
+  });
+  document.getElementById('btn-save-note-link').addEventListener('click', addNoteLink);
+  document.getElementById('note-link-url').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') addNoteLink();
+  });
 
   // Move note to different folder
   document.getElementById('note-folder-select').addEventListener('change', async (e) => {
