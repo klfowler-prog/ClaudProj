@@ -2408,7 +2408,7 @@ async function showBriefingIfNeeded() {
   // First-time onboarding: show once ever
   const onboardingKey = `onboarding_complete_${currentUser.uid}`;
   if (!localStorage.getItem(onboardingKey)) {
-    const firstName = (myProfile.displayName || 'there').split(' ')[0];
+    const firstName = (myProfile.name || myProfile.displayName || 'there').split(' ')[0];
     content.innerHTML = `
       <div class="briefing-greeting">Welcome to Follett Marketing, ${escapeHtml(firstName)}!</div>
       <p style="font-size:0.9rem;color:var(--color-text-muted);margin-bottom:1.25rem;">Here are a few things to get you started:</p>
@@ -2991,7 +2991,7 @@ document.addEventListener('DOMContentLoaded', () => {
       await loadProfile();
       await init();
       loadNotifications();
-      showBriefingIfNeeded();
+      await showBriefingIfNeeded();
       // Poll notifications every 60 seconds
       setInterval(loadNotifications, 60000);
     } else {
