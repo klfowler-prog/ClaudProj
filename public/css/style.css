@@ -2203,6 +2203,16 @@ body {
 
   /* Impersonation banner */
   #impersonation-banner { left: 0 !important; font-size: 0.7rem; padding: 0.3rem 0.75rem; }
+
+  /* Briefing overlay mobile */
+  .briefing-card {
+    padding: 1.5rem 1.25rem 1.25rem;
+    max-height: 90vh;
+  }
+  .briefing-greeting { font-size: 1.25rem; }
+  .briefing-stats { gap: 0.5rem; }
+  .briefing-stat { padding: 0.4rem 0.5rem; min-width: 70px; }
+  .briefing-stat-num { font-size: 1.1rem; }
 }
 
 /* Sidebar overlay on mobile */
@@ -2220,9 +2230,12 @@ body {
 /* === Daily Briefing Overlay === */
 .briefing-overlay {
   position: fixed;
-  inset: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   background: rgba(8, 31, 33, 0.55);
-  z-index: 1000;
+  z-index: 1100;
   display: flex;
   align-items: center;
   justify-content: center;

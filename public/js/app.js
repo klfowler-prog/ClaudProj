@@ -2400,6 +2400,7 @@ async function loadProfile() {
 
 // === Daily Briefing / Onboarding ===
 async function showBriefingIfNeeded() {
+  console.log('[Briefing] myProfile:', myProfile ? myProfile.name : 'null');
   if (!myProfile) return;
 
   const overlay = document.getElementById('briefing-overlay');
