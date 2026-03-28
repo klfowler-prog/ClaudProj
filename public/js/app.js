@@ -303,15 +303,20 @@ function renderTaskList() {
   }
 
   emptyState.style.display = 'none';
-  if (activeTasks.length === 0 && sf !== 'delegated' && sf !== 'completed') {
-    container.innerHTML = '<div class="empty-state" style="padding: 1.5rem;"><p class="empty-subtitle">No active tasks matching this filter</p></div>';
-  } else if (sf === 'delegated' || sf === 'completed') {
+  if (sf === 'delegated') {
+    // Show delegated tasks in main container when pill is active
+    container.innerHTML = activeTasks.length > 0
+      ? sortTasks(activeTasks).map(renderTaskItem).join('')
+      : '<div class="empty-state" style="padding: 1.5rem;"><p class="empty-subtitle">No delegated tasks</p></div>';
+  } else if (sf === 'completed') {
     container.innerHTML = '';
+  } else if (activeTasks.length === 0) {
+    container.innerHTML = '<div class="empty-state" style="padding: 1.5rem;"><p class="empty-subtitle">No active tasks matching this filter</p></div>';
   } else {
     container.innerHTML = sortTasks(activeTasks).map(renderTaskItem).join('');
   }
 
-  // Delegated section (collapsed by default)
+  // Delegated section (collapsed by default, hidden when delegated pill is active)
   if (delegatedTasks.length > 0 && sf !== 'delegated') {
     delegatedSection.style.display = 'block';
     delegatedCountEl.textContent = delegatedTasks.length;
