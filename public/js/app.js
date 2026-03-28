@@ -119,11 +119,12 @@ function render() {
 }
 
 function renderStats() {
-  const active = tasks.filter(t => t.status !== 'Completed');
-  const completed = tasks.filter(t => t.status === 'Completed');
-  const awaiting = tasks.filter(t => t.status === 'Awaiting Feedback').length;
+  const filtered = getFilteredTasks();
+  const active = filtered.filter(t => t.status !== 'Completed');
+  const completed = filtered.filter(t => t.status === 'Completed');
+  const awaiting = filtered.filter(t => t.status === 'Awaiting Feedback').length;
   const today = new Date().toISOString().split('T')[0];
-  const overdue = tasks.filter(t => t.status !== 'Completed' && t.dueDate && t.dueDate < today).length;
+  const overdue = filtered.filter(t => t.status !== 'Completed' && t.dueDate && t.dueDate < today).length;
   document.getElementById('stat-total').textContent = active.length;
   document.getElementById('stat-completed').textContent = completed.length;
   document.getElementById('stat-awaiting').textContent = awaiting;
