@@ -524,6 +524,82 @@ app.post('/api/upload', auth, upload.single('file'), async (req, res) => {
   }
 });
 
+// POST /api/migrate-files — One-time migration of base64 files to Cloud Storage (CMO only)
+app.post('/api/migrate-files', auth, async (req, res) => {
+  if (req.memberRole !== 'cmo') return res.status(403).json({ error: 'CMO only' });
+  try {
+    const bucket = storage.bucket(BUCKET_NAME);
+    let migratedCount = 0;
+
+    // Migrate task attachments
+    const tasksSnap = await orgCol(req, 'tasks').get();
+    for (const taskDoc of tasksSnap.docs) {
+      const task = taskDoc.data();
+      if (!task.attachments || task.attachments.length === 0) continue;
+
+      let changed = false;
+      const newAttachments = [];
+      for (const att of task.attachments) {
+        if (att.type === 'file' && att.data && att.data.startsWith('data:')) {
+          // Extract base64 data
+          const matches = att.data.match(/^data:([^;]+);base64,(.+)$/);
+          if (!matches) { newAttachments.push(att); continue; }
+          const mimeType = matches[1];
+          const buffer = Buffer.from(matches[2], 'base64');
+          const fileName = `${req.orgId}/migrated-${Date.now()}-${(att.name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+          const blob = bucket.file(fileName);
+          await blob.save(buffer, { contentType: mimeType });
+          await blob.makePublic();
+          const url = `https://storage.googleapis.com/${BUCKET_NAME}/${fileName}`;
+          newAttachments.push({ type: 'file', name: att.name, url, size: buffer.length });
+          changed = true;
+          migratedCount++;
+        } else {
+          newAttachments.push(att);
+        }
+      }
+      if (changed) {
+        await orgCol(req, 'tasks').doc(taskDoc.id).update({ attachments: newAttachments });
+      }
+    }
+
+    // Migrate note links that have base64 data
+    const notesSnap = await orgCol(req, 'notes').get();
+    for (const noteDoc of notesSnap.docs) {
+      const note = noteDoc.data();
+      if (!note.links || note.links.length === 0) continue;
+
+      let changed = false;
+      const newLinks = [];
+      for (const link of note.links) {
+        if (link.type === 'file' && link.data && link.data.startsWith('data:')) {
+          const matches = link.data.match(/^data:([^;]+);base64,(.+)$/);
+          if (!matches) { newLinks.push(link); continue; }
+          const mimeType = matches[1];
+          const buffer = Buffer.from(matches[2], 'base64');
+          const fileName = `${req.orgId}/migrated-${Date.now()}-${(link.name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+          const blob = bucket.file(fileName);
+          await blob.save(buffer, { contentType: mimeType });
+          await blob.makePublic();
+          const url = `https://storage.googleapis.com/${BUCKET_NAME}/${fileName}`;
+          newLinks.push({ type: 'file', name: link.name, url, size: buffer.length });
+          changed = true;
+          migratedCount++;
+        } else {
+          newLinks.push(link);
+        }
+      }
+      if (changed) {
+        await orgCol(req, 'notes').doc(noteDoc.id).update({ links: newLinks });
+      }
+    }
+
+    res.json({ migrated: migratedCount, message: `Migrated ${migratedCount} files to Cloud Storage` });
+  } catch (err) {
+    res.status(500).json({ error: 'Migration failed: ' + err.message });
+  }
+});
+
 // === Folder Endpoints ===
 
 app.get('/api/folders', auth, async (req, res) => {
