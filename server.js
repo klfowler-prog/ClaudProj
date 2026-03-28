@@ -270,7 +270,17 @@ app.get('/api/tasks', auth, async (req, res) => {
       s.parentTaskNotes = parent ? (parent.notes || '') : '';
     });
 
-    res.json([...parentTasks, ...mySubtasks]);
+    // For assignees: "Delegated" tasks show as "Not Started" from their perspective
+    const allResults = [...parentTasks, ...mySubtasks];
+    allResults.forEach(t => {
+      if (t.status === 'Delegated' && t.assignedTo === req.userId && t.createdBy !== req.userId) {
+        t.status = 'Not Started';
+        t.displayStatus = 'Not Started'; // The assignee's view
+        t.delegatedByOther = true; // Flag so we know it was delegated
+      }
+    });
+
+    res.json(allResults);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch tasks' });
   }
