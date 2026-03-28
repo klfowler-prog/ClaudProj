@@ -2415,22 +2415,18 @@ async function showBriefingIfNeeded() {
     console.log('[Briefing] Showing onboarding for', firstName);
     content.innerHTML = `
       <div class="briefing-greeting">Welcome to Follett Marketing, ${escapeHtml(firstName)}!</div>
-      <p style="font-size:0.9rem;color:var(--color-text-muted);margin-bottom:1.25rem;">Here are a few things to get you started:</p>
+      <p style="font-size:0.9rem;color:var(--color-text-muted);margin-bottom:1.25rem;">This is our home base for tracking work, sharing notes, and staying on top of priorities across the marketing team.</p>
       <div class="briefing-onboarding-step">
         <span class="briefing-step-num">1</span>
-        <span class="briefing-step-text"><strong>Check your tasks</strong> &mdash; Your assigned tasks appear in the sidebar under Tasks. Use the <em>My Tasks</em> toggle to focus on what&rsquo;s yours.</span>
+        <span class="briefing-step-text"><strong>Check your tasks</strong> &mdash; Your assigned tasks appear under Tasks in the sidebar. Use <em>My Tasks</em> to focus on what&rsquo;s yours.</span>
       </div>
       <div class="briefing-onboarding-step">
         <span class="briefing-step-num">2</span>
-        <span class="briefing-step-text"><strong>Create &amp; manage</strong> &mdash; Use <em>Quick Add</em> to paste in an email or text and let AI turn it into a task, or click <em>Manual Task</em> for full control.</span>
+        <span class="briefing-step-text"><strong>Quick Add</strong> &mdash; Paste an email or Slack message and let AI turn it into a task instantly.</span>
       </div>
       <div class="briefing-onboarding-step">
         <span class="briefing-step-num">3</span>
-        <span class="briefing-step-text"><strong>Strategy &amp; Notes</strong> &mdash; Capture meeting notes, strategy docs, and share them with your team or department.</span>
-      </div>
-      <div class="briefing-onboarding-step">
-        <span class="briefing-step-num">4</span>
-        <span class="briefing-step-text"><strong>AI Assistant</strong> &mdash; Ask questions about your tasks, get summaries, or generate task lists from notes.</span>
+        <span class="briefing-step-text"><strong>Read the Welcome note</strong> &mdash; Open <em>Strategy &amp; Notes</em> &rarr; <em>All Team</em> folder &rarr; <strong>Welcome</strong> for the full guide on features, statuses, and tips.</span>
       </div>
       <button class="briefing-dismiss" id="briefing-got-it">Got it, let&rsquo;s go!</button>
     `;

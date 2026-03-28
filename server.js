@@ -1785,6 +1785,81 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`CMO Task Manager running on port ${PORT}`);
+
+  // One-time migration: update Welcome note content
+  try {
+    const orgsSnap = await db.collection('orgs').get();
+    for (const orgDoc of orgsSnap.docs) {
+      const foldersSnap = await orgDoc.ref.collection('folders').where('name', '==', 'All Team').get();
+      if (foldersSnap.empty) continue;
+      const allTeamFolderId = foldersSnap.docs[0].id;
+
+      // Find the Welcome note
+      const notesSnap = await orgDoc.ref.collection('notes')
+        .where('folderId', '==', allTeamFolderId)
+        .where('title', '==', 'Welcome')
+        .get();
+
+      if (notesSnap.empty) {
+        console.log('[Migration] No Welcome note found in All Team folder, skipping');
+        continue;
+      }
+
+      const welcomeContent = `<h2>Welcome to Follett Marketing</h2>
+<p>Hi team! I'm excited to share a tool I've built to help us stay organized and aligned across marketing. <strong>Follett Marketing</strong> is our task and strategy management app — think of it as our home base for tracking work, sharing notes, and staying on top of priorities.</p>
+
+<h3>What you can do:</h3>
+
+<p><strong>Tasks</strong> — Create, assign, and track tasks across your department. Each task has a priority, due date, status, subtasks, comments, and file attachments. Use the <strong>My Tasks / My Team / All</strong> toggles to focus your view.</p>
+
+<p><strong>Strategy &amp; Notes</strong> — Keep meeting notes, strategy docs, and department documentation organized by folder. Notes are private by default — share them with specific people, your department, or the whole team. You can attach files and links to notes too.</p>
+
+<p><strong>AI Assistant</strong> — Click the sparkle icon in the sidebar. It can see your tasks and notes to help with priorities, summaries, and strategy questions. Try asking "What should I focus on today?" You can also use <strong>Quick Add</strong> to paste an email or Slack message and let AI turn it into a task.</p>
+
+<p><strong>Daily Briefing</strong> — Each morning when you log in, you'll see a personalized summary of what's due today, what's overdue, and what's coming up this week.</p>
+
+<p><strong>Notifications</strong> — You'll get notified when tasks are assigned to you, when someone comments on your tasks, or when due dates are approaching.</p>
+
+<h3>Getting started:</h3>
+<ol>
+<li>Use the password reset link I sent you to set your password</li>
+<li>Log in with your email and password</li>
+<li>Your assigned tasks and department tasks will be waiting for you</li>
+<li>Create notes in Strategy &amp; Notes — they're private unless you share them</li>
+</ol>
+
+<h3>Task statuses:</h3>
+<table>
+<tr><th>Status</th><th>What it means</th></tr>
+<tr><td>Not Started</td><td>Haven't begun yet</td></tr>
+<tr><td>In Progress</td><td>Actively working on it</td></tr>
+<tr><td>Awaiting Feedback</td><td>Blocked — waiting on someone else</td></tr>
+<tr><td>Delegated</td><td>Assigned to someone else</td></tr>
+<tr><td>Completed</td><td>Done!</td></tr>
+</table>
+<p>Update your statuses as you work — it helps everyone see where things stand without having to ask.</p>
+
+<h3>Tips:</h3>
+<ul>
+<li>Set due dates on everything so we can sort by urgency</li>
+<li>Use <strong>Quick Add</strong> to paste in emails or messages and create tasks instantly</li>
+<li>Add subtasks to break big tasks into smaller pieces</li>
+<li>Share notes when you want the team to see your strategy docs</li>
+<li>Got an idea to make the app better? Use <strong>Ideas &amp; Feedback</strong> in the sidebar</li>
+</ul>
+
+<p>This is a living tool — we'll keep improving it together. If something is confusing, missing, or could be better, let me know in our next 1:1 or drop it in Ideas &amp; Feedback.</p>
+
+<p>— Leann</p>`;
+
+      for (const noteDoc of notesSnap.docs) {
+        await noteDoc.ref.update({ content: welcomeContent, updatedAt: new Date().toISOString() });
+        console.log('[Migration] Updated Welcome note:', noteDoc.id);
+      }
+    }
+  } catch (err) {
+    console.error('[Migration] Failed to update Welcome note:', err.message);
+  }
 });
