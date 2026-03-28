@@ -2192,6 +2192,15 @@ async function init() {
 
   // AI Chat
   document.getElementById('btn-open-chat').addEventListener('click', () => { openAiView(); closeSidebar(); });
+  document.getElementById('btn-suggest-feature').addEventListener('click', () => {
+    document.getElementById('suggest-text').value = '';
+    document.getElementById('suggest-result').style.display = 'none';
+    document.getElementById('btn-submit-suggestion').textContent = 'Submit';
+    document.getElementById('btn-submit-suggestion').disabled = false;
+    openModal('modal-suggest');
+    closeSidebar();
+  });
+  document.getElementById('btn-submit-suggestion').addEventListener('click', submitSuggestion);
   document.getElementById('btn-send-chat').addEventListener('click', () => sendChatMessage());
   document.getElementById('chat-input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') sendChatMessage();
@@ -2699,6 +2708,34 @@ async function saveMemberEdit(id) {
 async function deleteMember(id, name) {
   if (!confirm(`Remove ${name} from the team? This deletes their account entirely so you can re-invite them if needed.`)) return;
   try { await api('DELETE', `/api/team/${id}`); showTeamView(); } catch (err) { alert(err.message); }
+}
+
+// === Feature Requests ===
+async function submitSuggestion() {
+  const text = document.getElementById('suggest-text').value.trim();
+  if (!text) return;
+
+  const btn = document.getElementById('btn-submit-suggestion');
+  btn.textContent = 'Submitting...';
+  btn.disabled = true;
+
+  try {
+    const result = await api('POST', '/api/feature-request', { description: text });
+    document.getElementById('suggest-summary').textContent = result.summary;
+    document.getElementById('suggest-result').style.display = 'block';
+    btn.textContent = 'Sent!';
+    setTimeout(() => {
+      closeModal('modal-suggest');
+      document.getElementById('suggest-text').value = '';
+      document.getElementById('suggest-result').style.display = 'none';
+      btn.textContent = 'Submit';
+      btn.disabled = false;
+    }, 2000);
+  } catch (err) {
+    alert('Failed to submit: ' + err.message);
+    btn.textContent = 'Submit';
+    btn.disabled = false;
+  }
 }
 
 // === Firebase Auth & Boot ===

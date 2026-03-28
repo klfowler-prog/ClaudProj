@@ -1428,6 +1428,65 @@ app.post('/api/team/:id/enable', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Failed to enable member' }); }
 });
 
+// === Feature Requests ===
+
+// POST /api/feature-request — Submit a feature request (any authenticated user)
+app.post('/api/feature-request', auth, async (req, res) => {
+  try {
+    const { description } = req.body;
+    if (!description || !description.trim()) return res.status(400).json({ error: 'Description required' });
+
+    // AI summarize the request
+    let summary = description.trim();
+    try {
+      const model = getGeminiModel();
+      const result = await model.generateContent({
+        contents: [{ role: 'user', parts: [{ text: `Summarize this feature request in 1-2 clear sentences. Keep it concise and actionable. Just the summary, no preamble.\n\nRequest: "${description}"` }] }]
+      });
+      summary = result.response.text().trim();
+    } catch { /* Use raw description if AI fails */ }
+
+    // Save the request
+    const request = {
+      description: description.trim(),
+      summary,
+      requestedBy: req.userId,
+      requestedByName: req.memberName,
+      requestedByEmail: req.userEmail,
+      status: 'new',
+      createdAt: new Date().toISOString()
+    };
+    const ref = await orgCol(req, 'featureRequests').add(request);
+
+    // Notify CMO
+    const membersSnap = await orgCol(req, 'members').get();
+    const cmo = membersSnap.docs.find(d => d.data().role === 'cmo');
+    if (cmo && cmo.data().userId !== req.userId) {
+      await createNotification(req.orgId, cmo.data().userId, {
+        type: 'feature_request',
+        title: `${req.memberName} suggested: ${summary.substring(0, 80)}`,
+        fromUserId: req.userId,
+        fromName: req.memberName
+      });
+    }
+
+    res.status(201).json({ id: ref.id, summary });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to submit request: ' + err.message });
+  }
+});
+
+// GET /api/feature-requests — List all feature requests (CMO only)
+app.get('/api/feature-requests', auth, async (req, res) => {
+  if (req.memberRole !== 'cmo') return res.status(403).json({ error: 'CMO only' });
+  try {
+    const snap = await orgCol(req, 'featureRequests').get();
+    const requests = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    requests.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    res.json(requests);
+  } catch (err) { res.status(500).json({ error: 'Failed to fetch requests' }); }
+});
+
 // === Gmail OAuth Endpoints ===
 
 function createOAuth2Client() {

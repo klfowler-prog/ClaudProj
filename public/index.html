@@ -106,6 +106,10 @@
         <span class="sidebar-icon">&#10024;</span>
         <span>AI Assistant</span>
       </button>
+      <button class="sidebar-nav-item" id="btn-suggest-feature">
+        <span class="sidebar-icon">&#128161;</span>
+        <span>Suggest Improvement</span>
+      </button>
     </div>
 
     <div class="sidebar-footer">
@@ -663,6 +667,30 @@
         <div class="modal-actions">
           <button class="btn btn-ghost" data-close="modal-ai-tasks">Cancel</button>
           <button class="btn btn-primary" id="btn-create-ai-tasks">Create Tasks</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Suggest Improvement Modal -->
+  <div class="modal-overlay" id="modal-suggest" style="display: none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>&#128161; Suggest an Improvement</h2>
+        <button class="modal-close" data-close="modal-suggest">&times;</button>
+      </div>
+      <div style="padding: 0.75rem 1.5rem 1.5rem;">
+        <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 0.75rem;">Describe what you'd like to see improved or added. Be as detailed as you'd like — AI will summarize it for you.</p>
+        <div class="form-group">
+          <textarea id="suggest-text" rows="5" placeholder="I wish the app could... / It would be helpful if... / When I try to do X, I find it hard because..." style="width:100%;padding:0.5rem 0.75rem;border:1px solid var(--color-border);border-radius:var(--radius);font-size:0.9rem;font-family:'Roboto',sans-serif;"></textarea>
+        </div>
+        <div id="suggest-result" style="display:none;margin-bottom:0.75rem;">
+          <div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;color:var(--follett-dark-blue);margin-bottom:0.25rem;">AI Summary</div>
+          <div id="suggest-summary" style="font-size:0.85rem;padding:0.5rem;background:var(--follett-light-gray);border-radius:var(--radius);"></div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" data-close="modal-suggest">Cancel</button>
+          <button class="btn btn-primary" id="btn-submit-suggestion">Submit</button>
         </div>
       </div>
     </div>
