@@ -834,22 +834,67 @@ app.post('/api/notes/:id/generate-tasks', auth, async (req, res) => {
     const note = doc.data();
     const text = stripHtml(note.content || '');
 
+    // Get team members for assignee suggestions
+    const membersSnap = await orgCol(req, 'members').get();
+    const memberList = membersSnap.docs.map(d => {
+      const m = d.data();
+      return `${m.displayName} (userId: ${m.userId})`;
+    }).join(', ');
+
     const model = getGeminiModel();
     const result = await model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: `You are a marketing strategy assistant for a CMO at Follett Higher Education. Extract actionable tasks from the following document. Return ONLY a JSON array (no markdown, no code fences) where each item has:\n- "title": string (concise task description)\n- "department": one of "B2B Marketing", "Internal Comms", "Rev Ops", "B2C Marketing", "Personal"\n- "priority": one of "High", "Medium", "Low"\n- "notes": string (brief context from the document)\n\nOnly include genuinely actionable items. If there are no actionable items, return an empty array [].\n\nDocument title: ${note.title}\n\nContent:\n${text}` }] }]
+      contents: [{ role: 'user', parts: [{ text: `You are a marketing strategy assistant for a CMO at Follett Higher Education. Analyze this document and extract actionable tasks.
+
+If the document describes a project or initiative with multiple steps, return a PARENT TASK with SUB-TASKS. If it's just a list of unrelated action items, return them as separate parent tasks with no sub-tasks.
+
+Return ONLY a JSON object (no markdown, no code fences) with this structure:
+{
+  "groups": [
+    {
+      "parent": {
+        "title": "Main project or initiative name",
+        "department": "B2B Marketing" | "Internal Comms" | "Rev Ops" | "B2C Marketing" | "Personal",
+        "priority": "High" | "Medium" | "Low",
+        "notes": "Brief context",
+        "assignedTo": "userId if a team member name is mentioned, otherwise empty string"
+      },
+      "subtasks": [
+        {
+          "title": "Specific action item",
+          "priority": "High" | "Medium" | "Low",
+          "notes": "Brief context",
+          "assignedTo": "userId if mentioned, otherwise empty string"
+        }
+      ]
+    }
+  ]
+}
+
+Rules:
+- If there's one clear project with steps, make ONE group with subtasks
+- If there are multiple unrelated items, make multiple groups each with an empty subtasks array
+- Sub-tasks inherit department from parent
+- Only include genuinely actionable items
+- If no actionable items, return {"groups": []}
+
+Available team members: ${memberList}
+
+Document title: ${note.title}
+
+Content:
+${text}` }] }]
     });
 
-    let tasksJson;
     const responseText = result.response.text().trim();
-    // Strip markdown code fences if present
     const cleaned = responseText.replace(/^```json?\n?/i, '').replace(/\n?```$/i, '').trim();
+    let parsed;
     try {
-      tasksJson = JSON.parse(cleaned);
+      parsed = JSON.parse(cleaned);
     } catch {
       return res.status(400).json({ error: 'AI returned invalid format. Try again.' });
     }
 
-    res.json({ tasks: tasksJson });
+    res.json(parsed);
   } catch (err) {
     res.status(500).json({ error: 'Generate tasks failed: ' + err.message });
   }

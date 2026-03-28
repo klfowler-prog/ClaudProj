@@ -1444,14 +1444,16 @@ async function aiAsk() {
 
 let pendingAiTasks = [];
 
+let pendingAiGroups = [];
+
 async function aiGenerateTasks() {
   if (!activeNoteId) return;
-  showAiPanel('Generate Tasks', '<span class="ai-loading">Extracting tasks...</span>');
+  showAiPanel('Generate Tasks', '<span class="ai-loading">Analyzing note and extracting tasks...</span>');
   try {
     const result = await api('POST', `/api/notes/${activeNoteId}/generate-tasks`);
     hideAiPanel();
-    pendingAiTasks = result.tasks || [];
-    if (pendingAiTasks.length === 0) {
+    pendingAiGroups = result.groups || [];
+    if (pendingAiGroups.length === 0) {
       alert('No actionable tasks found in this note.');
       return;
     }
@@ -1462,28 +1464,41 @@ async function aiGenerateTasks() {
       `<option value="${m.userId}">${escapeHtml(m.displayName)}</option>`
     ).join('');
 
+    const inputStyle = 'padding:0.3rem 0.5rem;border:1px solid var(--color-border);border-radius:var(--radius);font-size:0.8rem;';
+    const selectStyle = 'padding:0.2rem 0.4rem;font-size:0.75rem;border-radius:var(--radius);border:1px solid var(--color-border);';
+
     const list = document.getElementById('ai-tasks-list');
-    list.innerHTML = pendingAiTasks.map((t, i) => `
-      <div class="ai-task-item" style="flex-direction: column; align-items: stretch; gap: 0.5rem; padding: 0.75rem 0;">
-        <div style="display: flex; align-items: center; gap: 0.5rem;">
-          <input type="checkbox" checked data-ai-task-idx="${i}" style="flex-shrink:0;">
-          <input type="text" class="ai-task-title" data-idx="${i}" value="${escapeHtml(t.title)}" style="flex:1; padding:0.3rem 0.5rem; border:1px solid var(--color-border); border-radius:var(--radius); font-size:0.85rem;">
-        </div>
-        <div style="display: flex; gap: 0.375rem; flex-wrap: wrap; padding-left: 1.5rem;">
-          <select class="ai-task-dept" data-idx="${i}" style="padding:0.2rem 0.4rem; font-size:0.75rem; border-radius:var(--radius); border:1px solid var(--color-border);">
-            ${deptOptions.replace(`value="${t.department}"`, `value="${t.department}" selected`)}
-          </select>
-          <select class="ai-task-prio" data-idx="${i}" style="padding:0.2rem 0.4rem; font-size:0.75rem; border-radius:var(--radius); border:1px solid var(--color-border);">
-            ${prioOptions.replace(`value="${t.priority}"`, `value="${t.priority}" selected`)}
-          </select>
-          <select class="ai-task-assign" data-idx="${i}" style="padding:0.2rem 0.4rem; font-size:0.75rem; border-radius:var(--radius); border:1px solid var(--color-border);">
-            ${assignOptions}
-          </select>
-          <input type="date" class="ai-task-due" data-idx="${i}" style="padding:0.2rem 0.4rem; font-size:0.75rem; border-radius:var(--radius); border:1px solid var(--color-border);">
-        </div>
-        ${t.notes ? `<div style="padding-left:1.5rem; font-size:0.75rem; color:var(--color-text-muted);">${escapeHtml(t.notes)}</div>` : ''}
-      </div>
-    `).join('');
+    list.innerHTML = pendingAiGroups.map((g, gi) => {
+      const p = g.parent;
+      const parentHtml = `
+        <div style="border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:0.75rem;margin-bottom:0.75rem;background:var(--color-surface);">
+          <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;">
+            <input type="checkbox" checked class="ai-parent-cb" data-group="${gi}" style="flex-shrink:0;">
+            <input type="text" class="ai-parent-title" data-group="${gi}" value="${escapeHtml(p.title)}" style="flex:1;${inputStyle}font-weight:500;">
+          </div>
+          <div style="display:flex;gap:0.375rem;flex-wrap:wrap;padding-left:1.5rem;margin-bottom:0.375rem;">
+            <select class="ai-parent-dept" data-group="${gi}" style="${selectStyle}">${deptOptions.replace(`value="${p.department}"`, `value="${p.department}" selected`)}</select>
+            <select class="ai-parent-prio" data-group="${gi}" style="${selectStyle}">${prioOptions.replace(`value="${p.priority}"`, `value="${p.priority}" selected`)}</select>
+            <select class="ai-parent-assign" data-group="${gi}" style="${selectStyle}">${p.assignedTo ? assignOptions.replace(`value="${p.assignedTo}"`, `value="${p.assignedTo}" selected`) : assignOptions}</select>
+            <input type="date" class="ai-parent-due" data-group="${gi}" style="${selectStyle}">
+          </div>
+          ${p.notes ? `<div style="padding-left:1.5rem;font-size:0.7rem;color:var(--color-text-muted);margin-bottom:0.5rem;">${escapeHtml(p.notes)}</div>` : ''}
+          ${(g.subtasks && g.subtasks.length > 0) ? `
+            <div style="padding-left:1.5rem;border-top:1px solid var(--color-border);padding-top:0.5rem;">
+              <div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;color:var(--follett-dark-blue);margin-bottom:0.375rem;">Sub-tasks</div>
+              ${g.subtasks.map((s, si) => `
+                <div style="display:flex;align-items:center;gap:0.5rem;padding:0.25rem 0;">
+                  <input type="checkbox" checked class="ai-sub-cb" data-group="${gi}" data-sub="${si}" style="flex-shrink:0;">
+                  <input type="text" class="ai-sub-title" data-group="${gi}" data-sub="${si}" value="${escapeHtml(s.title)}" style="flex:1;${inputStyle}font-size:0.8rem;">
+                  <select class="ai-sub-assign" data-group="${gi}" data-sub="${si}" style="${selectStyle}">${s.assignedTo ? assignOptions.replace(`value="${s.assignedTo}"`, `value="${s.assignedTo}" selected`) : assignOptions}</select>
+                  <input type="date" class="ai-sub-due" data-group="${gi}" data-sub="${si}" style="${selectStyle}width:auto;">
+                </div>
+              `).join('')}
+            </div>
+          ` : ''}
+        </div>`;
+      return parentHtml;
+    }).join('');
     openModal('modal-ai-tasks');
   } catch (err) {
     showAiPanel('Error', err.message);
@@ -1491,34 +1506,59 @@ async function aiGenerateTasks() {
 }
 
 async function createAiTasks() {
-  const checkboxes = document.querySelectorAll('#ai-tasks-list input[type="checkbox"]');
-  const tasksToCreate = [];
-  checkboxes.forEach(cb => {
-    if (!cb.checked) return;
-    const idx = parseInt(cb.dataset.aiTaskIdx);
-    const title = document.querySelector(`.ai-task-title[data-idx="${idx}"]`).value.trim();
-    const department = document.querySelector(`.ai-task-dept[data-idx="${idx}"]`).value;
-    const priority = document.querySelector(`.ai-task-prio[data-idx="${idx}"]`).value;
-    const assignedTo = document.querySelector(`.ai-task-assign[data-idx="${idx}"]`).value || undefined;
-    const dueDate = document.querySelector(`.ai-task-due[data-idx="${idx}"]`).value || '';
-    if (!title) return;
-    const task = {
-      title, department, priority,
-      notes: pendingAiTasks[idx].notes || '',
-      status: (assignedTo && myProfile && assignedTo !== myProfile.userId) ? 'Delegated' : 'Not Started',
-      source: 'manual', dueDate, recurring: 'none'
-    };
-    if (assignedTo) task.assignedTo = assignedTo;
-    tasksToCreate.push(task);
-  });
-  if (tasksToCreate.length === 0) { alert('No tasks selected.'); return; }
+  let totalCreated = 0;
 
   try {
-    await api('POST', '/api/tasks/batch', { tasks: tasksToCreate });
+    for (let gi = 0; gi < pendingAiGroups.length; gi++) {
+      const parentCb = document.querySelector(`.ai-parent-cb[data-group="${gi}"]`);
+      if (!parentCb || !parentCb.checked) continue;
+
+      const title = document.querySelector(`.ai-parent-title[data-group="${gi}"]`).value.trim();
+      const department = document.querySelector(`.ai-parent-dept[data-group="${gi}"]`).value;
+      const priority = document.querySelector(`.ai-parent-prio[data-group="${gi}"]`).value;
+      const assignedTo = document.querySelector(`.ai-parent-assign[data-group="${gi}"]`).value || undefined;
+      const dueDate = document.querySelector(`.ai-parent-due[data-group="${gi}"]`).value || '';
+      if (!title) continue;
+
+      const isDelegate = assignedTo && myProfile && assignedTo !== myProfile.userId;
+
+      // Create parent task
+      const parentTask = await api('POST', '/api/tasks', {
+        title, department, priority, dueDate,
+        notes: pendingAiGroups[gi].parent.notes || '',
+        status: isDelegate ? 'Delegated' : 'Not Started',
+        source: 'manual', recurring: 'none',
+        assignedTo: assignedTo || undefined
+      });
+      totalCreated++;
+
+      // Create sub-tasks
+      const subtasks = pendingAiGroups[gi].subtasks || [];
+      for (let si = 0; si < subtasks.length; si++) {
+        const subCb = document.querySelector(`.ai-sub-cb[data-group="${gi}"][data-sub="${si}"]`);
+        if (!subCb || !subCb.checked) continue;
+
+        const subTitle = document.querySelector(`.ai-sub-title[data-group="${gi}"][data-sub="${si}"]`).value.trim();
+        const subAssign = document.querySelector(`.ai-sub-assign[data-group="${gi}"][data-sub="${si}"]`).value || undefined;
+        const subDue = document.querySelector(`.ai-sub-due[data-group="${gi}"][data-sub="${si}"]`).value || '';
+        if (!subTitle) continue;
+
+        const subDelegate = subAssign && myProfile && subAssign !== myProfile.userId;
+        await api('POST', '/api/tasks', {
+          title: subTitle, department, priority: 'Medium', dueDate: subDue,
+          notes: '', status: subDelegate ? 'Delegated' : 'Not Started',
+          source: 'manual', recurring: 'none',
+          parentTaskId: parentTask.id,
+          assignedTo: subAssign || undefined
+        });
+        totalCreated++;
+      }
+    }
+
     closeModal('modal-ai-tasks');
     await loadTasks();
     render();
-    alert(`Created ${tasksToCreate.length} task${tasksToCreate.length !== 1 ? 's' : ''}!`);
+    alert(`Created ${totalCreated} task${totalCreated !== 1 ? 's' : ''}!`);
   } catch (err) {
     alert('Failed to create tasks: ' + err.message);
   }
