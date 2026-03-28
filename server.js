@@ -403,6 +403,7 @@ app.get('/api/folders', auth, async (req, res) => {
 });
 
 app.post('/api/folders', authWrite, async (req, res) => {
+  if (req.memberRole !== 'cmo') return res.status(403).json({ error: 'Only CMO can create folders' });
   try {
     const folder = { name: req.body.name, order: req.body.order || 99, createdAt: new Date().toISOString() };
     const ref = await orgCol(req, 'folders').add(folder);
@@ -415,14 +416,16 @@ app.put('/api/folders/:id', authWrite, async (req, res) => {
     const updates = {};
     if (req.body.name !== undefined) updates.name = req.body.name;
     if (req.body.order !== undefined) updates.order = req.body.order;
-    if (req.body.shared !== undefined) updates.shared = req.body.shared;
-    if (req.body.leadersOnly !== undefined) updates.leadersOnly = req.body.leadersOnly;
+    // Only CMO can change folder visibility flags
+    if (req.body.shared !== undefined && req.memberRole === 'cmo') updates.shared = req.body.shared;
+    if (req.body.leadersOnly !== undefined && req.memberRole === 'cmo') updates.leadersOnly = req.body.leadersOnly;
     await orgCol(req, 'folders').doc(req.params.id).update(updates);
     res.json({ id: req.params.id, ...updates });
   } catch (err) { res.status(500).json({ error: 'Failed to update folder' }); }
 });
 
 app.delete('/api/folders/:id', authWrite, async (req, res) => {
+  if (req.memberRole !== 'cmo') return res.status(403).json({ error: 'Only CMO can delete folders' });
   try {
     const notesInFolder = await orgCol(req, 'notes').where('folderId', '==', req.params.id).limit(1).get();
     if (!notesInFolder.empty) return res.status(400).json({ error: 'Folder not empty' });
@@ -790,29 +793,57 @@ app.post('/api/ai/chat', auth, async (req, res) => {
     const { message, history } = req.body;
     if (!message) return res.status(400).json({ error: 'Message is required' });
 
-    // Gather all tasks (CMO sees all, others see their dept)
+    // Gather tasks — apply same role-based filtering as task list
     const tasksSnap = await orgCol(req, 'tasks').orderBy('createdAt', 'desc').get();
-    const allTasks = tasksSnap.docs.map(d => {
-      const t = d.data();
-      return `[${t.status}] ${t.title} | Dept: ${t.department} | Priority: ${t.priority}${t.dueDate ? ' | Due: ' + t.dueDate : ''}${t.notes ? ' | Notes: ' + t.notes.substring(0, 200) : ''}`;
-    });
+    let taskDocs = tasksSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    if (req.memberRole !== 'cmo') {
+      taskDocs = taskDocs.filter(t =>
+        req.memberDepts.includes(t.department) ||
+        t.assignedTo === req.userId ||
+        (t.sharedWith && t.sharedWith.includes(req.userId)) ||
+        t.createdBy === req.userId
+      );
+    }
+    const allTasks = taskDocs.map(t =>
+      `[${t.status}] ${t.title} | Dept: ${t.department} | Priority: ${t.priority}${t.dueDate ? ' | Due: ' + t.dueDate : ''}${t.notes ? ' | Notes: ' + t.notes.substring(0, 200) : ''}`
+    );
 
-    // Gather all notes (titles + truncated content)
+    // Gather notes — apply same access filtering as notes list
     const notesSnap = await orgCol(req, 'notes').get();
     const foldersSnap = await orgCol(req, 'folders').get();
     const folderMap = {};
-    foldersSnap.docs.forEach(d => { folderMap[d.id] = d.data().name; });
+    const sharedFolderIds = new Set();
+    const leadersFolderIds = new Set();
+    foldersSnap.docs.forEach(d => {
+      folderMap[d.id] = d.data().name;
+      if (d.data().shared) sharedFolderIds.add(d.id);
+      if (d.data().leadersOnly) leadersFolderIds.add(d.id);
+    });
 
-    const allNotes = notesSnap.docs.map(d => {
-      const n = d.data();
+    let noteDocs = notesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    if (req.memberRole !== 'cmo') {
+      noteDocs = noteDocs.filter(n => {
+        if (n.createdBy === req.userId) return true;
+        if (sharedFolderIds.has(n.folderId)) return true;
+        if (leadersFolderIds.has(n.folderId) && req.memberRole === 'lead') return true;
+        const sw = n.sharedWith || [];
+        if (sw.includes(req.userId)) return true;
+        if (req.memberDepts.some(d => sw.includes('dept:' + d))) return true;
+        if (sw.includes('all')) return true;
+        return false;
+      });
+    }
+    const allNotes = noteDocs.map(n => {
       const folder = folderMap[n.folderId] || 'Unfiled';
       const content = stripHtml(n.content || '').substring(0, 500);
       return `[${folder}] ${n.title}\n${content}`;
     });
 
     const today = new Date().toISOString().split('T')[0];
+    const isCmo = req.memberRole === 'cmo';
+    const roleName = isCmo ? 'CMO' : req.memberRole === 'lead' ? 'Department Lead' : 'team member';
 
-    const systemPrompt = `You are an AI assistant for Leann, a CMO at Follett Higher Education. You have access to her complete task list and strategy notes. Be concise, actionable, and strategic. Today's date is ${today}.
+    const systemPrompt = `You are an AI assistant for ${req.memberName}, a ${roleName} at Follett Higher Education. You have access to their task list and notes. Be concise, actionable, and strategic. Today's date is ${today}.
 
 TASKS (${allTasks.length} total):
 ${allTasks.join('\n')}
