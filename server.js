@@ -218,8 +218,9 @@ app.get('/api/tasks', auth, async (req, res) => {
       p.subtasksCompleted = subs.filter(s => s.status === 'Completed').length;
     });
 
-    // Include sub-tasks assigned to this user (with parent title for context)
-    const mySubtasks = subTasks.filter(s => s.assignedTo === req.userId);
+    // Include sub-tasks assigned to this user BY SOMEONE ELSE (delegated to them)
+    // Sub-tasks you created yourself are visible in the parent task detail, not the main list
+    const mySubtasks = subTasks.filter(s => s.assignedTo === req.userId && s.createdBy !== req.userId);
     mySubtasks.forEach(s => {
       const parent = tasks.find(t => t.id === s.parentTaskId);
       s.parentTaskTitle = parent ? parent.title : '';
@@ -1484,16 +1485,25 @@ app.post('/api/sync', auth, async (req, res) => {
       const from = getHeader('From');
       const date = getHeader('Date');
 
-      let body = '';
-      const payload = fullMsg.data.payload;
-      if (payload.parts) {
-        const textPart = payload.parts.find(p => p.mimeType === 'text/plain');
-        if (textPart && textPart.body.data) {
-          body = Buffer.from(textPart.body.data, 'base64').toString('utf-8');
+      // Extract body — handle nested multipart structures
+      function extractTextBody(part) {
+        if (part.mimeType === 'text/plain' && part.body && part.body.data) {
+          return Buffer.from(part.body.data, 'base64').toString('utf-8');
         }
-      } else if (payload.body && payload.body.data) {
-        body = Buffer.from(payload.body.data, 'base64').toString('utf-8');
+        if (part.parts) {
+          for (const sub of part.parts) {
+            const text = extractTextBody(sub);
+            if (text) return text;
+          }
+        }
+        // Fallback to text/html if no plain text found
+        if (part.mimeType === 'text/html' && part.body && part.body.data) {
+          const html = Buffer.from(part.body.data, 'base64').toString('utf-8');
+          return html.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+        }
+        return '';
       }
+      let body = extractTextBody(fullMsg.data.payload) || '';
 
       if (body.length > 5000) body = body.substring(0, 5000) + '\n\n[Truncated]';
 
