@@ -1430,6 +1430,77 @@ app.post('/api/team/:id/enable', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Failed to enable member' }); }
 });
 
+// === Daily Briefing ===
+app.get('/api/briefing', auth, async (req, res) => {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    // Get user's tasks
+    const tasksSnap = await orgCol(req, 'tasks').get();
+    let allTasks = tasksSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    // Filter to user's visible tasks
+    if (req.memberRole !== 'cmo') {
+      allTasks = allTasks.filter(t =>
+        req.memberDepts.includes(t.department) ||
+        t.assignedTo === req.userId ||
+        (t.sharedWith && t.sharedWith.includes(req.userId)) ||
+        t.createdBy === req.userId
+      );
+    }
+
+    const myTasks = allTasks.filter(t => t.assignedTo === req.userId || t.createdBy === req.userId);
+
+    const dueToday = myTasks.filter(t => t.dueDate === today && t.status !== 'Completed');
+    const overdue = myTasks.filter(t => t.dueDate && t.dueDate < today && t.status !== 'Completed' && t.status !== 'Delegated');
+
+    // Coming this week (next 7 days, excluding today and overdue)
+    const weekEnd = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const comingThisWeek = myTasks.filter(t =>
+      t.dueDate && t.dueDate > today && t.dueDate <= weekEnd && t.status !== 'Completed'
+    ).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+
+    // Completed this week
+    const completedThisWeek = myTasks.filter(t =>
+      t.status === 'Completed' && t.completedAt && t.completedAt >= weekAgo
+    );
+
+    const briefing = {
+      name: req.memberName,
+      dueToday: dueToday.map(t => ({ id: t.id, title: t.title })),
+      overdue: overdue.map(t => ({ id: t.id, title: t.title, dueDate: t.dueDate })),
+      comingThisWeek: comingThisWeek.slice(0, 5).map(t => ({ id: t.id, title: t.title, dueDate: t.dueDate })),
+      completedCount: completedThisWeek.length
+    };
+
+    // CMO extras: team stats
+    if (req.memberRole === 'cmo') {
+      const teamOverdue = allTasks.filter(t => t.dueDate && t.dueDate < today && t.status !== 'Completed' && t.status !== 'Delegated' && t.assignedTo !== req.userId);
+      const teamCompletedThisWeek = allTasks.filter(t => t.status === 'Completed' && t.completedAt && t.completedAt >= weekAgo && t.createdBy !== req.userId);
+
+      // Group team overdue by person
+      const membersSnap = await orgCol(req, 'members').get();
+      const memberNames = {};
+      membersSnap.docs.forEach(d => { memberNames[d.data().userId] = d.data().displayName; });
+
+      const overdueByPerson = {};
+      teamOverdue.forEach(t => {
+        const name = memberNames[t.assignedTo] || 'Unassigned';
+        if (!overdueByPerson[name]) overdueByPerson[name] = 0;
+        overdueByPerson[name]++;
+      });
+
+      briefing.teamOverdue = Object.entries(overdueByPerson).map(([name, count]) => ({ name, count }));
+      briefing.teamCompletedCount = teamCompletedThisWeek.length;
+    }
+
+    res.json(briefing);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to generate briefing: ' + err.message });
+  }
+});
+
 // === Feature Requests ===
 
 // POST /api/feature-request — Submit a feature request (any authenticated user)

@@ -2395,8 +2395,147 @@ async function loadProfile() {
   try {
     myProfile = await api('GET', '/api/me');
     applyRoleUI();
-    // (viewer UI hiding handled above)
   } catch (err) { console.error('Failed to load profile:', err); }
+}
+
+// === Daily Briefing / Onboarding ===
+async function showBriefingIfNeeded() {
+  if (!myProfile) return;
+
+  const overlay = document.getElementById('briefing-overlay');
+  const content = document.getElementById('briefing-content');
+
+  // First-time onboarding: show once ever
+  const onboardingKey = `onboarding_complete_${currentUser.uid}`;
+  if (!localStorage.getItem(onboardingKey)) {
+    const firstName = (myProfile.displayName || 'there').split(' ')[0];
+    content.innerHTML = `
+      <div class="briefing-greeting">Welcome to Follett Marketing, ${escapeHtml(firstName)}!</div>
+      <p style="font-size:0.9rem;color:var(--color-text-muted);margin-bottom:1.25rem;">Here are a few things to get you started:</p>
+      <div class="briefing-onboarding-step">
+        <span class="briefing-step-num">1</span>
+        <span class="briefing-step-text"><strong>Check your tasks</strong> &mdash; Your assigned tasks appear in the sidebar under Tasks. Use the <em>My Tasks</em> toggle to focus on what&rsquo;s yours.</span>
+      </div>
+      <div class="briefing-onboarding-step">
+        <span class="briefing-step-num">2</span>
+        <span class="briefing-step-text"><strong>Create &amp; manage</strong> &mdash; Use <em>Quick Add</em> to paste in an email or text and let AI turn it into a task, or click <em>Manual Task</em> for full control.</span>
+      </div>
+      <div class="briefing-onboarding-step">
+        <span class="briefing-step-num">3</span>
+        <span class="briefing-step-text"><strong>Strategy &amp; Notes</strong> &mdash; Capture meeting notes, strategy docs, and share them with your team or department.</span>
+      </div>
+      <div class="briefing-onboarding-step">
+        <span class="briefing-step-num">4</span>
+        <span class="briefing-step-text"><strong>AI Assistant</strong> &mdash; Ask questions about your tasks, get summaries, or generate task lists from notes.</span>
+      </div>
+      <button class="briefing-dismiss" id="briefing-got-it">Got it, let&rsquo;s go!</button>
+    `;
+    overlay.style.display = 'flex';
+    document.getElementById('briefing-got-it').onclick = () => {
+      localStorage.setItem(onboardingKey, '1');
+      overlay.style.display = 'none';
+    };
+    document.getElementById('briefing-close').onclick = () => {
+      localStorage.setItem(onboardingKey, '1');
+      overlay.style.display = 'none';
+    };
+    return;
+  }
+
+  // Daily briefing: show once per day
+  const briefingKey = `briefing_last_shown_${currentUser.uid}`;
+  const today = new Date().toISOString().split('T')[0];
+  if (localStorage.getItem(briefingKey) === today) return;
+
+  try {
+    const b = await api('GET', '/api/briefing');
+    const firstName = (b.name || 'there').split(' ')[0];
+    const hour = new Date().getHours();
+    const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+    const dateStr = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+
+    let html = `<div class="briefing-greeting">${greeting}, ${escapeHtml(firstName)}!</div>`;
+    html += `<div class="briefing-date">${dateStr}</div>`;
+
+    // Stats row
+    html += `<div class="briefing-stats">`;
+    html += `<div class="briefing-stat"><div class="briefing-stat-num">${b.dueToday.length}</div><div class="briefing-stat-label">Due Today</div></div>`;
+    html += `<div class="briefing-stat"><div class="briefing-stat-num" style="color:${b.overdue.length > 0 ? 'var(--follett-coral)' : ''}">${b.overdue.length}</div><div class="briefing-stat-label">Overdue</div></div>`;
+    html += `<div class="briefing-stat"><div class="briefing-stat-num">${b.completedCount}</div><div class="briefing-stat-label">Done This Week</div></div>`;
+    html += `</div>`;
+
+    // Due today
+    if (b.dueToday.length > 0) {
+      html += `<div class="briefing-section"><div class="briefing-section-title">Due Today</div>`;
+      b.dueToday.forEach(t => {
+        html += `<div class="briefing-task" data-task-id="${t.id}"><span class="dot-due"></span> ${escapeHtml(t.title)}</div>`;
+      });
+      html += `</div>`;
+    }
+
+    // Overdue
+    if (b.overdue.length > 0) {
+      html += `<div class="briefing-section"><div class="briefing-section-title">Overdue</div>`;
+      b.overdue.forEach(t => {
+        const dueFmt = t.dueDate ? new Date(t.dueDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+        html += `<div class="briefing-task" data-task-id="${t.id}"><span class="dot-overdue"></span> ${escapeHtml(t.title)}<span class="briefing-task-due">${dueFmt}</span></div>`;
+      });
+      html += `</div>`;
+    }
+
+    // Coming this week
+    if (b.comingThisWeek.length > 0) {
+      html += `<div class="briefing-section"><div class="briefing-section-title">Coming Up</div>`;
+      b.comingThisWeek.forEach(t => {
+        const dueFmt = t.dueDate ? new Date(t.dueDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : '';
+        html += `<div class="briefing-task" data-task-id="${t.id}"><span class="dot-upcoming"></span> ${escapeHtml(t.title)}<span class="briefing-task-due">${dueFmt}</span></div>`;
+      });
+      html += `</div>`;
+    }
+
+    // Empty state
+    if (b.dueToday.length === 0 && b.overdue.length === 0 && b.comingThisWeek.length === 0) {
+      html += `<div class="briefing-section"><p class="briefing-empty">No upcoming tasks — your schedule is clear!</p></div>`;
+    }
+
+    // CMO team stats
+    if (b.teamOverdue && b.teamOverdue.length > 0) {
+      html += `<div class="briefing-team-section">`;
+      html += `<div class="briefing-section-title">Team Overview</div>`;
+      html += `<div class="briefing-team-row"><span>Team completed this week</span><strong>${b.teamCompletedCount || 0}</strong></div>`;
+      html += `<div class="briefing-section-title" style="margin-top:0.5rem;">Overdue by Person</div>`;
+      b.teamOverdue.sort((a, c) => c.count - a.count).forEach(p => {
+        html += `<div class="briefing-team-row"><span>${escapeHtml(p.name)}</span><span class="overdue-count">${p.count} overdue</span></div>`;
+      });
+      html += `</div>`;
+    } else if (b.teamCompletedCount !== undefined) {
+      html += `<div class="briefing-team-section">`;
+      html += `<div class="briefing-section-title">Team Overview</div>`;
+      html += `<div class="briefing-team-row"><span>Team completed this week</span><strong>${b.teamCompletedCount || 0}</strong></div>`;
+      html += `<div class="briefing-team-row" style="color:var(--follett-sage);"><span>No overdue items across the team</span></div>`;
+      html += `</div>`;
+    }
+
+    html += `<button class="briefing-dismiss" id="briefing-got-it">Let&rsquo;s get to work</button>`;
+    content.innerHTML = html;
+    overlay.style.display = 'flex';
+
+    // Mark shown for today
+    localStorage.setItem(briefingKey, today);
+
+    // Clickable tasks
+    content.querySelectorAll('.briefing-task[data-task-id]').forEach(el => {
+      el.addEventListener('click', () => {
+        overlay.style.display = 'none';
+        showTaskDetail(el.dataset.taskId);
+      });
+    });
+
+    document.getElementById('briefing-got-it').onclick = () => { overlay.style.display = 'none'; };
+    document.getElementById('briefing-close').onclick = () => { overlay.style.display = 'none'; };
+  } catch (err) {
+    console.error('Failed to load briefing:', err);
+  }
 }
 
 let allNotifications = [];
@@ -2852,6 +2991,7 @@ document.addEventListener('DOMContentLoaded', () => {
       await loadProfile();
       await init();
       loadNotifications();
+      showBriefingIfNeeded();
       // Poll notifications every 60 seconds
       setInterval(loadNotifications, 60000);
     } else {
