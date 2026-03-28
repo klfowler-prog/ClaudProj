@@ -510,8 +510,6 @@ app.post('/api/upload', auth, upload.single('file'), async (req, res) => {
     });
 
     // Make file publicly readable
-    await blob.makePublic();
-
     const url = `https://storage.googleapis.com/${BUCKET_NAME}/${fileName}`;
     res.json({
       url,
@@ -549,7 +547,6 @@ app.post('/api/migrate-files', auth, async (req, res) => {
           const fileName = `${req.orgId}/migrated-${Date.now()}-${(att.name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_')}`;
           const blob = bucket.file(fileName);
           await blob.save(buffer, { contentType: mimeType });
-          await blob.makePublic();
           const url = `https://storage.googleapis.com/${BUCKET_NAME}/${fileName}`;
           newAttachments.push({ type: 'file', name: att.name, url, size: buffer.length });
           changed = true;
@@ -580,7 +577,6 @@ app.post('/api/migrate-files', auth, async (req, res) => {
           const fileName = `${req.orgId}/migrated-${Date.now()}-${(link.name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_')}`;
           const blob = bucket.file(fileName);
           await blob.save(buffer, { contentType: mimeType });
-          await blob.makePublic();
           const url = `https://storage.googleapis.com/${BUCKET_NAME}/${fileName}`;
           newLinks.push({ type: 'file', name: link.name, url, size: buffer.length });
           changed = true;
