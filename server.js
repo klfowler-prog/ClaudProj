@@ -412,6 +412,83 @@ app.get('/api/tasks/:id/subtasks', auth, async (req, res) => {
   }
 });
 
+// === Task Comments ===
+
+// GET /api/tasks/:id/comments — List comments on a task (includes sub-task comments for parent)
+app.get('/api/tasks/:id/comments', auth, async (req, res) => {
+  try {
+    // Get comments on this task
+    const snap = await orgCol(req, 'comments').where('taskId', '==', req.params.id).get();
+    let comments = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    // If this is a parent task, also get comments from all sub-tasks
+    const subsSnap = await orgCol(req, 'tasks').where('parentTaskId', '==', req.params.id).get();
+    for (const subDoc of subsSnap.docs) {
+      const subComments = await orgCol(req, 'comments').where('taskId', '==', subDoc.id).get();
+      subComments.docs.forEach(d => {
+        const c = { id: d.id, ...d.data(), subtaskTitle: subDoc.data().title };
+        comments.push(c);
+      });
+    }
+
+    comments.sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+    res.json(comments);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch comments' });
+  }
+});
+
+// POST /api/tasks/:id/comments — Add a comment to a task
+app.post('/api/tasks/:id/comments', auth, async (req, res) => {
+  try {
+    const { text } = req.body;
+    if (!text || !text.trim()) return res.status(400).json({ error: 'Comment text required' });
+
+    const comment = {
+      taskId: req.params.id,
+      text: text.trim(),
+      authorId: req.userId,
+      authorName: req.memberName,
+      createdAt: new Date().toISOString()
+    };
+
+    const ref = await orgCol(req, 'comments').add(comment);
+
+    // Notify task owner if commenter is not the owner
+    const taskDoc = await orgCol(req, 'tasks').doc(req.params.id).get();
+    if (taskDoc.exists) {
+      const task = taskDoc.data();
+      // Notify task creator
+      if (task.createdBy && task.createdBy !== req.userId) {
+        await createNotification(req.orgId, task.createdBy, {
+          type: 'comment',
+          title: `${req.memberName} commented on "${task.title}"`,
+          taskId: req.params.id,
+          fromUserId: req.userId,
+          fromName: req.memberName
+        });
+      }
+      // If this is a sub-task, also notify the parent task creator
+      if (task.parentTaskId) {
+        const parentDoc = await orgCol(req, 'tasks').doc(task.parentTaskId).get();
+        if (parentDoc.exists && parentDoc.data().createdBy && parentDoc.data().createdBy !== req.userId && parentDoc.data().createdBy !== task.createdBy) {
+          await createNotification(req.orgId, parentDoc.data().createdBy, {
+            type: 'comment',
+            title: `${req.memberName} commented on "${task.title}" (part of "${parentDoc.data().title}")`,
+            taskId: task.parentTaskId,
+            fromUserId: req.userId,
+            fromName: req.memberName
+          });
+        }
+      }
+    }
+
+    res.status(201).json({ id: ref.id, ...comment });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to add comment' });
+  }
+});
+
 // === Folder Endpoints ===
 
 app.get('/api/folders', auth, async (req, res) => {

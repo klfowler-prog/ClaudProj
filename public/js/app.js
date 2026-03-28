@@ -737,13 +737,64 @@ function showTaskDetail(id) {
       <div id="subtask-list" style="font-size: 0.85rem;">Loading...</div>
     </div>
 
+    <div class="detail-section" id="detail-comments">
+      <div class="detail-section-title">Comments</div>
+      <div id="comments-list" style="font-size: 0.85rem;">Loading...</div>
+      <div style="display:flex;gap:0.375rem;margin-top:0.5rem;">
+        <input type="text" id="comment-input" placeholder="Add a comment or link..." style="flex:1;padding:0.4rem 0.6rem;border:1px solid var(--color-border);border-radius:var(--radius);font-size:0.85rem;font-family:'Roboto',sans-serif;">
+        <button class="btn btn-primary btn-sm" onclick="addComment('${task.id}')">Post</button>
+      </div>
+    </div>
+
     <div class="detail-actions">
       <button class="btn btn-primary" onclick="editTask('${task.id}')">Edit Task</button>
     </div>
   `;
   openModal('modal-detail');
   loadSubtasks(task.id);
+  loadComments(task.id);
 }
+
+async function loadComments(taskId) {
+  try {
+    const comments = await api('GET', `/api/tasks/${taskId}/comments`);
+    const container = document.getElementById('comments-list');
+    if (comments.length === 0) {
+      container.innerHTML = '<span style="font-size:0.8rem;color:var(--color-text-light);">No comments yet</span>';
+      return;
+    }
+    container.innerHTML = comments.map(c => {
+      const ago = timeAgo(c.createdAt);
+      const subtaskLabel = c.subtaskTitle ? `<span style="color:var(--follett-medium-blue);font-size:0.7rem;"> on "${escapeHtml(c.subtaskTitle)}"</span>` : '';
+      return `<div style="padding:0.5rem 0;border-bottom:1px solid var(--color-border);">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-weight:500;font-size:0.8rem;">${escapeHtml(c.authorName)}${subtaskLabel}</span>
+          <span style="font-size:0.7rem;color:var(--color-text-light);">${ago}</span>
+        </div>
+        <div style="margin-top:0.25rem;font-size:0.85rem;line-height:1.5;">${escapeHtmlWithLinks(c.text)}</div>
+      </div>`;
+    }).join('');
+  } catch { document.getElementById('comments-list').innerHTML = '<span style="color:var(--color-text-light);font-size:0.8rem;">Failed to load comments</span>'; }
+}
+
+async function addComment(taskId) {
+  const input = document.getElementById('comment-input');
+  const text = input.value.trim();
+  if (!text) return;
+  try {
+    await api('POST', `/api/tasks/${taskId}/comments`, { text });
+    input.value = '';
+    loadComments(taskId);
+  } catch (err) { alert('Failed to post comment: ' + err.message); }
+}
+
+// Enter key to post comment
+document.addEventListener('keydown', (e) => {
+  if (e.target.id === 'comment-input' && e.key === 'Enter') {
+    const taskId = e.target.closest('#detail-comments') ? document.querySelector('[onclick*="addComment"]').getAttribute('onclick').match(/'([^']+)'/)[1] : null;
+    if (taskId) addComment(taskId);
+  }
+});
 
 function showSubtaskForm(parentId, dept) {
   document.getElementById('subtask-form').style.display = 'block';
