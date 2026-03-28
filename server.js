@@ -69,6 +69,7 @@ async function resolveOrg(req, res, next) {
         req.memberRole = m.role;
         req.memberDepts = getMemberDepts(m);
         req.memberName = m.displayName;
+        req.memberReportsTo = m.reportsTo || '';
         return next();
       }
     }
@@ -86,6 +87,7 @@ async function resolveOrg(req, res, next) {
         req.memberRole = m.role;
         req.memberDepts = getMemberDepts(m);
         req.memberName = m.displayName;
+        req.memberReportsTo = m.reportsTo || '';
         return next();
       }
     }
@@ -719,6 +721,7 @@ app.get('/api/notes', auth, async (req, res) => {
         const sw = n.sharedWith || [];
         if (sw.includes(req.userId)) return true;
         if (req.memberDepts.some(d => sw.includes('dept:' + d))) return true;
+        if (req.memberReportsTo && sw.includes('reports:' + req.memberReportsTo)) return true;
         if (sw.includes('all')) return true;
         return false;
       });
@@ -760,7 +763,7 @@ app.get('/api/notes/:id', auth, async (req, res) => {
         }
       }
       const sw = note.sharedWith || [];
-      if (!hasAccess && !sw.includes(req.userId) && !req.memberDepts.some(d => sw.includes('dept:' + d)) && !sw.includes('all')) {
+      if (!hasAccess && !sw.includes(req.userId) && !req.memberDepts.some(d => sw.includes('dept:' + d)) && !(req.memberReportsTo && sw.includes('reports:' + req.memberReportsTo)) && !sw.includes('all')) {
         return res.status(403).json({ error: 'Access denied' });
       }
     }
@@ -873,6 +876,7 @@ app.get('/api/search', auth, async (req, res) => {
         const sw = n.sharedWith || [];
         if (sw.includes(req.userId)) return true;
         if (req.memberDepts.some(d => sw.includes('dept:' + d))) return true;
+        if (req.memberReportsTo && sw.includes('reports:' + req.memberReportsTo)) return true;
         if (sw.includes('all')) return true;
         return false;
       });
@@ -1111,6 +1115,7 @@ app.post('/api/ai/chat', auth, async (req, res) => {
         const sw = n.sharedWith || [];
         if (sw.includes(req.userId)) return true;
         if (req.memberDepts.some(d => sw.includes('dept:' + d))) return true;
+        if (req.memberReportsTo && sw.includes('reports:' + req.memberReportsTo)) return true;
         if (sw.includes('all')) return true;
         return false;
       });
@@ -1204,6 +1209,7 @@ app.get('/api/me', auth, async (req, res) => {
     name: req.memberName,
     role: req.memberRole,
     departments: req.memberDepts,
+    reportsTo: req.memberReportsTo,
     orgId: req.orgId
   });
 });
@@ -1221,12 +1227,34 @@ app.get('/api/team', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Failed to fetch team' }); }
 });
 
-// POST /api/team/invite — Invite a team member (CMO only)
-app.post('/api/team/invite', auth, async (req, res) => {
+// GET /api/team/:id/profile — Get a team member's profile for impersonation (CMO only)
+app.get('/api/team/:id/profile', auth, async (req, res) => {
   if (req.memberRole !== 'cmo') return res.status(403).json({ error: 'CMO only' });
+  try {
+    const doc = await orgCol(req, 'members').doc(req.params.id).get();
+    if (!doc.exists) return res.status(404).json({ error: 'Member not found' });
+    const m = doc.data();
+    res.json({
+      userId: m.userId, email: m.email, name: m.displayName,
+      role: m.role, departments: getMemberDepts(m),
+      reportsTo: m.reportsTo || '', orgId: req.orgId
+    });
+  } catch (err) { res.status(500).json({ error: 'Failed to get profile' }); }
+});
+
+// POST /api/team/invite — Invite a team member (CMO or dept lead for their reports)
+app.post('/api/team/invite', auth, async (req, res) => {
+  if (req.memberRole !== 'cmo' && req.memberRole !== 'lead') return res.status(403).json({ error: 'Only CMO and dept leads can invite' });
   try {
     const { email, displayName, role, departments } = req.body;
     if (!email || !departments || departments.length === 0) return res.status(400).json({ error: 'Email and at least one department required' });
+
+    // Leads can only invite members/viewers into their own departments
+    if (req.memberRole === 'lead') {
+      if (role === 'cmo' || role === 'lead') return res.status(403).json({ error: 'Leads can only invite members or viewers' });
+      const invalidDepts = departments.filter(d => !req.memberDepts.includes(d));
+      if (invalidDepts.length > 0) return res.status(403).json({ error: `You can only invite into your departments: ${req.memberDepts.join(', ')}` });
+    }
 
     const tempPassword = Math.random().toString(36).slice(-12) + 'A1!';
     const userRecord = await admin.auth().createUser({
@@ -1241,6 +1269,7 @@ app.post('/api/team/invite', auth, async (req, res) => {
       displayName: displayName || email.split('@')[0],
       role: role || 'member',
       departments: Array.isArray(departments) ? departments : [departments],
+      reportsTo: req.memberRole === 'lead' ? req.userId : (req.body.reportsTo || ''),
       status: 'active',
       joinedAt: new Date().toISOString()
     });
@@ -1264,12 +1293,21 @@ app.post('/api/team/invite', auth, async (req, res) => {
 
 // PUT /api/team/:id — Update a team member (CMO only)
 app.put('/api/team/:id', auth, async (req, res) => {
-  if (req.memberRole !== 'cmo') return res.status(403).json({ error: 'CMO only' });
+  // CMO can edit anyone, leads can edit their reports
+  if (req.memberRole === 'lead') {
+    const targetDoc = await orgCol(req, 'members').doc(req.params.id).get();
+    if (!targetDoc.exists || targetDoc.data().reportsTo !== req.userId) {
+      return res.status(403).json({ error: 'You can only edit your direct reports' });
+    }
+  } else if (req.memberRole !== 'cmo') {
+    return res.status(403).json({ error: 'Not authorized' });
+  }
   try {
     const updates = {};
     if (req.body.role) updates.role = req.body.role;
     if (req.body.departments) updates.departments = req.body.departments;
     if (req.body.displayName) updates.displayName = req.body.displayName;
+    if (req.body.reportsTo !== undefined) updates.reportsTo = req.body.reportsTo;
     await orgCol(req, 'members').doc(req.params.id).update(updates);
     res.json({ id: req.params.id, ...updates });
   } catch (err) { res.status(500).json({ error: 'Failed to update member' }); }

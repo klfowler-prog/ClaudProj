@@ -1448,6 +1448,11 @@ async function openShareModal() {
     </label>
   `).join('');
 
+  // My reports checkbox
+  const reportsKey = 'reports:' + (myProfile ? myProfile.userId : '');
+  const myReportsCb = document.getElementById('share-my-reports');
+  if (myReportsCb) myReportsCb.checked = currentNoteSharedWith.includes(reportsKey);
+
   // All team checkbox
   document.getElementById('share-all-team').checked = currentNoteSharedWith.includes('all');
 
@@ -1462,6 +1467,10 @@ async function saveSharing() {
 
   // Collect checked departments
   document.querySelectorAll('.share-dept-cb:checked').forEach(cb => sharedWith.push(cb.value));
+
+  // My direct reports
+  const myReportsCb = document.getElementById('share-my-reports');
+  if (myReportsCb && myReportsCb.checked && myProfile) sharedWith.push('reports:' + myProfile.userId);
 
   // All team
   if (document.getElementById('share-all-team').checked) sharedWith.push('all');
@@ -2276,8 +2285,8 @@ let teamMembers = [];
 async function loadProfile() {
   try {
     myProfile = await api('GET', '/api/me');
-    // Show Team section for CMO only
-    if (myProfile.role === 'cmo') {
+    // Show Team section for CMO and dept leads
+    if (myProfile.role === 'cmo' || myProfile.role === 'lead') {
       document.getElementById('sidebar-team-section').style.display = 'block';
     }
     // Hide create/edit UI for viewers
@@ -2355,18 +2364,113 @@ async function showTeamView() {
   switchView('team');
   await loadTeam();
   const container = document.getElementById('team-roster');
-  container.innerHTML = teamMembers.map(m => `
-    <div class="team-member-card">
-      <div class="team-member-info">
-        <div class="team-member-name">${escapeHtml(m.displayName)}</div>
-        <div class="team-member-meta">${escapeHtml(m.email)} &middot; ${m.role} &middot; ${(m.departments || [m.department]).join(', ')} &middot; ${m.status}</div>
-      </div>
-      <div class="team-member-actions">
-        ${m.role !== 'cmo' ? `<button class="btn btn-ghost btn-sm" onclick="editMember('${m.id}')">Edit</button>
-        <button class="btn btn-ghost btn-sm" style="color: var(--follett-coral);" onclick="deleteMember('${m.id}', '${escapeHtml(m.displayName)}')">Remove</button>` : ''}
-      </div>
-    </div>
-  `).join('');
+  const isCmo = myProfile && myProfile.role === 'cmo';
+
+  // Group by department
+  const deptGroups = {};
+  teamMembers.forEach(m => {
+    const depts = m.departments || [m.department] || ['Unassigned'];
+    depts.forEach(d => {
+      if (!deptGroups[d]) deptGroups[d] = [];
+      if (!deptGroups[d].find(x => x.id === m.id)) deptGroups[d].push(m);
+    });
+  });
+
+  // Sort: leads first, then alphabetical
+  const canManage = (m) => {
+    if (isCmo && m.role !== 'cmo') return true;
+    if (myProfile && myProfile.role === 'lead' && m.reportsTo === myProfile.userId) return true;
+    return false;
+  };
+
+  let html = '';
+
+  // View As dropdown for CMO
+  if (isCmo) {
+    html += `<div style="margin-bottom:1rem;padding:0.625rem;background:var(--follett-light-gray);border-radius:var(--radius);display:flex;align-items:center;gap:0.5rem;">
+      <span style="font-size:0.8rem;font-weight:500;">View app as:</span>
+      <select id="view-as-select" class="filter-select-compact" style="flex:1;" onchange="viewAs(this.value)">
+        <option value="">Myself (CMO)</option>
+        ${teamMembers.filter(m => m.role !== 'cmo' && m.status === 'active').map(m =>
+          `<option value="${m.userId}">${escapeHtml(m.displayName)} (${m.role})</option>`
+        ).join('')}
+      </select>
+    </div>`;
+  }
+
+  for (const dept of DEPARTMENTS) {
+    const members = deptGroups[dept];
+    if (!members || members.length === 0) continue;
+
+    // Sort: leads first, then by name
+    members.sort((a, b) => {
+      if (a.role === 'cmo') return -1;
+      if (b.role === 'cmo') return 1;
+      if (a.role === 'lead' && b.role !== 'lead') return -1;
+      if (b.role === 'lead' && a.role !== 'lead') return 1;
+      return (a.displayName || '').localeCompare(b.displayName || '');
+    });
+
+    html += `<div style="margin-bottom:1rem;">
+      <div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--follett-dark-blue);margin-bottom:0.375rem;padding-bottom:0.25rem;border-bottom:1px solid var(--color-border);">${dept} <span style="font-weight:400;color:var(--color-text-muted);">(${members.length})</span></div>`;
+
+    members.forEach(m => {
+      const reportsToMember = m.reportsTo ? teamMembers.find(t => t.userId === m.reportsTo) : null;
+      const reportsLabel = reportsToMember ? `Reports to: ${escapeHtml(reportsToMember.displayName)}` : '';
+      const roleLabel = m.role === 'cmo' ? 'CMO' : m.role === 'lead' ? 'Dept Lead' : m.role === 'viewer' ? 'Viewer' : 'Member';
+      const indent = reportsToMember ? 'padding-left:1.25rem;' : '';
+
+      html += `<div class="team-member-card" style="${indent}">
+        <div class="team-member-info">
+          <div class="team-member-name">${escapeHtml(m.displayName)} <span style="font-size:0.7rem;color:var(--color-text-muted);font-weight:400;">${roleLabel}</span></div>
+          <div class="team-member-meta">${escapeHtml(m.email)}${reportsLabel ? ` · ${reportsLabel}` : ''}</div>
+        </div>
+        <div class="team-member-actions">
+          ${canManage(m) ? `<button class="btn btn-ghost btn-sm" onclick="editMember('${m.id}')">Edit</button>
+          <button class="btn btn-ghost btn-sm" style="color:var(--follett-coral);" onclick="deleteMember('${m.id}', '${escapeHtml(m.displayName)}')">Remove</button>` : ''}
+        </div>
+      </div>`;
+    });
+    html += '</div>';
+  }
+
+  container.innerHTML = html;
+}
+
+let realProfile = null;
+
+async function viewAs(userId) {
+  if (!userId) {
+    // Exit impersonation
+    if (realProfile) {
+      myProfile = realProfile;
+      realProfile = null;
+      document.getElementById('impersonation-banner').style.display = 'none';
+      await loadTasks();
+      render();
+      await loadFolders();
+    }
+    return;
+  }
+  try {
+    const profile = await api('GET', `/api/team/${userId}/profile`);
+    if (!realProfile) realProfile = { ...myProfile };
+    myProfile = profile;
+    // Show banner
+    let banner = document.getElementById('impersonation-banner');
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = 'impersonation-banner';
+      banner.style.cssText = 'position:fixed;top:0;left:240px;right:0;background:var(--follett-coral);color:#fff;padding:0.4rem 1rem;font-size:0.8rem;z-index:500;display:flex;justify-content:space-between;align-items:center;';
+      document.body.appendChild(banner);
+    }
+    banner.innerHTML = `<span>Viewing as: <strong>${escapeHtml(profile.name)}</strong> (${profile.role})</span><button onclick="viewAs('')" style="background:none;border:1px solid #fff;color:#fff;border-radius:var(--radius);padding:0.2rem 0.5rem;cursor:pointer;font-size:0.75rem;">Exit</button>`;
+    banner.style.display = 'flex';
+    await loadTasks();
+    render();
+    await loadFolders();
+    switchView('tasks');
+  } catch (err) { alert('Failed to impersonate: ' + err.message); }
 }
 
 function inviteMember() {
