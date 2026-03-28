@@ -1636,6 +1636,13 @@ async function loadProfile() {
     if (myProfile.role === 'cmo') {
       document.getElementById('sidebar-team-section').style.display = 'block';
     }
+    // Hide create/edit UI for viewers
+    if (myProfile.role === 'viewer') {
+      document.getElementById('btn-add-task').style.display = 'none';
+      document.getElementById('btn-quick-import').style.display = 'none';
+      document.getElementById('btn-sync-email').style.display = 'none';
+      document.getElementById('btn-new-note').style.display = 'none';
+    }
   } catch (err) { console.error('Failed to load profile:', err); }
 }
 

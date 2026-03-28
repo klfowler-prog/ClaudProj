@@ -173,6 +173,15 @@ function orgCol(req, collection) {
 // Shorthand middleware chain
 const auth = [authenticate, resolveOrg];
 
+// Middleware: block viewers from write operations
+function requireEditor(req, res, next) {
+  if (req.memberRole === 'viewer') {
+    return res.status(403).json({ error: 'Viewers have read-only access' });
+  }
+  next();
+}
+const authWrite = [authenticate, resolveOrg, requireEditor];
+
 // === Task Endpoints ===
 
 // GET /api/tasks — List tasks (filtered by role/department)
@@ -203,7 +212,7 @@ app.get('/api/tasks', auth, async (req, res) => {
 });
 
 // POST /api/tasks — Create a new task
-app.post('/api/tasks', auth, async (req, res) => {
+app.post('/api/tasks', authWrite, async (req, res) => {
   try {
     const task = {
       title: req.body.title,
@@ -245,7 +254,7 @@ app.post('/api/tasks', auth, async (req, res) => {
 });
 
 // POST /api/tasks/batch — Bulk import tasks
-app.post('/api/tasks/batch', auth, async (req, res) => {
+app.post('/api/tasks/batch', authWrite, async (req, res) => {
   try {
     const tasks = req.body.tasks;
     if (!Array.isArray(tasks)) return res.status(400).json({ error: 'tasks must be an array' });
@@ -278,7 +287,7 @@ app.post('/api/tasks/batch', auth, async (req, res) => {
 });
 
 // PUT /api/tasks/:id — Update a task
-app.put('/api/tasks/:id', auth, async (req, res) => {
+app.put('/api/tasks/:id', authWrite, async (req, res) => {
   try {
     const taskRef = orgCol(req, 'tasks').doc(req.params.id);
     const doc = await taskRef.get();
@@ -316,7 +325,7 @@ app.put('/api/tasks/:id', auth, async (req, res) => {
 });
 
 // DELETE /api/tasks/:id — Delete a task
-app.delete('/api/tasks/:id', auth, async (req, res) => {
+app.delete('/api/tasks/:id', authWrite, async (req, res) => {
   try {
     const taskRef = orgCol(req, 'tasks').doc(req.params.id);
     const doc = await taskRef.get();
@@ -352,7 +361,7 @@ app.get('/api/folders', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Failed to fetch folders' }); }
 });
 
-app.post('/api/folders', auth, async (req, res) => {
+app.post('/api/folders', authWrite, async (req, res) => {
   try {
     const folder = { name: req.body.name, order: req.body.order || 99, createdAt: new Date().toISOString() };
     const ref = await orgCol(req, 'folders').add(folder);
@@ -360,7 +369,7 @@ app.post('/api/folders', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Failed to create folder' }); }
 });
 
-app.put('/api/folders/:id', auth, async (req, res) => {
+app.put('/api/folders/:id', authWrite, async (req, res) => {
   try {
     const updates = {};
     if (req.body.name !== undefined) updates.name = req.body.name;
@@ -372,7 +381,7 @@ app.put('/api/folders/:id', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Failed to update folder' }); }
 });
 
-app.delete('/api/folders/:id', auth, async (req, res) => {
+app.delete('/api/folders/:id', authWrite, async (req, res) => {
   try {
     const notesInFolder = await orgCol(req, 'notes').where('folderId', '==', req.params.id).limit(1).get();
     if (!notesInFolder.empty) return res.status(400).json({ error: 'Folder not empty' });
@@ -466,7 +475,7 @@ app.get('/api/notes/:id', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Failed to fetch note' }); }
 });
 
-app.post('/api/notes', auth, async (req, res) => {
+app.post('/api/notes', authWrite, async (req, res) => {
   try {
     const now = new Date().toISOString();
     const note = {
@@ -479,7 +488,7 @@ app.post('/api/notes', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Failed to create note' }); }
 });
 
-app.put('/api/notes/:id', auth, async (req, res) => {
+app.put('/api/notes/:id', authWrite, async (req, res) => {
   try {
     const ref = orgCol(req, 'notes').doc(req.params.id);
     const doc = await ref.get();
@@ -499,7 +508,7 @@ app.put('/api/notes/:id', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Failed to update note' }); }
 });
 
-app.delete('/api/notes/:id', auth, async (req, res) => {
+app.delete('/api/notes/:id', authWrite, async (req, res) => {
   try {
     await orgCol(req, 'notes').doc(req.params.id).delete();
     res.json({ deleted: true });
