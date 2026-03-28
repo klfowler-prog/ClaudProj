@@ -1304,17 +1304,43 @@ async function createFolder() {
   } catch (err) { alert('Failed to create folder: ' + err.message); }
 }
 
-// === Note Links ===
+// === Note Files & Links ===
 let currentNoteLinks = [];
+
+function getFileIcon(name) {
+  const ext = (name || '').split('.').pop().toLowerCase();
+  if (['pdf'].includes(ext)) return '📄';
+  if (['doc', 'docx'].includes(ext)) return '📝';
+  if (['xls', 'xlsx', 'csv'].includes(ext)) return '📊';
+  if (['ppt', 'pptx'].includes(ext)) return '📑';
+  if (['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp'].includes(ext)) return '🖼️';
+  if (['mp4', 'mov', 'avi'].includes(ext)) return '🎬';
+  if (['zip', 'rar'].includes(ext)) return '📦';
+  return '📎';
+}
+
+function formatFileSize(bytes) {
+  if (!bytes) return '';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
 
 function renderNoteLinks(canEdit) {
   const list = document.getElementById('note-links-list');
-  list.innerHTML = currentNoteLinks.map((l, i) => `
-    <div class="note-link-item">
-      <a href="${escapeHtml(l.url)}" target="_blank" rel="noopener">&#128279; ${escapeHtml(l.name || l.url)}</a>
+  if (currentNoteLinks.length === 0) {
+    list.innerHTML = '';
+    return;
+  }
+  list.innerHTML = currentNoteLinks.map((l, i) => {
+    const isFile = l.type === 'file';
+    const icon = isFile ? getFileIcon(l.name) : '🔗';
+    const sizeLabel = isFile && l.size ? ` · ${formatFileSize(l.size)}` : '';
+    return `<div class="note-link-item">
+      <a href="${escapeHtml(l.url)}" target="_blank" rel="noopener">${icon} ${escapeHtml(l.name || l.url)}<span style="color:var(--color-text-light);font-size:0.7rem;">${sizeLabel}</span></a>
       ${canEdit ? `<button class="note-link-remove" data-link-idx="${i}">&times;</button>` : ''}
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 
   if (canEdit) {
     list.querySelectorAll('.note-link-remove').forEach(btn => {
@@ -1327,11 +1353,38 @@ function renderNoteLinks(canEdit) {
   }
 }
 
+async function uploadNoteFile(files) {
+  const status = document.getElementById('note-upload-status');
+  for (const file of files) {
+    status.style.display = 'block';
+    status.textContent = `Uploading ${file.name}...`;
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${authToken}` },
+        body: formData
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'Upload failed');
+      const result = await res.json();
+      currentNoteLinks.push({
+        type: 'file', name: result.name, url: result.url, size: result.size
+      });
+    } catch (err) {
+      alert('Upload failed: ' + err.message);
+    }
+  }
+  status.style.display = 'none';
+  renderNoteLinks(true);
+  await saveNoteLinks();
+}
+
 async function addNoteLink() {
   const name = document.getElementById('note-link-name').value.trim();
   const url = document.getElementById('note-link-url').value.trim();
   if (!url) return;
-  currentNoteLinks.push({ name: name || url, url });
+  currentNoteLinks.push({ type: 'link', name: name || url, url });
   document.getElementById('note-link-name').value = '';
   document.getElementById('note-link-url').value = '';
   document.getElementById('note-links-input').style.display = 'none';
@@ -1934,6 +1987,26 @@ async function init() {
   document.getElementById('btn-save-note-link').addEventListener('click', addNoteLink);
   document.getElementById('note-link-url').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') addNoteLink();
+  });
+
+  // File upload
+  document.getElementById('btn-upload-note-file').addEventListener('click', () => {
+    document.getElementById('note-file-input').click();
+  });
+  document.getElementById('note-file-input').addEventListener('change', (e) => {
+    if (e.target.files.length > 0) uploadNoteFile(e.target.files);
+    e.target.value = '';
+  });
+
+  // Drag and drop on editor
+  const editorContent = document.getElementById('editor-content');
+  editorContent.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); });
+  editorContent.addEventListener('drop', (e) => {
+    if (e.dataTransfer.files.length > 0) {
+      e.preventDefault();
+      e.stopPropagation();
+      uploadNoteFile(e.dataTransfer.files);
+    }
   });
 
   // Move note to different folder

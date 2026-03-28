@@ -489,6 +489,41 @@ app.post('/api/tasks/:id/comments', auth, async (req, res) => {
   }
 });
 
+// === File Upload ===
+const { Storage } = require('@google-cloud/storage');
+const multer = require('multer');
+const storage = new Storage();
+const BUCKET_NAME = process.env.GCS_BUCKET || 'cmo-task-app-files';
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } }); // 50MB max
+
+app.post('/api/upload', auth, upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file provided' });
+
+    const bucket = storage.bucket(BUCKET_NAME);
+    const fileName = `${req.orgId}/${Date.now()}-${req.file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    const blob = bucket.file(fileName);
+
+    await blob.save(req.file.buffer, {
+      contentType: req.file.mimetype,
+      metadata: { uploadedBy: req.userId, orgId: req.orgId }
+    });
+
+    // Make file publicly readable
+    await blob.makePublic();
+
+    const url = `https://storage.googleapis.com/${BUCKET_NAME}/${fileName}`;
+    res.json({
+      url,
+      name: req.file.originalname,
+      size: req.file.size,
+      type: req.file.mimetype
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Upload failed: ' + err.message });
+  }
+});
+
 // === Folder Endpoints ===
 
 app.get('/api/folders', auth, async (req, res) => {

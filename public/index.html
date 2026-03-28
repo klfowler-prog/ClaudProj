@@ -261,14 +261,19 @@
         <!-- Note Links -->
         <div class="note-links-section" id="note-links-section">
           <div class="note-links-header">
-            <span class="note-links-title">Links</span>
-            <button class="btn btn-ghost btn-sm" id="btn-add-note-link" style="font-size: 0.7rem;">+ Add Link</button>
+            <span class="note-links-title">Files &amp; Links</span>
+            <div style="display:flex;gap:0.25rem;">
+              <button class="btn btn-ghost btn-sm" id="btn-upload-note-file" style="font-size:0.7rem;">+ Upload File</button>
+              <button class="btn btn-ghost btn-sm" id="btn-add-note-link" style="font-size:0.7rem;">+ Add Link</button>
+            </div>
           </div>
+          <input type="file" id="note-file-input" style="display:none;" multiple>
           <div class="note-links-input" id="note-links-input" style="display: none;">
             <input type="text" id="note-link-name" placeholder="Link name" class="filter-select-compact" style="flex:1;">
             <input type="url" id="note-link-url" placeholder="https://..." class="filter-select-compact" style="flex:2;">
             <button class="btn btn-primary btn-sm" id="btn-save-note-link">Add</button>
           </div>
+          <div id="note-upload-status" style="display:none;font-size:0.75rem;color:var(--follett-medium-blue);padding:0.25rem 0;">Uploading...</div>
           <div class="note-links-list" id="note-links-list"></div>
         </div>
         <!-- AI Results Panel -->
