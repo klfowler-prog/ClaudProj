@@ -711,6 +711,49 @@ app.post('/api/notes/:id/generate-tasks', auth, async (req, res) => {
   }
 });
 
+// POST /api/ai/quick-add — Parse natural language into task fields
+app.post('/api/ai/quick-add', auth, async (req, res) => {
+  try {
+    const { text } = req.body;
+    if (!text) return res.status(400).json({ error: 'Text is required' });
+
+    // Get team members for assignee matching
+    const membersSnap = await orgCol(req, 'members').get();
+    const memberList = membersSnap.docs.map(d => {
+      const m = d.data();
+      return `${m.displayName} (userId: ${m.userId})`;
+    }).join(', ');
+
+    const today = new Date().toISOString().split('T')[0];
+    const model = getGeminiModel();
+    const result = await model.generateContent({
+      contents: [{ role: 'user', parts: [{ text: `You are a task parser for a marketing team at Follett Higher Education. Parse the following natural language input into a structured task. Today's date is ${today}.
+
+Return ONLY a JSON object (no markdown, no code fences) with these fields:
+- "title": string (clear, concise task title)
+- "department": one of "B2B Marketing", "Internal Comms", "Rev Ops", "B2C Marketing", "Personal" (infer from context, default to "Personal" if unclear)
+- "priority": one of "High", "Medium", "Low" (infer from urgency words, default to "Medium")
+- "dueDate": string in YYYY-MM-DD format (calculate from relative dates like "next Tuesday", "end of week", "tomorrow". If no date mentioned, use "")
+- "assignedTo": string (match to a team member userId if a name is mentioned. Available team members: ${memberList}. If no name mentioned or no match, use "")
+- "notes": string (any additional context from the input that doesn't fit in other fields, or "" if none)
+- "recurring": one of "none", "daily", "weekly", "biweekly", "monthly" (infer if words like "every week", "daily", "monthly" are used, default to "none")
+
+Input: "${text}"` }] }]
+    });
+
+    const responseText = result.response.text().trim();
+    const cleaned = responseText.replace(/^```json?\n?/i, '').replace(/\n?```$/i, '').trim();
+    try {
+      const parsed = JSON.parse(cleaned);
+      res.json(parsed);
+    } catch {
+      res.status(400).json({ error: 'AI returned invalid format. Try again.' });
+    }
+  } catch (err) {
+    res.status(500).json({ error: 'Quick add failed: ' + err.message });
+  }
+});
+
 // === Global AI Chat ===
 app.post('/api/ai/chat', auth, async (req, res) => {
   try {

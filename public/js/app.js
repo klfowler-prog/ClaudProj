@@ -1376,21 +1376,63 @@ async function init() {
     openModal('modal-add');
   });
 
-  // Quick Import button
+  // Quick Add (AI-powered)
   document.getElementById('btn-quick-import').addEventListener('click', () => {
-    document.getElementById('form-import').reset();
-    document.getElementById('import-preview').style.display = 'none';
+    document.getElementById('import-paste').value = '';
+    document.getElementById('ai-parsed-task').style.display = 'none';
+    // Populate assign-to dropdown
+    const assignSelect = document.getElementById('parsed-assign');
+    assignSelect.innerHTML = '<option value="">Me</option>' +
+      teamMembers.filter(m => m.status === 'active' || !m.status).map(m =>
+        `<option value="${m.userId}">${escapeHtml(m.displayName)}</option>`
+      ).join('');
     openModal('modal-import');
+  });
+
+  // AI parse button
+  document.getElementById('btn-ai-parse-task').addEventListener('click', async () => {
+    const text = document.getElementById('import-paste').value.trim();
+    if (!text) return;
+    const btn = document.getElementById('btn-ai-parse-task');
+    btn.textContent = '⏳ Parsing...';
+    btn.disabled = true;
+    try {
+      const parsed = await api('POST', '/api/ai/quick-add', { text });
+      document.getElementById('parsed-title').value = parsed.title || text;
+      document.getElementById('parsed-dept').value = parsed.department || 'Personal';
+      document.getElementById('parsed-priority').value = parsed.priority || 'Medium';
+      document.getElementById('parsed-due').value = parsed.dueDate || '';
+      document.getElementById('parsed-recurring').value = parsed.recurring || 'none';
+      document.getElementById('parsed-notes').value = parsed.notes || '';
+      if (parsed.assignedTo) document.getElementById('parsed-assign').value = parsed.assignedTo;
+      document.getElementById('ai-parsed-task').style.display = 'block';
+    } catch (err) {
+      alert('AI parsing failed: ' + err.message);
+    }
+    btn.innerHTML = '&#10024; Create Task';
+    btn.disabled = false;
+  });
+
+  // Create parsed task button
+  document.getElementById('btn-create-parsed-task').addEventListener('click', async () => {
+    const title = document.getElementById('parsed-title').value.trim();
+    if (!title) return;
+    const dept = document.getElementById('parsed-dept').value;
+    const priority = document.getElementById('parsed-priority').value;
+    const dueDate = document.getElementById('parsed-due').value;
+    const recurring = document.getElementById('parsed-recurring').value;
+    const assignedTo = document.getElementById('parsed-assign').value || undefined;
+    const notes = document.getElementById('parsed-notes').value.trim();
+
+    await addTask(title, dept, priority, notes, 'manual', [], dueDate, recurring, assignedTo);
+    closeModal('modal-import');
   });
 
   // Sync Email / Connect Gmail button
   document.getElementById('btn-sync-email').addEventListener('click', handleSyncClick);
   checkGmailStatus();
 
-  // Import form submit + live preview
-  document.getElementById('form-import').addEventListener('submit', handleImport);
-  document.getElementById('import-paste').addEventListener('input', updateImportPreview);
-  document.getElementById('import-department').addEventListener('change', updateImportPreview);
+  // (Old import form handlers removed — replaced by AI Quick Add above)
 
   // Add/Edit task form submit
   document.getElementById('form-add-task').addEventListener('submit', async (e) => {

@@ -563,11 +563,21 @@
               <input type="date" id="parsed-due" class="filter-select-compact" style="width:100%;">
             </div>
             <div class="form-group">
-              <label for="parsed-assign">Assign To</label>
-              <select id="parsed-assign" class="filter-select-compact" style="width:100%;">
-                <option value="">Me</option>
+              <label for="parsed-recurring">Recurring</label>
+              <select id="parsed-recurring" class="filter-select-compact" style="width:100%;">
+                <option value="none">None</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="biweekly">Every 2 Weeks</option>
+                <option value="monthly">Monthly</option>
               </select>
             </div>
+          </div>
+          <div class="form-group">
+            <label for="parsed-assign">Assign To</label>
+            <select id="parsed-assign" class="filter-select-compact" style="width:100%;">
+              <option value="">Me</option>
+            </select>
           </div>
           <div class="form-group">
             <label for="parsed-notes">Notes</label>
