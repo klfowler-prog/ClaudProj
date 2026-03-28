@@ -2421,6 +2421,10 @@ async function loadProfile() {
     if (myProfile.role === 'cmo' || myProfile.role === 'lead') {
       document.getElementById('sidebar-team-section').style.display = 'block';
     }
+    // Sync Email only for CMO
+    if (myProfile.role === 'cmo') {
+      document.getElementById('btn-sync-email').style.display = '';
+    }
     // Hide create/edit UI for viewers
     if (myProfile.role === 'viewer') {
       document.getElementById('btn-add-task').style.display = 'none';
