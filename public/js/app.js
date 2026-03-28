@@ -230,10 +230,11 @@ function renderTaskItem(task) {
         ${statusOptions}
       </select>
       <div class="task-body" data-action="detail" data-id="${task.id}">
-        <div class="task-title"><span class="prio-dot" title="${task.priority} priority">${prioDot}</span> ${escapeHtml(task.title)}</div>
+        <div class="task-title">${escapeHtml(task.title)}</div>
         <div class="task-meta">
           ${isSubtask ? `<span class="task-parent-label">Part of: ${escapeHtml(task.parentTaskTitle || '...')}</span>` : ''}
           <span class="badge badge-${deptKey}">${escapeHtml(task.department)}</span>
+          ${prioDot}
           ${dueDateHtml}
           ${isRecurring ? `<span class="task-recurring" title="${recurringLabel}">&#8635; ${recurringLabel}</span>` : ''}
           ${isCompleted && task.completedAt ? `<span class="task-source">Done ${new Date(task.completedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>` : ''}

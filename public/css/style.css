@@ -1151,8 +1151,6 @@ body {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  vertical-align: text-bottom;
-  margin-right: 0.25rem;
   flex-shrink: 0;
 }
 .prio-high { background: var(--follett-coral); }
