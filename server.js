@@ -205,7 +205,18 @@ app.get('/api/tasks', auth, async (req, res) => {
       tasks = tasks.filter(t => t.assignedTo === req.userId || t.createdBy === req.userId);
     }
 
-    res.json(tasks);
+    // Separate sub-tasks from parent tasks
+    const subTasks = tasks.filter(t => t.parentTaskId);
+    const parentTasks = tasks.filter(t => !t.parentTaskId);
+
+    // Compute sub-task counts for parent tasks
+    parentTasks.forEach(p => {
+      const subs = subTasks.filter(s => s.parentTaskId === p.id);
+      p.subtaskCount = subs.length;
+      p.subtasksCompleted = subs.filter(s => s.status === 'Completed').length;
+    });
+
+    res.json(parentTasks);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch tasks' });
   }
@@ -230,7 +241,8 @@ app.post('/api/tasks', authWrite, async (req, res) => {
       recurring: req.body.recurring || 'none',
       createdBy: req.userId,
       assignedTo: req.body.assignedTo || req.userId,
-      sharedWith: req.body.sharedWith || []
+      sharedWith: req.body.sharedWith || [],
+      parentTaskId: req.body.parentTaskId || ''
     };
 
     const docRef = await orgCol(req, 'tasks').add(task);
@@ -314,7 +326,7 @@ app.put('/api/tasks/:id', auth, async (req, res) => {
     const updates = {};
     const allowedFields = ['title', 'department', 'priority', 'notes', 'status',
       'completed', 'completedAt', 'dueDate', 'attachments', 'emailMessageId', 'recurring',
-      'assignedTo', 'sharedWith'];
+      'assignedTo', 'sharedWith', 'parentTaskId'];
 
     for (const field of allowedFields) {
       if (req.body[field] !== undefined) updates[field] = req.body[field];
@@ -351,6 +363,18 @@ app.delete('/api/tasks/:id', authWrite, async (req, res) => {
     res.json({ deleted: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to delete task' });
+  }
+});
+
+// GET /api/tasks/:id/subtasks — List sub-tasks for a parent task
+app.get('/api/tasks/:id/subtasks', auth, async (req, res) => {
+  try {
+    const snapshot = await orgCol(req, 'tasks').where('parentTaskId', '==', req.params.id).get();
+    const subtasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    subtasks.sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+    res.json(subtasks);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch sub-tasks' });
   }
 });
 

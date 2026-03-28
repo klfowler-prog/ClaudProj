@@ -120,15 +120,19 @@ function render() {
 
 function renderStats() {
   const filtered = getFilteredTasks();
-  const active = filtered.filter(t => t.status !== 'Completed');
-  const completed = filtered.filter(t => t.status === 'Completed');
-  const awaiting = filtered.filter(t => t.status === 'Awaiting Feedback').length;
   const today = new Date().toISOString().split('T')[0];
-  const overdue = filtered.filter(t => t.status !== 'Completed' && t.dueDate && t.dueDate < today).length;
-  document.getElementById('stat-total').textContent = active.length;
-  document.getElementById('stat-completed').textContent = completed.length;
+  const notStarted = filtered.filter(t => t.status === 'Not Started').length;
+  const inProgress = filtered.filter(t => t.status === 'In Progress').length;
+  const awaiting = filtered.filter(t => t.status === 'Awaiting Feedback').length;
+  const delegated = filtered.filter(t => t.status === 'Delegated').length;
+  const overdue = filtered.filter(t => t.status !== 'Completed' && t.status !== 'Delegated' && t.dueDate && t.dueDate < today).length;
+  const completed = filtered.filter(t => t.status === 'Completed').length;
+  document.getElementById('stat-not-started').textContent = notStarted;
+  document.getElementById('stat-in-progress').textContent = inProgress;
   document.getElementById('stat-awaiting').textContent = awaiting;
+  document.getElementById('stat-delegated').textContent = delegated;
   document.getElementById('stat-overdue').textContent = overdue;
+  document.getElementById('stat-completed').textContent = completed;
 }
 
 function renderSidebarCounts() {
@@ -233,6 +237,7 @@ function renderTaskItem(task) {
           ${isRecurring ? `<span class="task-recurring" title="${recurringLabel}">&#8635; ${recurringLabel}</span>` : ''}
           ${isCompleted && task.completedAt ? `<span class="task-source">Done ${new Date(task.completedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>` : ''}
           ${!isCompleted && sourceLabel ? `<span class="task-source">${sourceLabel}</span>` : ''}
+          ${task.subtaskCount > 0 ? `<span class="task-source" style="color: var(--follett-medium-blue);">&#9745; ${task.subtasksCompleted}/${task.subtaskCount}</span>` : ''}
         </div>
       </div>
       ${hasAttachments ? '<span class="task-attachment-icon" title="Has attachments">&#128206;</span>' : ''}
@@ -254,42 +259,64 @@ function renderTaskList() {
   const completedCount = document.getElementById('completed-count');
 
   const today = new Date().toISOString().split('T')[0];
-  let activeTasks = filtered.filter(t => t.status !== 'Completed');
+  const delegatedSection = document.getElementById('delegated-section');
+  const delegatedList = document.getElementById('delegated-list');
+  const delegatedCountEl = document.getElementById('delegated-count');
+
+  // Split tasks: active (not delegated, not completed), delegated, completed
+  let activeTasks = filtered.filter(t => t.status !== 'Completed' && t.status !== 'Delegated');
+  const delegatedTasks = filtered.filter(t => t.status === 'Delegated');
   const completedTasks = getFilteredCompletedTasks();
 
   // Apply stat filter
-  if (filters.statFilter === 'active') {
-    // already filtered to non-completed
-  } else if (filters.statFilter === 'awaiting') {
+  const sf = filters.statFilter;
+  if (sf === 'not-started') {
+    activeTasks = activeTasks.filter(t => t.status === 'Not Started');
+  } else if (sf === 'in-progress') {
+    activeTasks = activeTasks.filter(t => t.status === 'In Progress');
+  } else if (sf === 'awaiting') {
     activeTasks = activeTasks.filter(t => t.status === 'Awaiting Feedback');
-  } else if (filters.statFilter === 'overdue') {
+  } else if (sf === 'overdue') {
     activeTasks = activeTasks.filter(t => t.dueDate && t.dueDate < today);
-  } else if (filters.statFilter === 'completed') {
-    // Show completed instead of active
+  } else if (sf === 'delegated') {
+    activeTasks = delegatedTasks;
+  } else if (sf === 'completed') {
     activeTasks = [];
   }
 
   // Active tasks
-  if (activeTasks.length === 0 && completedTasks.length === 0) {
+  const totalVisible = activeTasks.length + delegatedTasks.length + completedTasks.length;
+  if (totalVisible === 0) {
     container.innerHTML = '';
     emptyState.style.display = 'block';
     if (tasks.length === 0) {
       document.querySelector('.empty-title').textContent = 'No tasks yet';
-      document.querySelector('.empty-subtitle').textContent = 'Click "Add Task" to get started, or import from email/Slack';
+      document.querySelector('.empty-subtitle').textContent = 'Click "Add Task" to get started';
     } else {
       document.querySelector('.empty-title').textContent = 'No matching tasks';
       document.querySelector('.empty-subtitle').textContent = 'Try adjusting your filters';
     }
+    delegatedSection.style.display = 'none';
     completedSection.style.display = 'none';
     return;
   }
 
-  emptyState.style.display = activeTasks.length === 0 && completedTasks.length > 0 ? 'none' : 'none';
-  if (activeTasks.length === 0) {
-    container.innerHTML = '<div class="empty-state" style="padding: 1.5rem;"><p class="empty-subtitle">All filtered tasks are completed</p></div>';
+  emptyState.style.display = 'none';
+  if (activeTasks.length === 0 && sf !== 'delegated' && sf !== 'completed') {
+    container.innerHTML = '<div class="empty-state" style="padding: 1.5rem;"><p class="empty-subtitle">No active tasks matching this filter</p></div>';
+  } else if (sf === 'delegated' || sf === 'completed') {
+    container.innerHTML = '';
   } else {
-    emptyState.style.display = 'none';
     container.innerHTML = sortTasks(activeTasks).map(renderTaskItem).join('');
+  }
+
+  // Delegated section (collapsed by default)
+  if (delegatedTasks.length > 0 && sf !== 'delegated') {
+    delegatedSection.style.display = 'block';
+    delegatedCountEl.textContent = delegatedTasks.length;
+    delegatedList.innerHTML = sortTasks(delegatedTasks).map(renderTaskItem).join('');
+  } else {
+    delegatedSection.style.display = 'none';
   }
 
   // Completed section
@@ -297,11 +324,6 @@ function renderTaskList() {
     completedSection.style.display = 'block';
     completedCount.textContent = completedTasks.length;
     completedList.innerHTML = completedTasks.map(renderTaskItem).join('');
-    // Auto-expand if there are no active tasks
-    if (activeTasks.length === 0) {
-      completedList.style.display = 'flex';
-      document.getElementById('completed-toggle').textContent = 'Hide';
-    }
   } else {
     completedSection.style.display = 'none';
   }
@@ -658,11 +680,80 @@ function showTaskDetail(id) {
     </div>
     ${task.dueDate ? `<div class="detail-section"><div class="detail-section-title">Due Date</div><div>${formatDueDate(task.dueDate, task.status === 'Completed')} &mdash; ${new Date(task.dueDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</div></div>` : ''}
     <div class="detail-timestamp">Created ${dateStr}</div>
+    <div class="detail-section" id="detail-subtasks">
+      <div class="detail-section-title">Sub-tasks <button class="btn btn-ghost btn-sm" onclick="addSubtask('${task.id}', '${escapeHtml(task.department)}')">+ Add</button></div>
+      <div id="subtask-list" style="color: var(--color-text-muted); font-size: 0.85rem;">Loading...</div>
+    </div>
     <div class="detail-actions">
       <button class="btn btn-primary" onclick="editTask('${task.id}')">Edit Task</button>
     </div>
   `;
   openModal('modal-detail');
+  loadSubtasks(task.id);
+}
+
+async function loadSubtasks(parentId) {
+  try {
+    const subtasks = await api('GET', `/api/tasks/${parentId}/subtasks`);
+    const container = document.getElementById('subtask-list');
+    if (subtasks.length === 0) {
+      container.innerHTML = '<span style="font-size: 0.8rem; color: var(--color-text-light);">No sub-tasks yet</span>';
+      return;
+    }
+    container.innerHTML = subtasks.map(s => {
+      const isComplete = s.status === 'Completed';
+      const assignName = teamMembers.find(m => m.userId === s.assignedTo);
+      const assignLabel = assignName ? ` &middot; ${escapeHtml(assignName.displayName)}` : '';
+      const dueLabel = s.dueDate ? ` &middot; Due ${s.dueDate}` : '';
+      return `<div style="display:flex;align-items:center;gap:0.5rem;padding:0.375rem 0;border-bottom:1px solid var(--color-border);">
+        <button class="task-check ${isComplete ? 'checked' : ''}" onclick="toggleSubtask('${s.id}', '${s.status}')" style="width:18px;height:18px;font-size:0.6rem;">${isComplete ? '&#10003;' : ''}</button>
+        <div style="flex:1;">
+          <span style="font-size:0.85rem;${isComplete ? 'text-decoration:line-through;opacity:0.5;' : ''}">${escapeHtml(s.title)}</span>
+          <span style="font-size:0.7rem;color:var(--color-text-light);">${assignLabel}${dueLabel}</span>
+        </div>
+      </div>`;
+    }).join('');
+  } catch (err) { document.getElementById('subtask-list').textContent = 'Failed to load'; }
+}
+
+async function toggleSubtask(subtaskId, currentStatus) {
+  const newStatus = currentStatus === 'Completed' ? 'Not Started' : 'Completed';
+  try {
+    await api('PUT', `/api/tasks/${subtaskId}`, {
+      status: newStatus,
+      completed: newStatus === 'Completed',
+      completedAt: newStatus === 'Completed' ? new Date().toISOString() : ''
+    });
+    // Reload the detail view to refresh counts
+    const parentDetail = document.getElementById('detail-subtasks');
+    if (parentDetail) {
+      const parentBtn = parentDetail.querySelector('[onclick*="addSubtask"]');
+      if (parentBtn) {
+        const parentId = parentBtn.getAttribute('onclick').match(/'([^']+)'/)[1];
+        loadSubtasks(parentId);
+      }
+    }
+    // Refresh main task list for updated counts
+    await loadTasks();
+    render();
+  } catch (err) { alert('Failed to update sub-task: ' + err.message); }
+}
+
+async function addSubtask(parentId, department) {
+  const title = prompt('Sub-task title:');
+  if (!title) return;
+  try {
+    await api('POST', '/api/tasks', {
+      title,
+      department,
+      priority: 'Medium',
+      status: 'Not Started',
+      parentTaskId: parentId
+    });
+    loadSubtasks(parentId);
+    await loadTasks();
+    render();
+  } catch (err) { alert('Failed to create sub-task: ' + err.message); }
 }
 
 // === Quick Import Logic ===
@@ -1708,11 +1799,22 @@ async function init() {
 
   document.getElementById('task-list').addEventListener('click', handleTaskClick);
   document.getElementById('task-list').addEventListener('change', handleTaskChange);
+  document.getElementById('delegated-list').addEventListener('click', handleTaskClick);
+  document.getElementById('delegated-list').addEventListener('change', handleTaskChange);
   document.getElementById('completed-list').addEventListener('click', handleTaskClick);
   document.getElementById('completed-list').addEventListener('change', handleTaskChange);
 
   // Completed period filter
   document.getElementById('completed-period').addEventListener('change', render);
+
+  // Delegated section toggle
+  document.getElementById('delegated-toggle').addEventListener('click', () => {
+    const list = document.getElementById('delegated-list');
+    const toggle = document.getElementById('delegated-toggle');
+    const isHidden = list.style.display === 'none';
+    list.style.display = isHidden ? 'flex' : 'none';
+    toggle.textContent = isHidden ? 'Hide' : 'Show';
+  });
 
   // Completed section toggle
   document.getElementById('completed-toggle').addEventListener('click', () => {

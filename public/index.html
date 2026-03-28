@@ -130,8 +130,10 @@
         <div class="stats-bar-left">
           <button class="stat-toggle active" id="btn-my-tasks">My Tasks</button>
           <button class="stat-toggle" id="btn-all-tasks">All Tasks</button>
-          <button class="stat-pill stat-pill-clickable" id="pill-active" data-stat-filter="active"><strong id="stat-total">0</strong> Active</button>
+          <button class="stat-pill stat-pill-clickable" id="pill-not-started" data-stat-filter="not-started"><strong id="stat-not-started">0</strong> Not Started</button>
+          <button class="stat-pill stat-pill-clickable" id="pill-in-progress" data-stat-filter="in-progress"><strong id="stat-in-progress">0</strong> In Progress</button>
           <button class="stat-pill stat-pill-awaiting stat-pill-clickable" id="pill-awaiting" data-stat-filter="awaiting"><strong id="stat-awaiting">0</strong> Awaiting</button>
+          <button class="stat-pill stat-pill-clickable" id="pill-delegated" data-stat-filter="delegated"><strong id="stat-delegated">0</strong> Delegated</button>
           <button class="stat-pill stat-pill-overdue stat-pill-clickable" id="pill-overdue" data-stat-filter="overdue"><strong id="stat-overdue">0</strong> Overdue</button>
           <button class="stat-pill stat-pill-clickable" id="pill-completed" data-stat-filter="completed"><strong id="stat-completed">0</strong> Done</button>
         </div>
@@ -175,6 +177,17 @@
           <div class="empty-icon">&#9776;</div>
           <p class="empty-title">No tasks yet</p>
           <p class="empty-subtitle">Click "Add Task" to get started, or import from email/Slack</p>
+        </div>
+
+        <!-- Delegated Section -->
+        <div class="completed-section" id="delegated-section" style="display: none;">
+          <div class="completed-header">
+            <div class="completed-header-left">
+              <h3>Delegated <span class="completed-count" id="delegated-count">0</span></h3>
+              <button class="btn-link" id="delegated-toggle">Show</button>
+            </div>
+          </div>
+          <div class="task-list" id="delegated-list" style="display: none;"></div>
         </div>
 
         <!-- Completed Section -->
