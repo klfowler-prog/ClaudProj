@@ -225,7 +225,11 @@
           <!-- Populated by JS -->
         </div>
         <div class="notes-empty" id="notes-empty" style="display: none;">
-          <p>No notes yet. Click "+ New Note" to get started.</p>
+          <p>No notes yet. Click "+ New" to get started.</p>
+        </div>
+        <div class="notes-archived-section" id="notes-archived-section" style="display: none;">
+          <button class="btn-link" id="notes-archived-toggle" style="font-size: 0.7rem; padding: 0.5rem 1rem; width: 100%; text-align: left;">Archived <span id="notes-archived-count">0</span></button>
+          <div class="notes-archived-list" id="notes-archived-list" style="display: none;"></div>
         </div>
       </div>
 
@@ -237,6 +241,7 @@
             <span class="editor-saved" id="editor-saved"></span>
             <select class="filter-select-compact" id="note-folder-select" title="Move to folder"></select>
             <button class="btn btn-secondary btn-sm" id="btn-share-note">Share</button>
+            <button class="btn btn-ghost btn-sm" id="btn-archive-note" title="Archive note" style="font-size: 0.7rem;">Archive</button>
             <button class="btn-danger" id="btn-delete-note" title="Delete note">&#128465;</button>
           </div>
         </div>

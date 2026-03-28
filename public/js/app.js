@@ -934,6 +934,7 @@ async function loadNotesList(folderId) {
     if (showMyNotesOnly) url += (url.includes('?') ? '&' : '?') + 'mine=true';
     notesList = await api('GET', url);
     renderNotesList();
+    loadArchivedNotes();
   } catch (err) { notesList = []; renderNotesList(); }
 }
 
@@ -1059,6 +1060,57 @@ async function deleteNote() {
     document.getElementById('notes-no-selection').style.display = 'flex';
     renderNotesList();
   } catch (err) { alert('Failed to delete note: ' + err.message); }
+}
+
+async function archiveNote() {
+  if (!activeNoteId) return;
+  try {
+    await api('PUT', `/api/notes/${activeNoteId}`, { archived: true });
+    notesList = notesList.filter(n => n.id !== activeNoteId);
+    activeNoteId = null;
+    document.getElementById('notes-editor-panel').style.display = 'none';
+    document.getElementById('notes-no-selection').style.display = 'flex';
+    renderNotesList();
+    loadArchivedNotes();
+  } catch (err) { alert('Failed to archive: ' + err.message); }
+}
+
+async function loadArchivedNotes() {
+  try {
+    let url = activeFolderId ? `/api/notes?folderId=${activeFolderId}&includeArchived=true` : '/api/notes?includeArchived=true';
+    const allNotes = await api('GET', url);
+    const archived = allNotes.filter(n => n.archived);
+    const section = document.getElementById('notes-archived-section');
+    const list = document.getElementById('notes-archived-list');
+    const count = document.getElementById('notes-archived-count');
+    if (archived.length > 0) {
+      section.style.display = 'block';
+      count.textContent = archived.length;
+      list.innerHTML = archived.map(n => {
+        const date = new Date(n.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        return `<button class="note-list-item" style="opacity:0.6;" data-archived-id="${n.id}">
+          <div class="note-list-item-title">${escapeHtml(n.title || 'Untitled')}</div>
+          <div class="note-list-item-date">${date} &middot; <span class="note-pin-btn" data-unarchive-id="${n.id}">Unarchive</span></div>
+        </button>`;
+      }).join('');
+      list.querySelectorAll('[data-archived-id]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          if (e.target.closest('[data-unarchive-id]')) return;
+          openNote(btn.dataset.archivedId);
+        });
+      });
+      list.querySelectorAll('[data-unarchive-id]').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          await api('PUT', `/api/notes/${btn.dataset.unarchiveId}`, { archived: false });
+          loadNotesList(activeFolderId);
+          loadArchivedNotes();
+        });
+      });
+    } else {
+      section.style.display = 'none';
+    }
+  } catch { document.getElementById('notes-archived-section').style.display = 'none'; }
 }
 
 async function createFolder() {
@@ -1641,6 +1693,11 @@ async function init() {
     loadNotesList(activeFolderId);
   });
   document.getElementById('btn-delete-note').addEventListener('click', deleteNote);
+  document.getElementById('btn-archive-note').addEventListener('click', archiveNote);
+  document.getElementById('notes-archived-toggle').addEventListener('click', () => {
+    const list = document.getElementById('notes-archived-list');
+    list.style.display = list.style.display === 'none' ? 'block' : 'none';
+  });
   document.getElementById('btn-share-note').addEventListener('click', openShareModal);
 
   // Note links

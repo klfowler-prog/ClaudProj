@@ -455,7 +455,8 @@ app.get('/api/notes', auth, async (req, res) => {
         updatedAt: d.updatedAt, createdAt: d.createdAt, createdBy: d.createdBy,
         sharedWith: d.sharedWith || [],
         authorName: memberNames[d.createdBy] || 'Unknown',
-        pinned: d.pinned || false
+        pinned: d.pinned || false,
+        archived: d.archived || false
       };
     });
 
@@ -484,6 +485,11 @@ app.get('/api/notes', auth, async (req, res) => {
     }
     if (req.query.mine === 'true') {
       notes = notes.filter(n => n.createdBy === req.userId);
+    }
+
+    // Filter out archived unless explicitly requested
+    if (req.query.includeArchived !== 'true') {
+      notes = notes.filter(n => !n.archived);
     }
 
     // Pinned notes first, then sort by updatedAt
@@ -550,7 +556,7 @@ app.put('/api/notes/:id', authWrite, async (req, res) => {
     }
 
     const updates = { updatedAt: new Date().toISOString() };
-    const allowed = ['title', 'content', 'folderId', 'aiSummary', 'sharedWith', 'links', 'pinned'];
+    const allowed = ['title', 'content', 'folderId', 'aiSummary', 'sharedWith', 'links', 'pinned', 'archived'];
     for (const f of allowed) { if (req.body[f] !== undefined) updates[f] = req.body[f]; }
     await ref.update(updates);
     res.json({ id: req.params.id, ...updates });
