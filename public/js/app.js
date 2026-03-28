@@ -2399,38 +2399,47 @@ async function loadProfile() {
   } catch (err) { console.error('Failed to load profile:', err); }
 }
 
+let allNotifications = [];
+
 async function loadNotifications() {
   try {
-    const notifs = await api('GET', '/api/notifications');
+    allNotifications = await api('GET', '/api/notifications');
+    const unread = allNotifications.filter(n => !n.read);
     const badge = document.getElementById('notif-badge');
-    if (notifs.length > 0) {
-      badge.textContent = notifs.length;
+    if (unread.length > 0) {
+      badge.textContent = unread.length;
       badge.style.display = 'inline';
     } else {
       badge.style.display = 'none';
     }
-    return notifs;
+    return allNotifications;
   } catch { return []; }
 }
 
 async function showNotifications() {
   switchView('notifications');
-  const notifs = await loadNotifications();
+  await loadNotifications();
   const container = document.getElementById('notifications-list');
   const empty = document.getElementById('notifications-empty');
-  if (notifs.length === 0) { container.innerHTML = ''; empty.style.display = 'block'; return; }
+  if (allNotifications.length === 0) { container.innerHTML = ''; empty.style.display = 'block'; return; }
   empty.style.display = 'none';
-  container.innerHTML = notifs.map(n => {
+  container.innerHTML = allNotifications.map(n => {
     const ago = timeAgo(n.createdAt);
-    return `<div class="notif-item" data-notif-id="${n.id}" data-task-id="${n.taskId || ''}">
+    const unreadClass = n.read ? 'notif-read' : 'notif-unread';
+    return `<div class="notif-item ${unreadClass}" data-notif-id="${n.id}" data-task-id="${n.taskId || ''}">
       <div class="notif-item-title">${escapeHtml(n.title)}</div>
       <div class="notif-item-time">${ago}</div>
     </div>`;
   }).join('');
   container.querySelectorAll('.notif-item').forEach(item => {
     item.addEventListener('click', async () => {
-      await api('POST', `/api/notifications/${item.dataset.notifId}/read`).catch(() => {});
-      loadNotifications();
+      // Mark as read when clicked
+      if (item.classList.contains('notif-unread')) {
+        await api('POST', `/api/notifications/${item.dataset.notifId}/read`).catch(() => {});
+        item.classList.remove('notif-unread');
+        item.classList.add('notif-read');
+        loadNotifications(); // Update badge count
+      }
       if (item.dataset.taskId) { switchView('tasks'); }
     });
   });

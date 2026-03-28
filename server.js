@@ -1262,11 +1262,13 @@ async function createNotification(orgId, toUserId, data) {
 // GET /api/notifications — Get unread notifications for current user
 app.get('/api/notifications', auth, async (req, res) => {
   try {
+    // Return all notifications for this user (both read and unread)
     const snap = await orgCol(req, 'notifications')
-      .where('toUserId', '==', req.userId).where('read', '==', false).get();
+      .where('toUserId', '==', req.userId).get();
     const notifs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    // Sort newest first, limit to last 50
     notifs.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-    res.json(notifs);
+    res.json(notifs.slice(0, 50));
   } catch (err) { res.status(500).json({ error: 'Failed to fetch notifications' }); }
 });
 

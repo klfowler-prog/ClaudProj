@@ -307,9 +307,18 @@ body {
   color: var(--follett-light-blue);
 }
 
+.sidebar-settings {
+  margin-top: auto;
+  border-top: 1px solid rgba(174, 234, 252, 0.1);
+  padding-top: 0.25rem;
+}
+
+.sidebar-notif-btn {
+  border-bottom: 1px solid rgba(174, 234, 252, 0.1);
+}
+
 .sidebar-footer {
-  padding: 0.75rem 1rem;
-  border-top: 1px solid rgba(174, 234, 252, 0.15);
+  padding: 0.5rem 1rem;
   font-size: 0.75rem;
 }
 
@@ -2006,6 +2015,17 @@ body {
 .notif-item:hover { box-shadow: var(--shadow-lg); }
 .notif-item-title { font-size: 0.85rem; font-weight: 500; }
 .notif-item-time { font-size: 0.7rem; color: var(--color-text-light); margin-top: 0.125rem; }
+
+.notif-unread {
+  border-left-color: var(--follett-coral);
+  background: #fff;
+}
+.notif-unread .notif-item-title { font-weight: 600; }
+
+.notif-read {
+  border-left-color: var(--color-border);
+  opacity: 0.7;
+}
 
 /* Sign out button */
 .btn-sign-out {
