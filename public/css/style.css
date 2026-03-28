@@ -268,6 +268,14 @@ body {
   font-size: 0.75rem;
 }
 
+.sidebar-caret-small {
+  margin-left: auto;
+  font-size: 0.55rem;
+  opacity: 0.5;
+  cursor: pointer;
+}
+.sidebar-caret-small:hover { opacity: 1; }
+
 .sidebar-dept-item .dept-dot {
   width: 8px;
   height: 8px;

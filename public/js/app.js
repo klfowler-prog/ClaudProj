@@ -164,12 +164,14 @@ function renderSidebarCounts() {
     const key = DEPT_KEYS[dept];
     const count = tasks.filter(t => t.department === dept && t.status !== 'Completed').length;
     const isActive = filters.department === dept && !activeSubDept;
+    const subDepts = SUB_DEPARTMENTS[dept] || [];
+    const hasSubs = subDepts.length > 0;
+    const deptExpanded = expandedDepts.has(dept);
     html += `<button class="sidebar-dept-item ${isActive ? 'active' : ''}" data-dept="${dept}">
       <span class="dept-dot dept-${key}"></span> ${dept} <span class="sidebar-count">${count}</span>
+      ${hasSubs ? `<span class="sidebar-caret-small" data-toggle-dept="${dept}">${deptExpanded ? '&#9662;' : '&#9656;'}</span>` : ''}
     </button>`;
-    // Sub-departments
-    const subDepts = SUB_DEPARTMENTS[dept] || [];
-    if (subDepts.length > 0) {
+    if (hasSubs && deptExpanded) {
       for (const sub of subDepts) {
         const subCount = tasks.filter(t => t.department === dept && t.subDepartment === sub && t.status !== 'Completed').length;
         const subActive = activeSubDept === sub;
@@ -181,11 +183,28 @@ function renderSidebarCounts() {
   }
   container.innerHTML = html;
 
-  // Re-attach click handlers
+  // Caret toggle handlers
+  container.querySelectorAll('[data-toggle-dept]').forEach(caret => {
+    caret.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const dept = caret.dataset.toggleDept;
+      if (expandedDepts.has(dept)) expandedDepts.delete(dept);
+      else expandedDepts.add(dept);
+      renderSidebarCounts();
+    });
+  });
+
+  // Department/sub-department click handlers
   container.querySelectorAll('.sidebar-dept-item').forEach(item => {
-    item.addEventListener('click', () => {
+    item.addEventListener('click', (e) => {
+      if (e.target.closest('[data-toggle-dept]')) return;
+      const dept = item.dataset.dept;
       activeSubDept = item.dataset.subdept || null;
-      document.getElementById('filter-department').value = item.dataset.dept;
+      // Auto-expand when clicking a parent dept
+      if (!activeSubDept && SUB_DEPARTMENTS[dept] && SUB_DEPARTMENTS[dept].length > 0) {
+        expandedDepts.add(dept);
+      }
+      document.getElementById('filter-department').value = dept;
       applyFilters(!!activeSubDept);
       switchView('tasks');
       closeSidebar();
@@ -1091,12 +1110,69 @@ async function loadFolders() {
   } catch (err) { console.error('Failed to load folders:', err); }
 }
 
+let expandedNoteDepts = new Set();
+
 function renderSidebarFolders() {
   const container = document.getElementById('sidebar-folders');
-  container.innerHTML = `<button class="sidebar-dept-item ${!activeFolderId ? 'active' : ''}" data-folder-id="">All Notes</button>` +
-    folders.map(f =>
-      `<button class="sidebar-dept-item ${activeFolderId === f.id ? 'active' : ''}" data-folder-id="${f.id}">${escapeHtml(f.name)}</button>`
-    ).join('');
+
+  // Categorize folders: special (All Team, Marketing Leaders, Personal) vs department-based
+  const specialNames = ['All Team', 'Marketing Leaders', 'Personal'];
+  const specialFolders = folders.filter(f => specialNames.includes(f.name));
+  const deptFolders = folders.filter(f => !specialNames.includes(f.name));
+
+  // Map sub-department folders to their parent dept
+  const foldersByDept = {};
+  for (const dept of DEPARTMENTS) {
+    const subs = SUB_DEPARTMENTS[dept] || [];
+    foldersByDept[dept] = deptFolders.filter(f => subs.includes(f.name) || f.name === dept);
+  }
+  // Any folders not matched
+  const unmatchedFolders = deptFolders.filter(f => !Object.values(foldersByDept).flat().includes(f));
+
+  let html = `<button class="sidebar-dept-item ${!activeFolderId ? 'active' : ''}" data-folder-id="">All Notes</button>`;
+
+  // Special folders first
+  specialFolders.forEach(f => {
+    html += `<button class="sidebar-dept-item ${activeFolderId === f.id ? 'active' : ''}" data-folder-id="${f.id}">${escapeHtml(f.name)}</button>`;
+  });
+
+  // Department groups with carets
+  for (const dept of DEPARTMENTS) {
+    if (dept === 'Personal') continue; // Already in special
+    const deptFolder = deptFolders.find(f => f.name === dept);
+    const subFolders = (SUB_DEPARTMENTS[dept] || []).map(sub => deptFolders.find(f => f.name === sub)).filter(Boolean);
+    const hasSubs = subFolders.length > 0;
+    const expanded = expandedNoteDepts.has(dept);
+
+    html += `<button class="sidebar-dept-item ${deptFolder && activeFolderId === deptFolder.id ? 'active' : ''}" data-folder-id="${deptFolder ? deptFolder.id : ''}" data-note-dept="${dept}">
+      ${dept}
+      ${hasSubs ? `<span class="sidebar-caret-small" data-toggle-note-dept="${dept}">${expanded ? '&#9662;' : '&#9656;'}</span>` : ''}
+    </button>`;
+
+    if (hasSubs && expanded) {
+      subFolders.forEach(f => {
+        html += `<button class="sidebar-dept-item sidebar-subdept ${activeFolderId === f.id ? 'active' : ''}" data-folder-id="${f.id}">${escapeHtml(f.name)}</button>`;
+      });
+    }
+  }
+
+  // Unmatched folders
+  unmatchedFolders.forEach(f => {
+    html += `<button class="sidebar-dept-item ${activeFolderId === f.id ? 'active' : ''}" data-folder-id="${f.id}">${escapeHtml(f.name)}</button>`;
+  });
+
+  container.innerHTML = html;
+
+  // Caret toggle handlers
+  container.querySelectorAll('[data-toggle-note-dept]').forEach(caret => {
+    caret.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const dept = caret.dataset.toggleNoteDept;
+      if (expandedNoteDepts.has(dept)) expandedNoteDepts.delete(dept);
+      else expandedNoteDepts.add(dept);
+      renderSidebarFolders();
+    });
+  });
   container.querySelectorAll('[data-folder-id]').forEach(btn => {
     btn.addEventListener('click', async () => {
       // Save any pending note before switching
@@ -2335,6 +2411,7 @@ let myProfile = null;
 let showMyTasksOnly = true;
 let showMyTeam = false;
 let activeSubDept = null;
+let expandedDepts = new Set();
 let teamMembers = [];
 
 async function loadProfile() {
