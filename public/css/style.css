@@ -1146,6 +1146,24 @@ body {
   margin-top: 0.25rem;
 }
 
+.prio-dot {
+  font-size: 0.5rem;
+  vertical-align: middle;
+  margin-right: 0.125rem;
+}
+
+.task-parent-label {
+  font-size: 0.65rem;
+  color: var(--follett-medium-blue);
+  font-weight: 500;
+  font-style: italic;
+}
+
+.subtask-item {
+  background: #fafcfd;
+  border-left-color: var(--follett-light-blue) !important;
+}
+
 .task-recurring {
   font-size: 0.65rem;
   color: var(--follett-medium-blue);

@@ -216,7 +216,15 @@ app.get('/api/tasks', auth, async (req, res) => {
       p.subtasksCompleted = subs.filter(s => s.status === 'Completed').length;
     });
 
-    res.json(parentTasks);
+    // Include sub-tasks assigned to this user (with parent title for context)
+    const mySubtasks = subTasks.filter(s => s.assignedTo === req.userId);
+    mySubtasks.forEach(s => {
+      const parent = tasks.find(t => t.id === s.parentTaskId);
+      s.parentTaskTitle = parent ? parent.title : '';
+      s.parentTaskNotes = parent ? (parent.notes || '') : '';
+    });
+
+    res.json([...parentTasks, ...mySubtasks]);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch tasks' });
   }
@@ -345,6 +353,32 @@ app.put('/api/tasks/:id', auth, async (req, res) => {
         fromUserId: req.userId,
         fromName: req.memberName
       });
+    }
+
+    // Notify parent task owner when a sub-task is completed
+    if (updates.status === 'Completed' && oldTask.parentTaskId) {
+      const parentDoc = await orgCol(req, 'tasks').doc(oldTask.parentTaskId).get();
+      if (parentDoc.exists) {
+        const parent = parentDoc.data();
+        // Count sub-tasks
+        const allSubs = await orgCol(req, 'tasks').where('parentTaskId', '==', oldTask.parentTaskId).get();
+        const totalSubs = allSubs.size;
+        const completedSubs = allSubs.docs.filter(d => d.data().status === 'Completed' || d.id === req.params.id).length;
+        const allDone = completedSubs >= totalSubs;
+
+        if (parent.createdBy && parent.createdBy !== req.userId) {
+          const notifTitle = allDone
+            ? `All sub-tasks completed for "${parent.title}" — ready to mark as complete?`
+            : `${req.memberName} completed "${oldTask.title}" (${completedSubs}/${totalSubs} done) — part of "${parent.title}"`;
+          await createNotification(req.orgId, parent.createdBy, {
+            type: allDone ? 'subtasks_all_done' : 'subtask_completed',
+            title: notifTitle,
+            taskId: oldTask.parentTaskId,
+            fromUserId: req.userId,
+            fromName: req.memberName
+          });
+        }
+      }
     }
 
     res.json({ id: req.params.id, ...oldTask, ...updates });

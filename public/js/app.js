@@ -208,35 +208,34 @@ function closeSidebar() {
 
 function renderTaskItem(task) {
   const deptKey = DEPT_KEYS[task.department] || 'b2b';
-  const prioKey = task.priority.toLowerCase();
   const statusKey = STATUS_KEYS[task.status] || 'not-started';
   const hasAttachments = task.attachments && task.attachments.length > 0;
-  const sourceLabel = task.source === 'email' ? '&#9993; Email' : task.source === 'slack' ? '# Slack' : '';
   const isConfirming = deleteConfirmId === task.id;
   const isCompleted = task.status === 'Completed';
   const dueDateHtml = formatDueDate(task.dueDate, isCompleted);
   const isRecurring = task.recurring && task.recurring !== 'none';
   const recurringLabel = { daily: 'Daily', weekly: 'Weekly', biweekly: 'Biweekly', monthly: 'Monthly' }[task.recurring] || '';
+  const isSubtask = !!task.parentTaskId;
+  const prioDot = task.priority === 'High' ? '🔴' : task.priority === 'Low' ? '⚪' : '🟡';
 
   const statusOptions = STATUSES.map(s =>
     `<option value="${s}" ${s === task.status ? 'selected' : ''}>${s}</option>`
   ).join('');
 
   return `
-    <div class="task-item ${isCompleted ? 'completed' : ''} status-${statusKey}" data-id="${task.id}">
+    <div class="task-item ${isCompleted ? 'completed' : ''} status-${statusKey} ${isSubtask ? 'subtask-item' : ''}" data-id="${task.id}">
       <button class="task-check ${isCompleted ? 'checked' : ''}" data-action="toggle-complete" data-id="${task.id}" title="${isCompleted ? 'Mark incomplete' : 'Mark complete'}">${isCompleted ? '&#10003;' : ''}</button>
       <select class="status-select status-${statusKey}" data-action="status" data-id="${task.id}" onclick="event.stopPropagation()" onmousedown="event.stopPropagation()">
         ${statusOptions}
       </select>
       <div class="task-body" data-action="detail" data-id="${task.id}">
-        <div class="task-title">${escapeHtml(task.title)}</div>
+        <div class="task-title"><span class="prio-dot" title="${task.priority} priority">${prioDot}</span> ${escapeHtml(task.title)}</div>
         <div class="task-meta">
+          ${isSubtask ? `<span class="task-parent-label">Part of: ${escapeHtml(task.parentTaskTitle || '...')}</span>` : ''}
           <span class="badge badge-${deptKey}">${escapeHtml(task.department)}</span>
-          <span class="badge badge-${prioKey}">${task.priority}</span>
           ${dueDateHtml}
           ${isRecurring ? `<span class="task-recurring" title="${recurringLabel}">&#8635; ${recurringLabel}</span>` : ''}
           ${isCompleted && task.completedAt ? `<span class="task-source">Done ${new Date(task.completedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>` : ''}
-          ${!isCompleted && sourceLabel ? `<span class="task-source">${sourceLabel}</span>` : ''}
           ${task.subtaskCount > 0 ? `<span class="task-source" style="color: var(--follett-medium-blue);">&#9745; ${task.subtasksCompleted}/${task.subtaskCount}</span>` : ''}
         </div>
       </div>
@@ -674,7 +673,16 @@ function showTaskDetail(id) {
   }
 
   document.getElementById('detail-title').textContent = task.title;
+  const isSubtask = !!task.parentTaskId;
+  const parentContext = isSubtask ? `
+    <div style="background: var(--color-b2b-light); border-radius: var(--radius); padding: 0.625rem 0.875rem; margin-bottom: 1rem; font-size: 0.85rem;">
+      <div style="font-size: 0.7rem; font-weight: 700; text-transform: uppercase; color: var(--follett-dark-blue); margin-bottom: 0.25rem;">Part of</div>
+      <strong>${escapeHtml(task.parentTaskTitle || 'Parent Task')}</strong>
+      ${task.parentTaskNotes ? `<div style="margin-top: 0.375rem; font-size: 0.8rem; color: var(--color-text-muted); white-space: pre-wrap;">${escapeHtmlWithLinks(task.parentTaskNotes.substring(0, 500))}</div>` : ''}
+    </div>` : '';
+
   document.getElementById('detail-content').innerHTML = `
+    ${parentContext}
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1rem;">
       <div>
         <div class="detail-section-title">Status</div>
