@@ -446,9 +446,11 @@ async function addTask(title, department, priority, notes, source, attachments, 
     dueDate: dueDate || '',
     recurring: recurring || 'none'
   };
-  if (assignedTo) {
+  if (assignedTo && myProfile && assignedTo !== myProfile.userId) {
     taskData.assignedTo = assignedTo;
     taskData.status = 'Delegated';
+  } else if (assignedTo) {
+    taskData.assignedTo = assignedTo;
   }
 
   try {
@@ -879,7 +881,7 @@ async function submitSubtask(parentId, department) {
       title,
       department,
       priority: 'Medium',
-      status: assignedTo ? 'Delegated' : 'Not Started',
+      status: (assignedTo && myProfile && assignedTo !== myProfile.userId) ? 'Delegated' : 'Not Started',
       parentTaskId: parentId,
       assignedTo,
       dueDate
@@ -1503,7 +1505,7 @@ async function createAiTasks() {
     const task = {
       title, department, priority,
       notes: pendingAiTasks[idx].notes || '',
-      status: assignedTo ? 'Delegated' : 'Not Started',
+      status: (assignedTo && myProfile && assignedTo !== myProfile.userId) ? 'Delegated' : 'Not Started',
       source: 'manual', dueDate, recurring: 'none'
     };
     if (assignedTo) task.assignedTo = assignedTo;
@@ -1774,8 +1776,13 @@ async function init() {
     if (editingTaskId) {
       const updates = { title, department, priority, notes, dueDate, recurring, attachments: allAttachments };
       if (assignTo) {
+        const existingTask = tasks.find(t => t.id === editingTaskId);
+        const assigneeChanged = existingTask && assignTo !== existingTask.assignedTo;
         updates.assignedTo = assignTo;
-        updates.status = 'Delegated';
+        // Only change status to Delegated if assignee actually changed to someone else
+        if (assigneeChanged && myProfile && assignTo !== myProfile.userId) {
+          updates.status = 'Delegated';
+        }
       }
       try {
         await api('PUT', `/api/tasks/${editingTaskId}`, updates);
