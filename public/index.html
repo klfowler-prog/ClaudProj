@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CMO Task Manager | Follett Higher Education</title>
+  <title>Follett Marketing</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@400;600;700&family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
@@ -15,156 +15,476 @@
   <!-- Login Screen -->
   <div id="login-screen" class="login-screen">
     <div class="login-card">
-      <h1 class="login-title">CMO Task Manager</h1>
+      <h1 class="login-title">Follett Marketing</h1>
       <p class="login-subtitle">Marketing Department Task Tracker</p>
       <button id="btn-google-login" class="btn btn-google">
         <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
         Sign in with Google
       </button>
-      <p class="login-note">Your tasks sync across all your devices</p>
+      <div class="login-divider"><span>or sign in with email</span></div>
+      <input type="email" id="login-email" class="login-input" placeholder="Email address">
+      <input type="password" id="login-password" class="login-input" placeholder="Password">
+      <button id="btn-email-login" class="btn btn-primary" style="width:100%;">Sign In</button>
+      <p class="login-note" id="login-error" style="color: var(--follett-coral);"></p>
+      <p class="login-note"><a href="#" id="btn-forgot-password" style="color: var(--follett-medium-blue);">Forgot password?</a></p>
     </div>
   </div>
 
   <!-- App Container (hidden until authenticated) -->
   <div id="app-container" style="display: none;">
 
-  <!-- Header -->
-  <header class="header">
-    <div class="header-content">
-      <div class="header-title">
-        <h1>CMO Task Manager</h1>
-        <p class="header-subtitle">Marketing Department Task Tracker &mdash; <span id="user-email"></span> <button id="btn-sign-out" class="btn-sign-out">Sign out</button></p>
-      </div>
-      <div class="header-stats">
-        <div class="stat">
-          <span class="stat-value" id="stat-total">0</span>
-          <span class="stat-label">Active</span>
-        </div>
-        <div class="stat">
-          <span class="stat-value stat-awaiting" id="stat-awaiting">0</span>
-          <span class="stat-label">Awaiting</span>
-        </div>
-        <div class="stat">
-          <span class="stat-value stat-overdue" id="stat-overdue">0</span>
-          <span class="stat-label">Overdue</span>
-        </div>
-        <div class="stat">
-          <span class="stat-value" id="stat-completed">0</span>
-          <span class="stat-label">Completed</span>
-        </div>
-      </div>
+  <!-- Sidebar -->
+  <nav id="app-sidebar" class="sidebar">
+    <div class="sidebar-header">
+      <h1 class="sidebar-title">Follett Marketing</h1>
+      <button id="sidebar-close" class="sidebar-close">&times;</button>
     </div>
-  </header>
 
-  <!-- Toolbar -->
-  <div class="toolbar">
-    <div class="toolbar-actions">
-      <button class="btn btn-primary" id="btn-add-task">+ Add Task</button>
-      <button class="btn btn-secondary" id="btn-quick-import">&#9993; Quick Import</button>
-      <button class="btn btn-secondary" id="btn-sync-email">&#8635; Sync Email</button>
+    <div class="sidebar-search">
+      <input type="text" id="global-search" class="sidebar-search-input" placeholder="Search tasks &amp; notes...">
     </div>
-    <div class="toolbar-filters">
-      <select id="filter-department" class="filter-select">
+
+    <!-- Notifications at top -->
+    <button class="sidebar-nav-item sidebar-notif-btn" id="btn-notifications" style="position: relative; margin: 0.25rem 0;">
+      <span class="sidebar-icon">&#128276;</span>
+      <span>Notifications</span>
+      <span class="notif-badge" id="notif-badge" style="display: none;">0</span>
+    </button>
+
+    <div class="sidebar-nav">
+      <!-- Tasks Section -->
+      <div class="sidebar-section">
+        <button class="sidebar-nav-item active" data-view="tasks">
+          <span class="sidebar-icon">&#9745;</span>
+          <span>Tasks</span>
+          <span class="sidebar-caret" id="tasks-caret">&#9662;</span>
+        </button>
+        <div class="sidebar-subnav" id="tasks-subnav">
+          <button class="sidebar-dept-item active" data-dept="all">All Tasks</button>
+          <button class="sidebar-dept-item" data-dept="B2B Marketing">
+            <span class="dept-dot dept-b2b"></span> B2B Marketing <span class="sidebar-count" id="sidebar-count-b2b">0</span>
+          </button>
+          <button class="sidebar-dept-item" data-dept="Internal Comms">
+            <span class="dept-dot dept-comms"></span> Internal Comms <span class="sidebar-count" id="sidebar-count-comms">0</span>
+          </button>
+          <button class="sidebar-dept-item" data-dept="Rev Ops">
+            <span class="dept-dot dept-revops"></span> Rev Ops <span class="sidebar-count" id="sidebar-count-revops">0</span>
+          </button>
+          <button class="sidebar-dept-item" data-dept="B2C Marketing">
+            <span class="dept-dot dept-b2c"></span> B2C Marketing <span class="sidebar-count" id="sidebar-count-b2c">0</span>
+          </button>
+          <button class="sidebar-dept-item" data-dept="Personal">
+            <span class="dept-dot dept-personal"></span> Personal <span class="sidebar-count" id="sidebar-count-personal">0</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Notes Section -->
+      <div class="sidebar-section">
+        <button class="sidebar-nav-item" data-view="notes">
+          <span class="sidebar-icon">&#128196;</span>
+          <span>Strategy &amp; Notes</span>
+          <span class="sidebar-caret" id="notes-caret">&#9656;</span>
+        </button>
+        <div class="sidebar-subnav collapsed" id="notes-subnav">
+          <div id="sidebar-folders">
+            <!-- Populated by JS -->
+          </div>
+          <button class="sidebar-add-folder" id="btn-add-folder">+ Add Folder</button>
+        </div>
+      </div>
+
+      <!-- Middle section items -->
+      <div class="sidebar-section">
+        <button class="sidebar-nav-item" id="btn-open-chat">
+          <span class="sidebar-icon">&#10024;</span>
+          <span>AI Assistant</span>
+        </button>
+        <button class="sidebar-nav-item" id="btn-feature-requests" data-view="features">
+          <span class="sidebar-icon">&#128161;</span>
+          <span>Ideas &amp; Feedback</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Settings section at bottom -->
+    <div class="sidebar-settings">
+      <div class="sidebar-section" id="sidebar-team-section" style="display: none;">
+        <button class="sidebar-nav-item" data-view="team">
+          <span class="sidebar-icon">&#128101;</span>
+          <span>Team Management</span>
+        </button>
+      </div>
+      <div class="sidebar-footer">
+        <span class="sidebar-email" id="user-email"></span>
+        <button id="btn-sign-out" class="sidebar-sign-out">Sign out</button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Mobile hamburger -->
+  <button id="sidebar-toggle" class="sidebar-toggle">&#9776;</button>
+
+  <!-- Mobile sidebar overlay -->
+  <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+  <!-- Main Content -->
+  <main id="app-main" class="app-main">
+
+    <!-- Tasks View -->
+    <div id="view-tasks">
+      <!-- Stats Bar -->
+      <div class="stats-bar">
+        <div class="stats-bar-left">
+          <button class="stat-toggle active" id="btn-my-tasks">My Tasks</button>
+          <button class="stat-toggle" id="btn-my-team">My Team</button>
+          <button class="stat-toggle" id="btn-all-tasks">All</button>
+          <button class="stat-pill stat-pill-clickable" id="pill-not-started" data-stat-filter="not-started"><strong id="stat-not-started">0</strong> Not Started</button>
+          <button class="stat-pill stat-pill-clickable" id="pill-in-progress" data-stat-filter="in-progress"><strong id="stat-in-progress">0</strong> In Progress</button>
+          <button class="stat-pill stat-pill-awaiting stat-pill-clickable" id="pill-awaiting" data-stat-filter="awaiting"><strong id="stat-awaiting">0</strong> Awaiting</button>
+          <button class="stat-pill stat-pill-clickable" id="pill-delegated" data-stat-filter="delegated"><strong id="stat-delegated">0</strong> Delegated</button>
+          <button class="stat-pill stat-pill-overdue stat-pill-clickable" id="pill-overdue" data-stat-filter="overdue"><strong id="stat-overdue">0</strong> Overdue</button>
+          <button class="stat-pill stat-pill-clickable" id="pill-completed" data-stat-filter="completed"><strong id="stat-completed">0</strong> Done</button>
+        </div>
+        <div class="stats-bar-right">
+          <select id="filter-priority" class="filter-select-compact">
+            <option value="all">All Priorities</option>
+            <option value="High">High</option>
+            <option value="Medium">Medium</option>
+            <option value="Low">Low</option>
+          </select>
+          <select id="filter-sort" class="filter-select-compact">
+            <option value="due-date">Due Date</option>
+            <option value="created">Newest First</option>
+            <option value="priority">Priority</option>
+          </select>
+          <input type="hidden" id="filter-search" value="">
+        </div>
+      </div>
+
+      <!-- Hidden dept filter (used by sidebar clicks) -->
+      <select id="filter-department" style="display:none;">
         <option value="all">All Departments</option>
         <option value="B2B Marketing">B2B Marketing</option>
-        <option value="Internal Comms">Internal Comms</option>
-        <option value="Rev Ops">Rev Ops</option>
         <option value="B2C Marketing">B2C Marketing</option>
+        <option value="Personal">Personal</option>
       </select>
-      <select id="filter-priority" class="filter-select">
-        <option value="all">All Priorities</option>
-        <option value="High">High</option>
-        <option value="Medium">Medium</option>
-        <option value="Low">Low</option>
-      </select>
-      <input type="text" id="filter-search" class="filter-search" placeholder="Search tasks...">
-    </div>
-  </div>
 
-  <!-- Department Cards -->
-  <div class="department-cards">
-    <div class="dept-card" data-dept="B2B Marketing">
-      <div class="dept-card-header">
-        <span class="dept-dot dept-b2b"></span>
-        <span class="dept-name">B2B Marketing</span>
+      <!-- Task Actions -->
+      <div class="task-actions-bar">
+        <button class="btn btn-primary" id="btn-quick-import">&#10024; Quick Add</button>
+        <button class="btn btn-secondary" id="btn-add-task">+ Manual Task</button>
+        <button class="btn btn-secondary" id="btn-sync-email" style="display:none;">&#8635; Sync Email</button>
       </div>
-      <div class="dept-card-stats">
-        <span class="dept-count" id="dept-count-b2b">0 tasks</span>
-        <span class="dept-done" id="dept-done-b2b">0 done</span>
-      </div>
-      <div class="dept-progress">
-        <div class="dept-progress-bar dept-bg-b2b" id="dept-bar-b2b" style="width: 0%"></div>
-      </div>
-    </div>
-    <div class="dept-card" data-dept="Internal Comms">
-      <div class="dept-card-header">
-        <span class="dept-dot dept-comms"></span>
-        <span class="dept-name">Internal Comms</span>
-      </div>
-      <div class="dept-card-stats">
-        <span class="dept-count" id="dept-count-comms">0 tasks</span>
-        <span class="dept-done" id="dept-done-comms">0 done</span>
-      </div>
-      <div class="dept-progress">
-        <div class="dept-progress-bar dept-bg-comms" id="dept-bar-comms" style="width: 0%"></div>
-      </div>
-    </div>
-    <div class="dept-card" data-dept="Rev Ops">
-      <div class="dept-card-header">
-        <span class="dept-dot dept-revops"></span>
-        <span class="dept-name">Rev Ops</span>
-      </div>
-      <div class="dept-card-stats">
-        <span class="dept-count" id="dept-count-revops">0 tasks</span>
-        <span class="dept-done" id="dept-done-revops">0 done</span>
-      </div>
-      <div class="dept-progress">
-        <div class="dept-progress-bar dept-bg-revops" id="dept-bar-revops" style="width: 0%"></div>
-      </div>
-    </div>
-    <div class="dept-card" data-dept="B2C Marketing">
-      <div class="dept-card-header">
-        <span class="dept-dot dept-b2c"></span>
-        <span class="dept-name">B2C Marketing</span>
-      </div>
-      <div class="dept-card-stats">
-        <span class="dept-count" id="dept-count-b2c">0 tasks</span>
-        <span class="dept-done" id="dept-done-b2c">0 done</span>
-      </div>
-      <div class="dept-progress">
-        <div class="dept-progress-bar dept-bg-b2c" id="dept-bar-b2c" style="width: 0%"></div>
-      </div>
-    </div>
-  </div>
 
-  <!-- Task List -->
-  <div class="task-list-container">
-    <div class="task-list" id="task-list">
-      <!-- Tasks rendered by JS -->
-    </div>
-    <div class="empty-state" id="empty-state" style="display: none;">
-      <div class="empty-icon">&#9776;</div>
-      <p class="empty-title">No tasks yet</p>
-      <p class="empty-subtitle">Click "Add Task" to get started, or import from email/Slack</p>
-    </div>
-
-    <!-- Completed Section -->
-    <div class="completed-section" id="completed-section" style="display: none;">
-      <div class="completed-header">
-        <div class="completed-header-left">
-          <h3>Completed <span class="completed-count" id="completed-count">0</span></h3>
-          <button class="btn-link" id="completed-toggle">Show</button>
+      <!-- Task List -->
+      <div class="task-list-container">
+        <div class="task-list" id="task-list"></div>
+        <div class="empty-state" id="empty-state" style="display: none;">
+          <div class="empty-icon">&#9776;</div>
+          <p class="empty-title">No tasks yet</p>
+          <p class="empty-subtitle">Click "Add Task" to get started, or import from email/Slack</p>
         </div>
-        <select id="completed-period" class="filter-select filter-select-small">
-          <option value="all">All Time</option>
+
+        <!-- Delegated Section -->
+        <div class="completed-section" id="delegated-section" style="display: none;">
+          <div class="completed-header">
+            <div class="completed-header-left">
+              <h3>Delegated <span class="completed-count" id="delegated-count">0</span></h3>
+              <button class="btn-link" id="delegated-toggle">Show</button>
+            </div>
+          </div>
+          <div class="task-list" id="delegated-list" style="display: none;"></div>
+        </div>
+
+        <!-- Completed Section -->
+        <div class="completed-section" id="completed-section" style="display: none;">
+          <div class="completed-header">
+            <div class="completed-header-left">
+              <h3>Completed <span class="completed-count" id="completed-count">0</span></h3>
+              <button class="btn-link" id="completed-toggle">Show</button>
+            </div>
+            <select id="completed-period" class="filter-select-compact">
+              <option value="all">All Time</option>
+              <option value="week">This Week</option>
+              <option value="month">This Month</option>
+              <option value="quarter">This Quarter</option>
+            </select>
+          </div>
+          <div class="task-list" id="completed-list" style="display: none;"></div>
+        </div>
+      </div>
+    </div><!-- /view-tasks -->
+
+    <!-- Notes View -->
+    <div id="view-notes" class="notes-view" style="display: none;">
+      <!-- Note List Panel -->
+      <div class="notes-list-panel">
+        <div class="notes-list-header">
+          <h2 class="notes-list-title" id="notes-folder-title">All Notes</h2>
+          <div style="display: flex; gap: 0.375rem; align-items: center;">
+            <button class="stat-toggle active" id="btn-all-notes" style="font-size: 0.65rem;">All</button>
+            <button class="stat-toggle" id="btn-my-notes" style="font-size: 0.65rem;">Mine</button>
+            <button class="btn btn-primary btn-sm" id="btn-new-note">+ New</button>
+          </div>
+        </div>
+        <div class="notes-list" id="notes-list">
+          <!-- Populated by JS -->
+        </div>
+        <div class="notes-empty" id="notes-empty" style="display: none;">
+          <p>No notes yet. Click "+ New" to get started.</p>
+        </div>
+        <div class="notes-archived-section" id="notes-archived-section" style="display: none;">
+          <button class="btn-link" id="notes-archived-toggle" style="font-size: 0.7rem; padding: 0.5rem 1rem; width: 100%; text-align: left;">Archived <span id="notes-archived-count">0</span></button>
+          <div class="notes-archived-list" id="notes-archived-list" style="display: none;"></div>
+        </div>
+      </div>
+
+      <!-- Editor Panel -->
+      <div class="notes-editor-panel" id="notes-editor-panel" style="display: none;">
+        <div class="editor-header">
+          <input type="text" class="editor-title" id="editor-title" placeholder="Note title...">
+          <div class="editor-meta">
+            <span class="editor-saved" id="editor-saved"></span>
+            <select class="filter-select-compact" id="note-folder-select" title="Move to folder"></select>
+            <button class="btn btn-secondary btn-sm" id="btn-share-note">Share</button>
+            <button class="btn btn-ghost btn-sm" id="btn-archive-note" title="Archive note" style="font-size: 0.7rem;">Archive</button>
+            <button class="btn-danger" id="btn-delete-note" title="Delete note">&#128465;</button>
+          </div>
+        </div>
+        <div class="editor-toolbar">
+          <button class="editor-btn" data-cmd="bold" title="Bold"><strong>B</strong></button>
+          <button class="editor-btn" data-cmd="italic" title="Italic"><em>I</em></button>
+          <span class="editor-divider"></span>
+          <button class="editor-btn" data-cmd="insertUnorderedList" title="Bullet list">&#8226; List</button>
+          <button class="editor-btn" data-cmd="insertOrderedList" title="Numbered list">1. List</button>
+          <span class="editor-divider"></span>
+          <button class="editor-btn" data-cmd="formatBlock" data-value="H2" title="Heading">H</button>
+          <span class="editor-divider"></span>
+          <button class="editor-btn editor-btn-ai" id="btn-ai-summarize" title="AI Summarize">&#10024; Summarize</button>
+          <button class="editor-btn editor-btn-ai" id="btn-ai-tasks" title="Generate tasks from note">&#10024; Create Tasks</button>
+        </div>
+        <div class="editor-content" id="editor-content" contenteditable="true" placeholder="Start writing..."></div>
+        <!-- Note Links -->
+        <div class="note-links-section" id="note-links-section">
+          <div class="note-links-header">
+            <span class="note-links-title">Files &amp; Links</span>
+            <div style="display:flex;gap:0.25rem;">
+              <button class="btn btn-ghost btn-sm" id="btn-upload-note-file" style="font-size:0.7rem;">+ Upload File</button>
+              <button class="btn btn-ghost btn-sm" id="btn-add-note-link" style="font-size:0.7rem;">+ Add Link</button>
+            </div>
+          </div>
+          <input type="file" id="note-file-input" style="display:none;" multiple>
+          <div class="note-links-input" id="note-links-input" style="display: none;">
+            <input type="text" id="note-link-name" placeholder="Link name" class="filter-select-compact" style="flex:1;">
+            <input type="url" id="note-link-url" placeholder="https://..." class="filter-select-compact" style="flex:2;">
+            <button class="btn btn-primary btn-sm" id="btn-save-note-link">Add</button>
+          </div>
+          <div id="note-upload-status" style="display:none;font-size:0.75rem;color:var(--follett-medium-blue);padding:0.25rem 0;">Uploading...</div>
+          <div class="note-links-list" id="note-links-list"></div>
+        </div>
+        <!-- AI Results Panel -->
+        <div class="ai-panel" id="ai-panel" style="display: none;">
+          <div class="ai-panel-header">
+            <span class="ai-panel-title" id="ai-panel-title">AI Result</span>
+            <button class="ai-panel-close" id="ai-panel-close">&times;</button>
+          </div>
+          <div class="ai-panel-content" id="ai-panel-content"></div>
+        </div>
+      </div>
+
+      <!-- No note selected -->
+      <div class="notes-no-selection" id="notes-no-selection">
+        <div class="empty-icon">&#128196;</div>
+        <p class="empty-subtitle">Select a note or create a new one</p>
+      </div>
+    </div><!-- /view-notes -->
+
+    <!-- AI Assistant View -->
+    <div id="view-ai" class="ai-view" style="display: none;">
+      <div class="ai-chat-container">
+        <div class="ai-welcome" id="ai-welcome">
+          <div class="ai-welcome-icon">&#10024;</div>
+          <h2 class="ai-welcome-title">How can I help?</h2>
+          <p class="ai-welcome-subtitle">I can see all your tasks and notes. Ask me about priorities, status updates, strategy, or anything else.</p>
+          <div class="ai-suggestions">
+            <button class="ai-suggestion" data-q="What should I focus on today?">What should I focus on today?</button>
+            <button class="ai-suggestion" data-q="Summarize what's happening across all departments">Summarize all departments</button>
+            <button class="ai-suggestion" data-q="What did I accomplish this week?">What did I accomplish this week?</button>
+            <button class="ai-suggestion" data-q="Draft a weekly status update for leadership">Draft a status update</button>
+          </div>
+        </div>
+        <div class="ai-messages" id="ai-messages"></div>
+        <div class="ai-input-area">
+          <input type="text" id="chat-input" class="ai-input" placeholder="Ask about your tasks, notes, or strategy...">
+          <button id="btn-send-chat" class="btn btn-primary">Send</button>
+        </div>
+      </div>
+    </div><!-- /view-ai -->
+
+    <!-- Team View (CMO only) -->
+    <div id="view-team" style="display: none;">
+      <div class="stats-bar" style="margin-bottom: 1rem;">
+        <h2 style="font-family: 'IBM Plex Serif', Georgia, serif; font-size: 1.25rem; color: var(--follett-dark-blue);">Team Management</h2>
+        <button class="btn btn-primary btn-sm" id="btn-invite-member">+ Add Team Member</button>
+      </div>
+      <div id="team-roster"></div>
+    </div>
+
+    <!-- Invite Member Modal -->
+    <div class="modal-overlay" id="modal-invite" style="display: none;">
+      <div class="modal">
+        <div class="modal-header">
+          <h2>Add Team Member</h2>
+          <button class="modal-close" data-close="modal-invite">&times;</button>
+        </div>
+        <form id="form-invite">
+          <div class="form-group">
+            <label for="invite-name">Name <span class="required">*</span></label>
+            <input type="text" id="invite-name" required placeholder="First and last name">
+          </div>
+          <div class="form-group">
+            <label for="invite-email">Email <span class="required">*</span></label>
+            <input type="email" id="invite-email" required placeholder="name@company.com">
+          </div>
+          <div class="form-group">
+            <label>Department <span class="required">*</span></label>
+            <div id="invite-depts" style="display: flex; flex-direction: column; gap: 0.25rem;">
+              <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;text-transform:none;font-weight:400;color:var(--color-text);"><input type="checkbox" class="invite-dept-cb" value="B2B Marketing"> B2B Marketing</label>
+              <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;text-transform:none;font-weight:400;color:var(--color-text);"><input type="checkbox" class="invite-dept-cb" value="B2C Marketing"> B2C Marketing</label>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Sub-Department</label>
+            <div id="invite-subdepts" style="display: flex; flex-direction: column; gap: 0.25rem;">
+              <div style="font-size:0.7rem;color:var(--color-text-muted);margin-bottom:0.125rem;">B2B Marketing:</div>
+              <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;text-transform:none;font-weight:400;color:var(--color-text);padding-left:0.5rem;"><input type="checkbox" class="invite-subdept-cb" value="Biz Dev"> Biz Dev</label>
+              <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;text-transform:none;font-weight:400;color:var(--color-text);padding-left:0.5rem;"><input type="checkbox" class="invite-subdept-cb" value="Growth & Brand"> Growth & Brand</label>
+              <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;text-transform:none;font-weight:400;color:var(--color-text);padding-left:0.5rem;"><input type="checkbox" class="invite-subdept-cb" value="Rev Ops"> Rev Ops</label>
+              <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;text-transform:none;font-weight:400;color:var(--color-text);padding-left:0.5rem;"><input type="checkbox" class="invite-subdept-cb" value="Internal Comms"> Internal Comms</label>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="invite-reports-to">Reports To</label>
+            <select id="invite-reports-to" style="width:100%;">
+              <option value="">None</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="invite-role">Role</label>
+            <select id="invite-role">
+              <option value="member">Team Member</option>
+              <option value="lead">Department Lead</option>
+              <option value="viewer">Viewer (read-only)</option>
+            </select>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn btn-ghost" data-close="modal-invite">Cancel</button>
+            <button type="submit" class="btn btn-primary">Add Member</button>
+          </div>
+        </form>
+        <div id="invite-result" style="display: none; padding: 0 1.5rem 1.5rem;">
+          <div style="background: var(--color-comms-light); border-radius: var(--radius); padding: 1rem; font-size: 0.85rem;">
+            <strong>Account created!</strong>
+            <p style="margin-top: 0.5rem;" id="invite-result-text"></p>
+            <button class="btn btn-primary btn-sm" id="btn-copy-invite-link" style="margin-top: 0.5rem;">Copy Link</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Share Note Modal -->
+    <div class="modal-overlay" id="modal-share-note" style="display: none;">
+      <div class="modal">
+        <div class="modal-header">
+          <h2>Share Note</h2>
+          <button class="modal-close" data-close="modal-share-note">&times;</button>
+        </div>
+        <div style="padding: 0.75rem 1.5rem 1.5rem;">
+          <div class="form-group">
+            <label>Share with individuals</label>
+            <div id="share-people-list"></div>
+          </div>
+          <div class="form-group">
+            <label>Share with departments</label>
+            <div id="share-dept-list"></div>
+          </div>
+          <div class="form-group">
+            <label style="display: flex; align-items: center; gap: 0.5rem; text-transform: none; font-size: 0.85rem;">
+              <input type="checkbox" id="share-my-reports"> Share with my direct reports
+            </label>
+            <label style="display: flex; align-items: center; gap: 0.5rem; text-transform: none; font-size: 0.85rem;">
+              <input type="checkbox" id="share-all-team"> Share with entire team
+            </label>
+          </div>
+          <div id="share-current" style="font-size: 0.75rem; color: var(--color-text-muted); margin-bottom: 0.75rem;"></div>
+          <div class="modal-actions">
+            <button class="btn btn-ghost" data-close="modal-share-note">Cancel</button>
+            <button class="btn btn-primary" id="btn-save-share">Save Sharing</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Notifications View -->
+    <div id="view-notifications" style="display: none;">
+      <h2 style="font-family: 'IBM Plex Serif', Georgia, serif; font-size: 1.25rem; color: var(--follett-dark-blue); margin-bottom: 1rem;">Notifications</h2>
+      <div id="notifications-list"></div>
+      <div id="notifications-empty" style="display: none; text-align: center; padding: 2rem; color: var(--color-text-muted);">No new notifications</div>
+    </div>
+
+    <!-- Feature Requests View -->
+    <div id="view-features" style="display: none;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+        <h2 style="font-family: 'IBM Plex Serif', Georgia, serif; font-size: 1.25rem; color: var(--follett-dark-blue);">Ideas &amp; Feedback</h2>
+        <button class="btn btn-primary btn-sm" id="btn-suggest-feature-inline">&#128161; Suggest Improvement</button>
+      </div>
+      <div id="feature-requests-list"></div>
+      <div id="feature-requests-empty" style="display:none;text-align:center;padding:2rem;color:var(--color-text-muted);">No suggestions yet. Be the first!</div>
+    </div>
+
+    <!-- Search Results View -->
+    <div id="view-search" style="display: none;">
+      <h2 style="font-family: 'IBM Plex Serif', Georgia, serif; font-size: 1.25rem; color: var(--follett-dark-blue); margin-bottom: 0.25rem;">Search Results</h2>
+      <p class="search-query-label" id="search-query-label" style="font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 0.75rem;"></p>
+      <div class="search-filters">
+        <select id="search-filter-type" class="filter-select-compact">
+          <option value="all">All Results</option>
+          <option value="tasks">Tasks Only</option>
+          <option value="notes">Notes Only</option>
+        </select>
+        <select id="search-filter-status" class="filter-select-compact">
+          <option value="all">Any Status</option>
+          <option value="Not Started">Not Started</option>
+          <option value="In Progress">In Progress</option>
+          <option value="Awaiting Feedback">Awaiting Feedback</option>
+          <option value="Delegated">Delegated</option>
+          <option value="Completed">Completed</option>
+        </select>
+        <select id="search-filter-dept" class="filter-select-compact">
+          <option value="all">All Departments</option>
+          <option value="B2B Marketing">B2B Marketing</option>
+          <option value="B2C Marketing">B2C Marketing</option>
+          <option value="Personal">Personal</option>
+          <option value="Biz Dev">Biz Dev</option>
+          <option value="Growth & Brand">Growth & Brand</option>
+          <option value="Rev Ops">Rev Ops</option>
+          <option value="Internal Comms">Internal Comms</option>
+        </select>
+        <select id="search-filter-date" class="filter-select-compact">
+          <option value="all">Any Time</option>
+          <option value="today">Today</option>
           <option value="week">This Week</option>
           <option value="month">This Month</option>
           <option value="quarter">This Quarter</option>
         </select>
       </div>
-      <div class="task-list" id="completed-list" style="display: none;"></div>
+      <div id="search-results-tasks"></div>
+      <div id="search-results-notes"></div>
+      <div id="search-no-results" style="display: none; text-align: center; padding: 2rem; color: var(--color-text-muted);">No results found</div>
     </div>
-  </div>
+
+  </main><!-- /app-main -->
 
   <!-- Add/Edit Task Modal -->
   <div class="modal-overlay" id="modal-add" style="display: none;">
@@ -182,11 +502,15 @@
           <div class="form-group">
             <label for="input-department">Department <span class="required">*</span></label>
             <select id="input-department" required>
-              <option value="">Select department</option>
               <option value="B2B Marketing">B2B Marketing</option>
-              <option value="Internal Comms">Internal Comms</option>
-              <option value="Rev Ops">Rev Ops</option>
               <option value="B2C Marketing">B2C Marketing</option>
+              <option value="Personal">Personal</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="input-sub-department">Area</label>
+            <select id="input-sub-department">
+              <option value="">General</option>
             </select>
           </div>
           <div class="form-group">
@@ -198,9 +522,28 @@
             </select>
           </div>
         </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="input-due-date">Due Date</label>
+            <input type="date" id="input-due-date">
+          </div>
+          <div class="form-group">
+            <label for="input-recurring">Recurring</label>
+            <select id="input-recurring">
+              <option value="none">None</option>
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="biweekly">Every 2 Weeks</option>
+              <option value="monthly">Monthly</option>
+            </select>
+          </div>
+        </div>
         <div class="form-group">
-          <label for="input-due-date">Due Date</label>
-          <input type="date" id="input-due-date">
+          <label for="input-assign-to">Assign To</label>
+          <select id="input-assign-to">
+            <option value="">Me (default)</option>
+            <!-- Populated by JS with team members -->
+          </select>
         </div>
         <div class="form-group">
           <label for="input-notes">Notes</label>
@@ -234,52 +577,83 @@
     </div>
   </div>
 
-  <!-- Quick Import Modal -->
+  <!-- Quick Add (AI-powered) -->
   <div class="modal-overlay" id="modal-import" style="display: none;">
-    <div class="modal">
+    <div class="modal modal-wide">
       <div class="modal-header">
-        <h2>Quick Import</h2>
+        <h2>&#10024; Quick Add</h2>
         <button class="modal-close" data-close="modal-import">&times;</button>
       </div>
-      <form id="form-import">
+      <div style="padding: 0.75rem 1.5rem 1.5rem;">
         <div class="form-group">
-          <label for="import-paste">Paste email, Slack message, or any text</label>
-          <textarea id="import-paste" rows="8" placeholder="Paste anything here — an email, Slack message, meeting notes, etc. The first line becomes the task title, the rest goes into notes."></textarea>
+          <label for="import-paste">What needs to be done?</label>
+          <textarea id="import-paste" rows="3" placeholder="Type naturally, e.g. 'Set up meeting with Lisa about Q2 campaign next Tuesday, high priority, B2B' or paste an email..."></textarea>
         </div>
-        <div class="form-group">
-          <label for="import-due-date">Due Date</label>
-          <input type="date" id="import-due-date">
+        <div class="modal-actions" style="margin-top: 0.5rem; margin-bottom: 1rem;">
+          <button type="button" class="btn btn-primary" id="btn-ai-parse-task">&#10024; Create Task</button>
         </div>
-        <div class="form-row">
+        <div id="ai-parsed-task" style="display: none;">
+          <div style="font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--follett-dark-blue); margin-bottom: 0.5rem;">Review &amp; Create</div>
           <div class="form-group">
-            <label for="import-department">Department</label>
-            <select id="import-department">
-              <option value="">Auto-detect</option>
-              <option value="B2B Marketing">B2B Marketing</option>
-              <option value="Internal Comms">Internal Comms</option>
-              <option value="Rev Ops">Rev Ops</option>
-              <option value="B2C Marketing">B2C Marketing</option>
+            <label for="parsed-title">Title</label>
+            <input type="text" id="parsed-title" class="filter-select-compact" style="width:100%; padding:0.4rem 0.6rem; font-size:0.85rem;">
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="parsed-dept">Department</label>
+              <select id="parsed-dept" class="filter-select-compact" style="width:100%;">
+                <option value="B2B Marketing">B2B Marketing</option>
+                <option value="B2C Marketing">B2C Marketing</option>
+                <option value="Personal">Personal</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="parsed-subdept">Area</label>
+              <select id="parsed-subdept" class="filter-select-compact" style="width:100%;">
+                <option value="">General</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="parsed-priority">Priority</label>
+              <select id="parsed-priority" class="filter-select-compact" style="width:100%;">
+                <option value="High">High</option>
+                <option value="Medium">Medium</option>
+                <option value="Low">Low</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="parsed-due">Due Date</label>
+              <input type="date" id="parsed-due" class="filter-select-compact" style="width:100%;">
+            </div>
+            <div class="form-group">
+              <label for="parsed-recurring">Recurring</label>
+              <select id="parsed-recurring" class="filter-select-compact" style="width:100%;">
+                <option value="none">None</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="biweekly">Every 2 Weeks</option>
+                <option value="monthly">Monthly</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="parsed-assign">Assign To</label>
+            <select id="parsed-assign" class="filter-select-compact" style="width:100%;">
+              <option value="">Me</option>
             </select>
           </div>
           <div class="form-group">
-            <label for="import-priority">Priority</label>
-            <select id="import-priority">
-              <option value="Medium">Medium</option>
-              <option value="High">High</option>
-              <option value="Low">Low</option>
-            </select>
+            <label for="parsed-notes">Notes</label>
+            <textarea id="parsed-notes" rows="2" style="width:100%; padding:0.4rem 0.6rem; font-size:0.85rem; border:1px solid var(--color-border); border-radius:var(--radius); font-family:'Roboto',sans-serif;"></textarea>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn btn-ghost" data-close="modal-import">Cancel</button>
+            <button type="button" class="btn btn-primary" id="btn-create-parsed-task">Create Task</button>
           </div>
         </div>
-        <div id="import-preview" class="import-preview" style="display: none;">
-          <div class="import-preview-label">Preview</div>
-          <div class="import-preview-title" id="import-preview-title"></div>
-          <div class="import-preview-dept" id="import-preview-dept"></div>
-        </div>
-        <div class="modal-actions">
-          <button type="button" class="btn btn-ghost" data-close="modal-import">Cancel</button>
-          <button type="submit" class="btn btn-primary">Create Task</button>
-        </div>
-      </form>
+      </div>
     </div>
   </div>
 
@@ -291,6 +665,48 @@
         <button class="modal-close" data-close="modal-detail">&times;</button>
       </div>
       <div id="detail-content"></div>
+    </div>
+  </div>
+
+  <!-- AI Task Generation Modal -->
+  <div class="modal-overlay" id="modal-ai-tasks" style="display: none;">
+    <div class="modal modal-wide">
+      <div class="modal-header">
+        <h2>Generated Tasks</h2>
+        <button class="modal-close" data-close="modal-ai-tasks">&times;</button>
+      </div>
+      <div style="padding: 0.75rem 1.5rem 1.5rem;">
+        <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 0.75rem;">Review and edit before creating. Uncheck any you don't want.</p>
+        <div id="ai-tasks-list" style="max-height: 50vh; overflow-y: auto;"></div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" data-close="modal-ai-tasks">Cancel</button>
+          <button class="btn btn-primary" id="btn-create-ai-tasks">Create Tasks</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Suggest Improvement Modal -->
+  <div class="modal-overlay" id="modal-suggest" style="display: none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>&#128161; Suggest an Improvement</h2>
+        <button class="modal-close" data-close="modal-suggest">&times;</button>
+      </div>
+      <div style="padding: 0.75rem 1.5rem 1.5rem;">
+        <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 0.75rem;">Describe what you'd like to see improved or added. Be as detailed as you'd like — AI will summarize it for you.</p>
+        <div class="form-group">
+          <textarea id="suggest-text" rows="5" placeholder="I wish the app could... / It would be helpful if... / When I try to do X, I find it hard because..." style="width:100%;padding:0.5rem 0.75rem;border:1px solid var(--color-border);border-radius:var(--radius);font-size:0.9rem;font-family:'Roboto',sans-serif;"></textarea>
+        </div>
+        <div id="suggest-result" style="display:none;margin-bottom:0.75rem;">
+          <div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;color:var(--follett-dark-blue);margin-bottom:0.25rem;">AI Summary</div>
+          <div id="suggest-summary" style="font-size:0.85rem;padding:0.5rem;background:var(--follett-light-gray);border-radius:var(--radius);"></div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" data-close="modal-suggest">Cancel</button>
+          <button class="btn btn-primary" id="btn-submit-suggestion">Submit</button>
+        </div>
+      </div>
     </div>
   </div>
 
