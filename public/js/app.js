@@ -2660,26 +2660,48 @@ async function editMember(id) {
   const member = teamMembers.find(m => m.id === id);
   if (!member) return;
   const memberDepts = member.departments || [member.department];
+  const memberSubDepts = member.subDepartments || [];
 
-  // Build a simple prompt-free edit using the invite modal pattern
   const deptCheckboxes = DEPARTMENTS.map(d =>
     `<label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;padding:0.25rem 0;">
       <input type="checkbox" class="edit-dept-cb" value="${d}" ${memberDepts.includes(d) ? 'checked' : ''}> ${d}
     </label>`
   ).join('');
 
+  // Build sub-department checkboxes grouped by parent dept
+  let subDeptCheckboxes = '';
+  for (const dept of DEPARTMENTS) {
+    const subs = SUB_DEPARTMENTS[dept] || [];
+    if (subs.length === 0) continue;
+    subDeptCheckboxes += `<div style="margin-top:0.25rem;font-size:0.75rem;color:var(--color-text-muted);font-weight:600;">${dept}:</div>`;
+    subs.forEach(s => {
+      subDeptCheckboxes += `<label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;padding:0.15rem 0;padding-left:0.5rem;">
+        <input type="checkbox" class="edit-subdept-cb" value="${s}" ${memberSubDepts.includes(s) ? 'checked' : ''}> ${s}
+      </label>`;
+    });
+  }
+
   const roleSelect = `<select id="edit-role" style="padding:0.4rem;border-radius:var(--radius);border:1px solid var(--color-border);font-size:0.85rem;margin-top:0.25rem;">
     <option value="member" ${member.role === 'member' ? 'selected' : ''}>Team Member</option>
     <option value="lead" ${member.role === 'lead' ? 'selected' : ''}>Department Lead</option>
+    <option value="viewer" ${member.role === 'viewer' ? 'selected' : ''}>Viewer</option>
+  </select>`;
+
+  // Reports To dropdown
+  const leads = teamMembers.filter(m => (m.role === 'lead' || m.role === 'cmo') && m.id !== id);
+  const reportsToSelect = `<select id="edit-reports-to" style="padding:0.4rem;border-radius:var(--radius);border:1px solid var(--color-border);font-size:0.85rem;margin-top:0.25rem;">
+    <option value="">None</option>
+    ${leads.map(l => `<option value="${l.userId}" ${member.reportsTo === l.userId ? 'selected' : ''}>${escapeHtml(l.displayName)}</option>`).join('')}
   </select>`;
 
   const container = document.getElementById('team-roster');
-  // Insert edit form inline
   const editHtml = `<div class="team-member-card" id="edit-member-form" style="border: 2px solid var(--follett-medium-blue);">
     <div style="flex:1;">
       <div class="team-member-name" style="margin-bottom:0.5rem;">Editing: ${escapeHtml(member.displayName)}</div>
       <div style="margin-bottom:0.5rem;"><strong style="font-size:0.75rem;text-transform:uppercase;color:var(--follett-dark-blue);">Departments:</strong><br>${deptCheckboxes}</div>
-      <div><strong style="font-size:0.75rem;text-transform:uppercase;color:var(--follett-dark-blue);">Role:</strong><br>${roleSelect}</div>
+      ${subDeptCheckboxes ? `<div style="margin-bottom:0.5rem;"><strong style="font-size:0.75rem;text-transform:uppercase;color:var(--follett-dark-blue);">Sub-Departments:</strong><br>${subDeptCheckboxes}</div>` : ''}
+      <div style="margin-bottom:0.5rem;"><strong style="font-size:0.75rem;text-transform:uppercase;color:var(--follett-dark-blue);">Role:</strong><br>${roleSelect}</div>
+      <div><strong style="font-size:0.75rem;text-transform:uppercase;color:var(--follett-dark-blue);">Reports To:</strong><br>${reportsToSelect}</div>
     </div>
     <div class="team-member-actions" style="flex-direction:column;gap:0.5rem;">
       <button class="btn btn-primary btn-sm" onclick="saveMemberEdit('${id}')">Save</button>
@@ -2700,12 +2722,15 @@ async function editMember(id) {
 async function saveMemberEdit(id) {
   const departments = [];
   document.querySelectorAll('.edit-dept-cb:checked').forEach(cb => departments.push(cb.value));
+  const subDepartments = [];
+  document.querySelectorAll('.edit-subdept-cb:checked').forEach(cb => subDepartments.push(cb.value));
   const role = document.getElementById('edit-role').value;
+  const reportsTo = document.getElementById('edit-reports-to').value;
 
   if (departments.length === 0) { alert('Select at least one department'); return; }
 
   try {
-    await api('PUT', `/api/team/${id}`, { departments, role });
+    await api('PUT', `/api/team/${id}`, { departments, subDepartments, role, reportsTo });
     showTeamView();
   } catch (err) { alert('Failed to update: ' + err.message); }
 }
