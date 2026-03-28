@@ -672,6 +672,27 @@ app.post('/api/migrate-files', auth, async (req, res) => {
   }
 });
 
+// POST /api/folders/seed-subdepts — Create missing sub-department folders (CMO only)
+app.post('/api/folders/seed-subdepts', auth, async (req, res) => {
+  if (req.memberRole !== 'cmo') return res.status(403).json({ error: 'CMO only' });
+  try {
+    const existing = await orgCol(req, 'folders').get();
+    const existingNames = new Set(existing.docs.map(d => d.data().name));
+    const allSubDepts = ['Biz Dev', 'Growth & Brand', 'Rev Ops', 'Internal Comms', 'Marketing Leaders'];
+    let created = 0;
+    const batch = db.batch();
+    allSubDepts.forEach((name, i) => {
+      if (!existingNames.has(name)) {
+        const ref = orgCol(req, 'folders').doc();
+        batch.set(ref, { name, order: 10 + i, createdAt: new Date().toISOString() });
+        created++;
+      }
+    });
+    if (created > 0) await batch.commit();
+    res.json({ created, message: `Created ${created} new folders` });
+  } catch (err) { res.status(500).json({ error: 'Failed: ' + err.message }); }
+});
+
 // === Folder Endpoints ===
 
 app.get('/api/folders', auth, async (req, res) => {
