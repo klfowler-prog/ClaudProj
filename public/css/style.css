@@ -32,8 +32,8 @@
   --color-comms-light: #e5eedf;
   --color-revops: var(--follett-coral);
   --color-revops-light: #f8e0df;
-  --color-b2c: var(--follett-dark-blue);
-  --color-b2c-light: #d4e2eb;
+  --color-b2c: var(--follett-sage);
+  --color-b2c-light: #e5eedf;
   --color-personal: var(--follett-dark-gray);
   --color-personal-light: #dfe6e8;
 
@@ -1308,7 +1308,7 @@ body {
 .badge-b2b { background: var(--color-b2b-light); color: #2e7aaa; }
 .badge-comms { background: var(--color-comms-light); color: #5e8a4e; }
 .badge-revops { background: var(--color-revops-light); color: #b84e4b; }
-.badge-b2c { background: var(--color-b2c-light); color: var(--follett-dark-blue); }
+.badge-b2c { background: var(--color-b2c-light); color: #3d6b35; }
 .badge-personal { background: var(--color-personal-light); color: var(--follett-dark-gray); }
 
 .badge-high { background: var(--color-high-light); color: var(--color-high); }
@@ -1393,7 +1393,7 @@ body {
 }
 
 .status-select.status-delegated {
-  background-color: var(--color-b2c-light);
+  background-color: #d4e2eb;
   color: var(--follett-dark-blue);
 }
 
@@ -1436,7 +1436,7 @@ body {
 .badge-status-in-progress { background: var(--color-b2b-light); color: #2e7aaa; }
 .badge-status-blocked { background: var(--color-medium-light); color: #a17508; }
 .badge-status-approved { background: #d9f0d9; color: #2e7d32; }
-.badge-status-delegated { background: var(--color-b2c-light); color: var(--follett-dark-blue); }
+.badge-status-delegated { background: #d4e2eb; color: var(--follett-dark-blue); }
 .badge-status-completed { background: var(--color-comms-light); color: #5e8a4e; }
 
 /* Task left border by status */

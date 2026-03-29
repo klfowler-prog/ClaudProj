@@ -1148,7 +1148,7 @@ app.post('/api/notes/:id/summarize', auth, async (req, res) => {
 // POST /api/notes/:id/ask
 app.post('/api/notes/:id/ask', auth, async (req, res) => {
   try {
-    const { question } = req.body;
+    const { question, history } = req.body;
     if (!question) return res.status(400).json({ error: 'Question is required' });
 
     const doc = await orgCol(req, 'notes').doc(req.params.id).get();
@@ -1159,8 +1159,24 @@ app.post('/api/notes/:id/ask', auth, async (req, res) => {
     const text = stripHtml(note.content || '');
 
     const model = getGeminiModel();
+    const systemPrompt = `You are an AI assistant for a marketing team at Follett Higher Education. You are helping with a specific note/document. Be concise, use markdown formatting (bold, bullets, headers) for readability. You can summarize, answer questions, extract action items, identify decisions, or anything else asked about this document.
+
+Document title: ${note.title}
+
+Document content:
+${text}`;
+
+    const contents = [];
+    if (history && Array.isArray(history)) {
+      for (const h of history) {
+        contents.push({ role: h.role === 'user' ? 'user' : 'model', parts: [{ text: h.text }] });
+      }
+    }
+    contents.push({ role: 'user', parts: [{ text: question }] });
+
     const result = await model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: `You are a marketing strategy assistant for a CMO. Answer the following question based on this document. Be concise and specific.\n\nDocument title: ${note.title}\n\nDocument content:\n${text}\n\nQuestion: ${question}` }] }]
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+      contents
     });
 
     res.json({ answer: result.response.text() });

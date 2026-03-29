@@ -273,10 +273,23 @@
           <span class="editor-divider"></span>
           <button class="editor-btn" data-cmd="formatBlock" data-value="H2" title="Heading">H</button>
           <span class="editor-divider"></span>
-          <button class="editor-btn editor-btn-ai" id="btn-ai-summarize" title="AI Summarize"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="vertical-align:-1px;"><path d="M12 0l1.8 7.6L22 8l-6.4 4.2L18 20l-6-4.8L6 20l2.4-7.8L2 8l8.2-.4z"/></svg> Summarize</button>
-          <button class="editor-btn editor-btn-ai" id="btn-ai-tasks" title="Generate tasks from note"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="vertical-align:-1px;"><path d="M12 0l1.8 7.6L22 8l-6.4 4.2L18 20l-6-4.8L6 20l2.4-7.8L2 8l8.2-.4z"/></svg> Create Tasks</button>
+          <button class="editor-btn editor-btn-ai" id="btn-note-ai" title="Ask AI about this note"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="vertical-align:-1px;"><path d="M12 0l1.8 7.6L22 8l-6.4 4.2L18 20l-6-4.8L6 20l2.4-7.8L2 8l8.2-.4z"/></svg> Ask AI</button>
         </div>
         <div class="editor-content" id="editor-content" contenteditable="true" placeholder="Start writing..."></div>
+        <!-- Note AI Chat -->
+        <div id="note-ai-panel" style="display:none;border-top:1px solid var(--color-border);padding:0.75rem;background:var(--follett-light-gray);border-radius:0 0 var(--radius) var(--radius);">
+          <div id="note-ai-messages" style="max-height:200px;overflow-y:auto;margin-bottom:0.5rem;font-size:0.85rem;"></div>
+          <div style="display:flex;gap:0.375rem;">
+            <input type="text" id="note-ai-input" placeholder="Ask about this note... (summarize, extract tasks, questions)" style="flex:1;padding:0.4rem 0.6rem;border:1px solid var(--color-border);border-radius:var(--radius);font-size:0.85rem;font-family:'Roboto',sans-serif;">
+            <button class="btn btn-primary btn-sm" id="btn-note-ai-send">Send</button>
+          </div>
+          <div style="display:flex;gap:0.25rem;margin-top:0.375rem;flex-wrap:wrap;">
+            <button class="btn btn-ghost btn-sm note-ai-quick" data-prompt="Summarize this note concisely" style="font-size:0.7rem;">Summarize</button>
+            <button class="btn btn-ghost btn-sm note-ai-quick" data-prompt="What are the key action items in this note?" style="font-size:0.7rem;">Action Items</button>
+            <button class="btn btn-ghost btn-sm note-ai-quick" data-prompt="What decisions were made in this note?" style="font-size:0.7rem;">Decisions</button>
+            <button class="btn btn-ghost btn-sm note-ai-quick" data-prompt="Generate tasks from this note" style="font-size:0.7rem;">Create Tasks</button>
+          </div>
+        </div>
         <!-- Note Links -->
         <div class="note-links-section" id="note-links-section">
           <div class="note-links-header">

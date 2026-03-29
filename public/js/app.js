@@ -1304,6 +1304,8 @@ async function openNote(noteId) {
     document.getElementById('notes-editor-panel').style.display = 'flex';
     document.getElementById('notes-no-selection').style.display = 'none';
     document.getElementById('editor-saved').textContent = '';
+    document.getElementById('note-ai-panel').style.display = 'none';
+    noteAiHistory = [];
 
     // Check if user can edit this note (creator or CMO)
     const canEdit = myProfile && (myProfile.role === 'cmo' || note.createdBy === myProfile.userId);
@@ -1654,37 +1656,60 @@ async function saveSharing() {
 
 
 // === AI Features ===
-function showAiPanel(title, content) {
-  document.getElementById('ai-panel-title').textContent = title;
-  document.getElementById('ai-panel-content').innerHTML = content;
-  document.getElementById('ai-panel').style.display = 'block';
-}
+// Note AI Chat
+let noteAiHistory = [];
 
-function hideAiPanel() {
-  document.getElementById('ai-panel').style.display = 'none';
-}
-
-async function aiSummarize() {
-  if (!activeNoteId) return;
-  showAiPanel('Summary', '<span class="ai-loading">Generating summary...</span>');
-  try {
-    const result = await api('POST', `/api/notes/${activeNoteId}/summarize`);
-    showAiPanel('Summary', escapeHtmlWithLinks(result.summary));
-  } catch (err) {
-    showAiPanel('Error', err.message);
+function toggleNoteAi() {
+  const panel = document.getElementById('note-ai-panel');
+  if (panel.style.display === 'none') {
+    panel.style.display = 'block';
+    noteAiHistory = [];
+    document.getElementById('note-ai-messages').innerHTML = '';
+    document.getElementById('note-ai-input').focus();
+  } else {
+    panel.style.display = 'none';
   }
 }
 
-async function aiAsk() {
+function addNoteAiMessage(role, text) {
+  const container = document.getElementById('note-ai-messages');
+  const div = document.createElement('div');
+  div.style.cssText = role === 'user'
+    ? 'text-align:right;margin-bottom:0.5rem;'
+    : 'background:#fff;border:1px solid var(--color-border);border-radius:var(--radius);padding:0.5rem 0.625rem;margin-bottom:0.5rem;';
+  div.innerHTML = role === 'user'
+    ? `<span style="background:var(--follett-dark-blue);color:#fff;padding:0.3rem 0.625rem;border-radius:var(--radius);display:inline-block;font-size:0.8rem;">${escapeHtml(text)}</span>`
+    : renderMarkdown(text);
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+  return div;
+}
+
+async function sendNoteAiMessage(messageOverride) {
   if (!activeNoteId) return;
-  const question = prompt('What would you like to know about this note?');
-  if (!question) return;
-  showAiPanel('Answer', '<span class="ai-loading">Thinking...</span>');
+  const input = document.getElementById('note-ai-input');
+  const message = messageOverride || input.value.trim();
+  if (!message) return;
+  input.value = '';
+
+  addNoteAiMessage('user', message);
+  const loadingDiv = addNoteAiMessage('ai', 'Thinking...');
+  loadingDiv.style.color = 'var(--color-text-muted)';
+  loadingDiv.style.fontStyle = 'italic';
+
+  noteAiHistory.push({ role: 'user', text: message });
+
   try {
-    const result = await api('POST', `/api/notes/${activeNoteId}/ask`, { question });
-    showAiPanel('Answer', escapeHtmlWithLinks(result.answer));
+    const result = await api('POST', `/api/notes/${activeNoteId}/ask`, {
+      question: message,
+      history: noteAiHistory.slice(-10)
+    });
+    loadingDiv.style.color = '';
+    loadingDiv.style.fontStyle = '';
+    loadingDiv.innerHTML = renderMarkdown(result.answer);
+    noteAiHistory.push({ role: 'model', text: result.answer });
   } catch (err) {
-    showAiPanel('Error', err.message);
+    loadingDiv.innerHTML = `<span style="color:var(--follett-coral);">Error: ${escapeHtml(err.message)}</span>`;
   }
 }
 
@@ -2330,8 +2355,14 @@ async function init() {
     btn.addEventListener('click', () => sendChatMessage(btn.dataset.q));
   });
 
-  document.getElementById('btn-ai-summarize').addEventListener('click', aiSummarize);
-  document.getElementById('btn-ai-tasks').addEventListener('click', aiGenerateTasks);
+  document.getElementById('btn-note-ai').addEventListener('click', toggleNoteAi);
+  document.getElementById('btn-note-ai-send').addEventListener('click', () => sendNoteAiMessage());
+  document.getElementById('note-ai-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); sendNoteAiMessage(); }
+  });
+  document.querySelectorAll('.note-ai-quick').forEach(btn => {
+    btn.addEventListener('click', () => sendNoteAiMessage(btn.dataset.prompt));
+  });
   document.getElementById('ai-panel-close').addEventListener('click', hideAiPanel);
   document.getElementById('btn-create-ai-tasks').addEventListener('click', createAiTasks);
 
