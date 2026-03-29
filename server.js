@@ -1235,9 +1235,16 @@ app.post('/api/ai/chat', auth, async (req, res) => {
         t.createdBy === req.userId
       );
     }
-    const allTasks = taskDocs.map(t =>
-      `[${t.status}] ${t.title} | Dept: ${t.department}${t.subDepartment ? '/' + t.subDepartment : ''} | Priority: ${t.priority}${t.dueDate ? ' | Due: ' + t.dueDate : ''}${t.notes ? ' | Notes: ' + t.notes.substring(0, 200) : ''}`
-    );
+    // Build member name lookup
+    const membersSnap = await orgCol(req, 'members').get();
+    const memberNames = {};
+    membersSnap.docs.forEach(d => { memberNames[d.data().userId] = d.data().displayName; });
+
+    const allTasks = taskDocs.map(t => {
+      const assignee = memberNames[t.assignedTo] || 'Unassigned';
+      const creator = memberNames[t.createdBy] || 'Unknown';
+      return `[${t.status}] ${t.title} | Assigned: ${assignee} | Created by: ${creator} | Dept: ${t.department}${t.subDepartment ? '/' + t.subDepartment : ''} | Priority: ${t.priority}${t.dueDate ? ' | Due: ' + t.dueDate : ''}${t.completedAt ? ' | Completed: ' + t.completedAt.split('T')[0] : ''}${t.blockedReason ? ' | Blocked: ' + t.blockedReason : ''}${t.notes ? ' | Notes: ' + t.notes.substring(0, 200) : ''}`;
+    });
 
     // Gather notes — apply same access filtering as notes list
     const notesSnap = await orgCol(req, 'notes').get();
@@ -1275,7 +1282,20 @@ app.post('/api/ai/chat', auth, async (req, res) => {
     const isCmo = req.memberRole === 'cmo';
     const roleName = isCmo ? 'CMO' : req.memberRole === 'lead' ? 'Department Lead' : 'team member';
 
-    const systemPrompt = `You are an AI assistant for ${req.memberName}, a ${roleName} at Follett Higher Education. You have access to their task list and notes. Be concise, actionable, and strategic. Today's date is ${today}.
+    // Team member list for context
+    const teamList = membersSnap.docs
+      .filter(d => d.data().status === 'active' || !d.data().status)
+      .map(d => {
+        const m = d.data();
+        const depts = (m.departments || []).join(', ');
+        const subDepts = (m.subDepartments || []).join(', ');
+        return `${m.displayName} (${m.role}${depts ? ', ' + depts : ''}${subDepts ? ' / ' + subDepts : ''})`;
+      });
+
+    const systemPrompt = `You are an AI assistant for ${req.memberName}, a ${roleName} at Follett Higher Education. You have access to their task list, notes, and team roster. Be concise, actionable, and strategic. Today's date is ${today}.
+
+TEAM MEMBERS (${teamList.length}):
+${teamList.join('\n')}
 
 TASKS (${allTasks.length} total):
 ${allTasks.join('\n')}
