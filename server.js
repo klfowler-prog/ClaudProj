@@ -400,6 +400,14 @@ app.put('/api/tasks/:id', auth, async (req, res) => {
 
     if (updates.status) updates.completed = updates.status === 'Completed';
 
+    // When a task is reassigned, reset Delegated status back to Not Started
+    if (updates.assignedTo && updates.assignedTo !== oldTask.assignedTo && oldTask.status === 'Delegated') {
+      if (!updates.status) {
+        updates.status = 'Not Started';
+        updates.completed = false;
+      }
+    }
+
     await taskRef.update(updates);
 
     // Notify if assignedTo changed to someone new
