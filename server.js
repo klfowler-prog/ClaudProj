@@ -18,8 +18,18 @@ const GMAIL_CLIENT_ID = process.env.GMAIL_CLIENT_ID;
 const GMAIL_CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET;
 const GMAIL_REDIRECT_URI = process.env.GMAIL_REDIRECT_URI || 'https://cmo-task-manager-951932541878.us-central1.run.app/api/gmail/callback';
 
-app.use(cors());
+const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',')
+  : ['https://cmo-task-manager-951932541878.us-central1.run.app', 'http://localhost:8080'];
+app.use(cors({ origin: ALLOWED_ORIGINS, credentials: true }));
 app.use(express.json({ limit: '5mb' }));
+
+// Validation constants
+const VALID_STATUSES = ['Not Started', 'In Progress', 'Blocked', 'Approved', 'Delegated', 'Completed'];
+const VALID_PRIORITIES = ['High', 'Medium', 'Low'];
+const VALID_DEPARTMENTS = ['B2B Marketing', 'B2C Marketing', 'Personal'];
+const MAX_TITLE_LENGTH = 500;
+const MAX_NOTES_LENGTH = 50000;
 
 // Serve static frontend files
 app.use(express.static(path.join(__dirname, 'public')));
@@ -308,8 +318,23 @@ app.get('/api/tasks', auth, async (req, res) => {
 // POST /api/tasks — Create a new task
 app.post('/api/tasks', authWrite, async (req, res) => {
   try {
+    const title = (req.body.title || '').trim();
+    if (!title) return res.status(400).json({ error: 'Task title is required' });
+    if (title.length > MAX_TITLE_LENGTH) return res.status(400).json({ error: 'Title too long' });
+    if (req.body.department && !VALID_DEPARTMENTS.includes(req.body.department)) {
+      return res.status(400).json({ error: 'Invalid department' });
+    }
+    if (req.body.priority && !VALID_PRIORITIES.includes(req.body.priority)) {
+      return res.status(400).json({ error: 'Invalid priority' });
+    }
+    if (req.body.status && !VALID_STATUSES.includes(req.body.status)) {
+      return res.status(400).json({ error: 'Invalid status' });
+    }
+    if (req.body.notes && req.body.notes.length > MAX_NOTES_LENGTH) {
+      return res.status(400).json({ error: 'Notes too long' });
+    }
     const task = {
-      title: req.body.title,
+      title,
       department: req.body.department,
       subDepartment: req.body.subDepartment || '',
       priority: req.body.priority || 'Medium',
@@ -353,13 +378,15 @@ app.post('/api/tasks', authWrite, async (req, res) => {
 app.post('/api/tasks/batch', authWrite, async (req, res) => {
   try {
     const tasks = req.body.tasks;
-    if (!Array.isArray(tasks)) return res.status(400).json({ error: 'tasks must be an array' });
+    if (!Array.isArray(tasks) || tasks.length === 0) return res.status(400).json({ error: 'tasks must be a non-empty array' });
+    if (tasks.length > 50) return res.status(400).json({ error: 'Maximum 50 tasks per batch' });
 
     const batch = db.batch();
     const tasksRef = orgCol(req, 'tasks');
     const results = [];
 
     for (const task of tasks) {
+      if (!task.title || !task.title.trim()) continue; // skip empty titles
       const docRef = tasksRef.doc();
       const taskData = {
         title: task.title, department: task.department,
@@ -413,11 +440,22 @@ app.put('/api/tasks/:id', auth, async (req, res) => {
       'completed', 'completedAt', 'dueDate', 'attachments', 'emailMessageId', 'recurring',
       'assignedTo', 'sharedWith', 'parentTaskId', 'subDepartment', 'blockedReason'];
 
-    const validStatuses = ['Not Started', 'In Progress', 'Blocked', 'Approved', 'Delegated', 'Completed'];
     for (const field of allowedFields) {
       if (req.body[field] !== undefined) updates[field] = req.body[field];
     }
-    if (updates.status && !validStatuses.includes(updates.status)) {
+    if (updates.title && updates.title.length > MAX_TITLE_LENGTH) {
+      return res.status(400).json({ error: 'Title too long' });
+    }
+    if (updates.notes && updates.notes.length > MAX_NOTES_LENGTH) {
+      return res.status(400).json({ error: 'Notes too long' });
+    }
+    if (updates.department && !VALID_DEPARTMENTS.includes(updates.department)) {
+      return res.status(400).json({ error: 'Invalid department' });
+    }
+    if (updates.priority && !VALID_PRIORITIES.includes(updates.priority)) {
+      return res.status(400).json({ error: 'Invalid priority' });
+    }
+    if (updates.status && !VALID_STATUSES.includes(updates.status)) {
       return res.status(400).json({ error: 'Invalid status value' });
     }
 
@@ -939,9 +977,11 @@ app.get('/api/notes/:id', auth, async (req, res) => {
 
 app.post('/api/notes', authWrite, async (req, res) => {
   try {
+    const title = (req.body.title || 'Untitled').trim();
+    if (title.length > MAX_TITLE_LENGTH) return res.status(400).json({ error: 'Title too long' });
     const now = new Date().toISOString();
     const note = {
-      title: req.body.title || 'Untitled', content: req.body.content || '',
+      title, content: req.body.content || '',
       folderId: req.body.folderId || '', source: req.body.source || 'manual',
       createdAt: now, updatedAt: now, aiSummary: '', createdBy: req.userId,
       links: req.body.links || [],
