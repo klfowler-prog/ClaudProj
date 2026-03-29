@@ -1274,8 +1274,22 @@ app.post('/api/ai/chat', auth, async (req, res) => {
     }
     const allNotes = noteDocs.map(n => {
       const folder = folderMap[n.folderId] || 'Unfiled';
-      const content = stripHtml(n.content || '').substring(0, 500);
-      return `[${folder}] ${n.title}\n${content}`;
+      const author = memberNames[n.createdBy] || 'Unknown';
+      const content = stripHtml(n.content || '').substring(0, 1500);
+      return `[${folder}] ${n.title} (by ${author}, updated ${n.updatedAt ? n.updatedAt.split('T')[0] : 'unknown'})\n${content}`;
+    });
+
+    // Gather recent comments for context
+    const commentsSnap = await orgCol(req, 'comments').get();
+    const recentComments = commentsSnap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .filter(c => c.createdAt && c.createdAt >= new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString())
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
+      .slice(0, 30);
+    const commentContext = recentComments.map(c => {
+      const task = taskDocs.find(t => t.id === c.taskId);
+      const taskTitle = task ? task.title : 'Unknown task';
+      return `${c.authorName} on "${taskTitle}" (${c.createdAt.split('T')[0]}): ${c.text.substring(0, 200)}`;
     });
 
     const today = new Date().toISOString().split('T')[0];
@@ -1292,13 +1306,16 @@ app.post('/api/ai/chat', auth, async (req, res) => {
         return `${m.displayName} (${m.role}${depts ? ', ' + depts : ''}${subDepts ? ' / ' + subDepts : ''})`;
       });
 
-    const systemPrompt = `You are an AI assistant for ${req.memberName}, a ${roleName} at Follett Higher Education. You have access to their task list, notes, and team roster. Be concise, actionable, and strategic. Today's date is ${today}.
+    const systemPrompt = `You are an AI assistant for ${req.memberName}, a ${roleName} at Follett Higher Education. You have access to their task list, notes, team roster, and recent comments. Be concise, actionable, and strategic. Today's date is ${today}.
 
 TEAM MEMBERS (${teamList.length}):
 ${teamList.join('\n')}
 
 TASKS (${allTasks.length} total):
 ${allTasks.join('\n')}
+
+RECENT COMMENTS (last 7 days):
+${commentContext.length > 0 ? commentContext.join('\n') : 'No recent comments'}
 
 NOTES (${allNotes.length} total):
 ${allNotes.join('\n---\n')}`;
