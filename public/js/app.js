@@ -6,7 +6,7 @@ const SUB_DEPARTMENTS = {
 };
 const ALL_SUB_DEPTS = Object.values(SUB_DEPARTMENTS).flat();
 const PRIORITIES = ['High', 'Medium', 'Low'];
-const STATUSES = ['Not Started', 'In Progress', 'Awaiting Feedback', 'Approved', 'Delegated', 'Completed'];
+const STATUSES = ['Not Started', 'In Progress', 'Blocked', 'Approved', 'Delegated', 'Completed'];
 const STORAGE_KEY = 'cmo_tasks';
 const MIGRATION_KEY = 'cmo_migrated_to_cloud';
 
@@ -42,7 +42,7 @@ const DEPT_KEYS = {
 const STATUS_KEYS = {
   'Not Started': 'not-started',
   'In Progress': 'in-progress',
-  'Awaiting Feedback': 'awaiting',
+  'Blocked': 'blocked',
   'Approved': 'approved',
   'Delegated': 'delegated',
   'Completed': 'completed'
@@ -134,14 +134,14 @@ function renderStats() {
   const today = new Date().toISOString().split('T')[0];
   const notStarted = filtered.filter(t => t.status === 'Not Started').length;
   const inProgress = filtered.filter(t => t.status === 'In Progress').length;
-  const awaiting = filtered.filter(t => t.status === 'Awaiting Feedback').length;
+  const blocked = filtered.filter(t => t.status === 'Blocked').length;
   const approved = filtered.filter(t => t.status === 'Approved').length;
   const delegated = filtered.filter(t => t.status === 'Delegated').length;
   const overdue = filtered.filter(t => t.status !== 'Completed' && t.status !== 'Delegated' && t.dueDate && t.dueDate < today).length;
   const completed = filtered.filter(t => t.status === 'Completed').length;
   document.getElementById('stat-not-started').textContent = notStarted;
   document.getElementById('stat-in-progress').textContent = inProgress;
-  document.getElementById('stat-awaiting').textContent = awaiting;
+  document.getElementById('stat-blocked').textContent = blocked;
   document.getElementById('stat-approved').textContent = approved;
   document.getElementById('stat-delegated').textContent = delegated;
   document.getElementById('stat-overdue').textContent = overdue;
@@ -264,7 +264,7 @@ function renderTaskItem(task) {
   const prioClass = task.priority === 'High' ? 'prio-high' : task.priority === 'Low' ? 'prio-low' : 'prio-medium';
   const prioDot = `<span class="prio-dot ${prioClass}"></span>`;
 
-  const statusOptions = STATUSES.map(s =>
+  const statusOptions = STATUSES.filter(s => s !== 'Delegated').map(s =>
     `<option value="${s}" ${s === task.status ? 'selected' : ''}>${s}</option>`
   ).join('');
 
@@ -325,8 +325,8 @@ function renderTaskList() {
     activeTasks = activeTasks.filter(t => t.status === 'Not Started');
   } else if (sf === 'in-progress') {
     activeTasks = activeTasks.filter(t => t.status === 'In Progress');
-  } else if (sf === 'awaiting') {
-    activeTasks = activeTasks.filter(t => t.status === 'Awaiting Feedback');
+  } else if (sf === 'blocked') {
+    activeTasks = activeTasks.filter(t => t.status === 'Blocked');
   } else if (sf === 'approved') {
     activeTasks = approvedTasks;
   } else if (sf === 'overdue') {
@@ -562,6 +562,11 @@ async function setTaskStatus(id, newStatus) {
     completedAt: newStatus === 'Completed' ? (task.completedAt || new Date().toISOString()) : ''
   };
 
+  if (newStatus === 'Blocked') {
+    const reason = prompt('What\'s blocking this task? (optional)');
+    if (reason) updates.blockedReason = reason;
+  }
+
   // Optimistic update
   Object.assign(task, updates);
   render();
@@ -788,7 +793,9 @@ function showTaskDetail(id) {
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1rem;">
       <div>
         <div class="detail-section-title">Status</div>
-        <span class="badge badge-status-${STATUS_KEYS[task.status] || 'not-started'}">${task.status}</span>
+        <select class="filter-select-compact" onchange="setTaskStatusFromDetail('${task.id}', this.value)" style="font-size:0.8rem;">
+          ${STATUSES.filter(s => s !== 'Delegated').map(s => `<option value="${s}" ${s === task.status ? 'selected' : ''}>${s}</option>`).join('')}
+        </select>
         ${task.recurring && task.recurring !== 'none' ? `<span style="font-size:0.75rem;color:var(--follett-medium-blue);margin-left:0.375rem;">&#8635; ${task.recurring}</span>` : ''}
       </div>
       <div>
@@ -816,6 +823,7 @@ function showTaskDetail(id) {
       </div>
     </div>
 
+    ${task.blockedReason ? `<div style="background:var(--color-medium-light);border-radius:var(--radius);padding:0.625rem 0.875rem;margin-bottom:0.75rem;font-size:0.85rem;"><strong style="color:#a17508;">Blocked:</strong> ${escapeHtml(task.blockedReason)}</div>` : ''}
     ${task.notes ? `<div class="detail-section"><div class="detail-section-title">Notes</div><div class="detail-notes">${escapeHtmlWithLinks(task.notes)}</div></div>` : ''}
     ${attachmentsHtml}
     ${task.completedAt ? `<div style="font-size:0.8rem;color:var(--color-text-light);margin-bottom:0.75rem;">Completed ${new Date(task.completedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>` : ''}
@@ -849,6 +857,7 @@ function showTaskDetail(id) {
     </div>
 
     <div class="detail-actions">
+      ${(myProfile && task.createdBy && task.createdBy !== myProfile.userId && task.status !== 'Approved' && task.status !== 'Completed') ? `<button class="btn btn-primary" onclick="approveAndReturn('${task.id}', '${task.createdBy}')" style="background:#2e7d32;">&#10003; Approve &amp; Assign Back</button>` : ''}
       <button class="btn btn-primary" onclick="editTask('${task.id}')">Edit Task</button>
     </div>
   `;
@@ -907,6 +916,33 @@ function showSubtaskForm(parentId, dept) {
 
 function hideSubtaskForm() {
   document.getElementById('subtask-form').style.display = 'none';
+}
+
+async function setTaskStatusFromDetail(taskId, newStatus) {
+  try {
+    const updates = { status: newStatus };
+    if (newStatus === 'Blocked') {
+      const reason = prompt('What\'s blocking this task? (optional)');
+      if (reason) updates.blockedReason = reason;
+    }
+    if (newStatus === 'Completed') {
+      updates.completedAt = new Date().toISOString();
+    }
+    await api('PUT', `/api/tasks/${taskId}`, updates);
+    await loadTasks();
+    render();
+    // Refresh the detail view
+    showTaskDetail(taskId);
+  } catch (err) { alert('Failed to update status: ' + err.message); }
+}
+
+async function approveAndReturn(taskId, createdBy) {
+  try {
+    await api('PUT', `/api/tasks/${taskId}`, { status: 'Approved', assignedTo: createdBy });
+    closeModal('modal-detail');
+    await loadTasks();
+    render();
+  } catch (err) { alert('Failed to approve: ' + err.message); }
 }
 
 async function reassignTask(taskId, newAssignee) {
@@ -2307,6 +2343,8 @@ async function init() {
 
   document.getElementById('task-list').addEventListener('click', handleTaskClick);
   document.getElementById('task-list').addEventListener('change', handleTaskChange);
+  document.getElementById('approved-list').addEventListener('click', handleTaskClick);
+  document.getElementById('approved-list').addEventListener('change', handleTaskChange);
   document.getElementById('delegated-list').addEventListener('click', handleTaskClick);
   document.getElementById('delegated-list').addEventListener('change', handleTaskChange);
   document.getElementById('completed-list').addEventListener('click', handleTaskClick);

@@ -392,13 +392,18 @@ app.put('/api/tasks/:id', auth, async (req, res) => {
     const updates = {};
     const allowedFields = ['title', 'department', 'priority', 'notes', 'status',
       'completed', 'completedAt', 'dueDate', 'attachments', 'emailMessageId', 'recurring',
-      'assignedTo', 'sharedWith', 'parentTaskId', 'subDepartment'];
+      'assignedTo', 'sharedWith', 'parentTaskId', 'subDepartment', 'blockedReason'];
 
     for (const field of allowedFields) {
       if (req.body[field] !== undefined) updates[field] = req.body[field];
     }
 
     if (updates.status) updates.completed = updates.status === 'Completed';
+
+    // Clear blockedReason when moving away from Blocked
+    if (updates.status && updates.status !== 'Blocked' && !updates.blockedReason) {
+      updates.blockedReason = '';
+    }
 
     // Track who approved the task
     if (updates.status === 'Approved') {
@@ -420,6 +425,18 @@ app.put('/api/tasks/:id', auth, async (req, res) => {
       await createNotification(req.orgId, updates.assignedTo, {
         type: 'task_assigned',
         title: `${req.memberName} assigned you: ${oldTask.title}`,
+        taskId: req.params.id,
+        fromUserId: req.userId,
+        fromName: req.memberName
+      });
+    }
+
+    // Notify the creator/delegator when a task is blocked
+    if (updates.status === 'Blocked' && oldTask.createdBy && oldTask.createdBy !== req.userId) {
+      const reason = updates.blockedReason ? ` — ${updates.blockedReason}` : '';
+      await createNotification(req.orgId, oldTask.createdBy, {
+        type: 'task_blocked',
+        title: `${req.memberName} is blocked on: ${oldTask.title}${reason}`,
         taskId: req.params.id,
         fromUserId: req.userId,
         fromName: req.memberName
@@ -1884,7 +1901,7 @@ app.listen(PORT, async () => {
 <tr><th>Status</th><th>What it means</th></tr>
 <tr><td>Not Started</td><td>Haven't begun yet</td></tr>
 <tr><td>In Progress</td><td>Actively working on it</td></tr>
-<tr><td>Awaiting Feedback</td><td>Blocked — waiting on someone else</td></tr>
+<tr><td>Blocked</td><td>Stuck on an external dependency — waiting on someone or something</td></tr>
 <tr><td>Approved</td><td>Signed off — ready to finalize</td></tr>
 <tr><td>Delegated</td><td>Assigned to someone else</td></tr>
 <tr><td>Completed</td><td>Done!</td></tr>
@@ -1911,5 +1928,21 @@ app.listen(PORT, async () => {
     }
   } catch (err) {
     console.error('[Migration] Failed to update Welcome note:', err.message);
+  }
+
+  // One-time migration: rename "Awaiting Feedback" → "Blocked"
+  try {
+    const orgsSnap2 = await db.collection('orgs').get();
+    for (const orgDoc of orgsSnap2.docs) {
+      const tasksSnap = await orgDoc.ref.collection('tasks')
+        .where('status', '==', 'Awaiting Feedback').get();
+      if (tasksSnap.empty) continue;
+      console.log(`[Migration] Renaming ${tasksSnap.size} "Awaiting Feedback" tasks to "Blocked" in org ${orgDoc.id}`);
+      for (const taskDoc of tasksSnap.docs) {
+        await taskDoc.ref.update({ status: 'Blocked' });
+      }
+    }
+  } catch (err) {
+    console.error('[Migration] Failed to rename Awaiting Feedback:', err.message);
   }
 });

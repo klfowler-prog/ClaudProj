@@ -402,7 +402,7 @@ body {
   color: var(--color-text);
 }
 
-.stat-pill-awaiting strong {
+.stat-pill-blocked strong {
   color: #d4960a;
 }
 
@@ -1391,7 +1391,7 @@ body {
 /* Status badge for detail view */
 .badge-status-not-started { background: var(--follett-light-gray); color: var(--follett-dark-gray); }
 .badge-status-in-progress { background: var(--color-b2b-light); color: #2e7aaa; }
-.badge-status-awaiting { background: var(--color-medium-light); color: #a17508; }
+.badge-status-blocked { background: var(--color-medium-light); color: #a17508; }
 .badge-status-approved { background: #d9f0d9; color: #2e7d32; }
 .badge-status-delegated { background: var(--color-b2c-light); color: var(--follett-dark-blue); }
 .badge-status-completed { background: var(--color-comms-light); color: #5e8a4e; }
