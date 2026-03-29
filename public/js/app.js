@@ -1144,7 +1144,7 @@ function renderSidebarFolders() {
   // Any folders not matched
   const unmatchedFolders = deptFolders.filter(f => !Object.values(foldersByDept).flat().includes(f));
 
-  let html = `<button class="sidebar-dept-item ${!activeFolderId ? 'active' : ''}" data-folder-id="">All Notes</button>`;
+  let html = '';
 
   // Special folders first
   specialFolders.forEach(f => {
@@ -1206,7 +1206,7 @@ function renderSidebarFolders() {
       loadNotesList(activeFolderId);
       renderSidebarFolders();
       const folder = activeFolderId ? folders.find(f => f.id === activeFolderId) : null;
-      document.getElementById('notes-folder-title').textContent = folder ? folder.name : 'All Notes';
+      document.getElementById('notes-folder-title').textContent = folder ? folder.name : 'Notes';
       closeSidebar();
     });
   });
@@ -2111,11 +2111,15 @@ async function init() {
       if (view === 'tasks') toggleSidebarSection('tasks-subnav', 'tasks-caret');
       if (view === 'notes') {
         toggleSidebarSection('notes-subnav', 'notes-caret');
-        // Show all notes when clicking the header
-        activeFolderId = null;
-        loadNotesList(null);
+        // Default to All Team folder
+        const allTeamFolder = folders.find(f => f.name === 'All Team');
+        if (allTeamFolder && !activeFolderId) {
+          activeFolderId = allTeamFolder.id;
+        }
+        loadNotesList(activeFolderId);
         renderSidebarFolders();
-        document.getElementById('notes-folder-title').textContent = 'All Notes';
+        const activeFolder = folders.find(f => f.id === activeFolderId);
+        document.getElementById('notes-folder-title').textContent = activeFolder ? activeFolder.name : 'Notes';
       }
       closeSidebar();
     });
