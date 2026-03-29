@@ -90,6 +90,7 @@ body {
   flex-direction: column;
   flex-shrink: 0;
   height: 100vh;
+  height: 100dvh;
   position: sticky;
   top: 0;
   overflow-y: auto;
@@ -318,7 +319,7 @@ body {
 }
 
 .sidebar-footer {
-  padding: 0.5rem 1rem;
+  padding: 0.5rem 1rem 1.5rem;
   font-size: 0.75rem;
 }
 
@@ -2053,6 +2054,7 @@ body {
     z-index: 200;
     transition: left 0.25s ease;
     box-shadow: none;
+    padding-bottom: env(safe-area-inset-bottom, 1rem);
   }
   .sidebar.open {
     left: 0;
