@@ -268,12 +268,25 @@ function renderTaskItem(task) {
     `<option value="${s}" ${s === task.status ? 'selected' : ''}>${s}</option>`
   ).join('');
 
+  // Assignee avatar — show when viewing team or all tasks
+  let avatarHtml = '';
+  if (!showMyTasksOnly) {
+    const assignee = teamMembers.find(m => m.userId === task.assignedTo);
+    const name = assignee ? assignee.displayName : (task.assignedTo === (myProfile && myProfile.userId) ? (myProfile.name || 'Me') : 'Me');
+    const initials = name.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase();
+    // Generate a consistent color from the name
+    const colors = ['#479FC8', '#DC6B67', '#ABC39B', '#204A65', '#7398A9', '#d4960a', '#2e7d32', '#8e6bbf'];
+    const colorIdx = name.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % colors.length;
+    avatarHtml = `<span class="task-avatar" title="${escapeHtml(name)}" style="background:${colors[colorIdx]}">${initials}</span>`;
+  }
+
   return `
     <div class="task-item ${isCompleted ? 'completed' : ''} status-${statusKey} ${isSubtask ? 'subtask-item' : ''}" data-id="${task.id}">
       <button class="task-check ${isCompleted ? 'checked' : ''}" data-action="toggle-complete" data-id="${task.id}" title="${isCompleted ? 'Mark incomplete' : 'Mark complete'}">${isCompleted ? '&#10003;' : ''}</button>
       <select class="status-select status-${statusKey}" data-action="status" data-id="${task.id}" onclick="event.stopPropagation()" onmousedown="event.stopPropagation()">
         ${statusOptions}
       </select>
+      ${avatarHtml}
       <div class="task-body" data-action="detail" data-id="${task.id}">
         <div class="task-title">${escapeHtml(task.title)}</div>
         <div class="task-meta">
