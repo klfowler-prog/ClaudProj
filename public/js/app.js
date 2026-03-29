@@ -294,15 +294,15 @@ function renderTaskItem(task) {
           ${dueDateHtml}
           ${isRecurring ? `<span class="task-recurring" title="${recurringLabel}">&#8635; ${recurringLabel}</span>` : ''}
           ${isCompleted && task.completedAt ? `<span class="task-source">Done ${new Date(task.completedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>` : ''}
-          ${task.subtaskCount > 0 ? `<span class="task-source" style="color: var(--follett-medium-blue);">&#9745; ${task.subtasksCompleted}/${task.subtaskCount}</span>` : ''}
+          ${task.subtaskCount > 0 ? `<span class="task-source" style="color: var(--follett-medium-blue);"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg> ${task.subtasksCompleted}/${task.subtaskCount}</span>` : ''}
         </div>
       </div>
-      ${hasAttachments ? '<span class="task-attachment-icon" title="Has attachments">&#128206;</span>' : ''}
+      ${hasAttachments ? '<span class="task-attachment-icon" title="Has attachments"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></span>' : ''}
       <div class="task-actions">
         ${isConfirming
           ? `<button class="confirm-delete" data-action="confirm-delete" data-id="${task.id}">Delete?</button>
              <button class="btn-danger" data-action="cancel-delete" data-id="${task.id}" title="Cancel">&#10005;</button>`
-          : `<button class="btn-danger" data-action="delete" data-id="${task.id}" title="Delete task">&#128465;</button>`}
+          : `<button class="btn-danger" data-action="delete" data-id="${task.id}" title="Delete task"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>`}
       </div>
     </div>`;
 }
@@ -765,7 +765,7 @@ function renderPendingAttachments() {
   const list = document.getElementById('attachment-list');
   list.innerHTML = pendingAttachments.map((a, i) => `
     <div class="attachment-item">
-      <span class="attachment-item-name">&#128196; ${escapeHtml(a.name)}</span>
+      <span class="attachment-item-name"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> ${escapeHtml(a.name)}</span>
       <button class="attachment-remove" data-attachment-idx="${i}">&times;</button>
     </div>
   `).join('');
@@ -775,7 +775,7 @@ function renderPendingLinks() {
   const list = document.getElementById('link-list');
   list.innerHTML = pendingLinks.map((l, i) => `
     <div class="link-item">
-      <span class="link-item-name">&#128279; ${escapeHtml(l.name || l.url)}</span>
+      <span class="link-item-name"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg> ${escapeHtml(l.name || l.url)}</span>
       <button class="link-remove" data-link-idx="${i}">&times;</button>
     </div>
   `).join('');
@@ -805,9 +805,9 @@ function showTaskDetail(id) {
   if (task.attachments && task.attachments.length > 0) {
     const items = task.attachments.map(a => {
       if (a.type === 'file') {
-        return `<li><a href="${a.data}" download="${escapeHtml(a.name)}">&#128196; ${escapeHtml(a.name)}</a></li>`;
+        return `<li><a href="${a.data}" download="${escapeHtml(a.name)}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> ${escapeHtml(a.name)}</a></li>`;
       } else {
-        return `<li><a href="${escapeHtml(a.url)}" target="_blank" rel="noopener">&#128279; ${escapeHtml(a.name || a.url)}</a></li>`;
+        return `<li><a href="${escapeHtml(a.url)}" target="_blank" rel="noopener"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg> ${escapeHtml(a.name || a.url)}</a></li>`;
       }
     }).join('');
     attachmentsHtml = `
@@ -1084,7 +1084,7 @@ async function checkGmailStatus() {
       syncBtn.innerHTML = '&#8635; Sync Email';
       syncBtn.title = `Connected to ${status.email}`;
     } else {
-      syncBtn.innerHTML = '&#9993; Connect Gmail';
+      syncBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg> Connect Gmail';
       syncBtn.title = 'Connect your task inbox';
     }
     return status.connected;
@@ -1257,8 +1257,9 @@ function renderNotesList() {
     const date = new Date(n.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     const isOwn = myProfile && n.createdBy === myProfile.userId;
     const authorLabel = isOwn ? '' : ` &middot; ${escapeHtml(n.authorName || 'Unknown')}`;
-    const pinIcon = n.pinned ? '&#128204;' : '';
-    const pinBtn = (canPin || isOwn) ? `<span class="note-pin-btn ${n.pinned ? 'pinned' : ''}" data-pin-id="${n.id}" title="${n.pinned ? 'Unpin' : 'Pin to top'}">${n.pinned ? '&#128204;' : '&#128205;'}</span>` : (n.pinned ? '<span class="note-pin-icon">&#128204;</span>' : '');
+    const pinSvg = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 2h6l-1 7h-4L9 2z"/><path d="M5 14h14l-2-5H7l-2 5z"/></svg>';
+    const pinIcon = n.pinned ? pinSvg : '';
+    const pinBtn = (canPin || isOwn) ? `<span class="note-pin-btn ${n.pinned ? 'pinned' : ''}" data-pin-id="${n.id}" title="${n.pinned ? 'Unpin' : 'Pin to top'}">${pinSvg}</span>` : (n.pinned ? `<span class="note-pin-icon">${pinSvg}</span>` : '');
     return `<button class="note-list-item ${activeNoteId === n.id ? 'active' : ''} ${n.pinned ? 'note-pinned' : ''}" data-note-id="${n.id}">
       <div class="note-list-item-title">${pinIcon ? '' : ''}${escapeHtml(n.title || 'Untitled')}</div>
       <div class="note-list-item-date">${date}${authorLabel} ${pinBtn}</div>
@@ -3130,9 +3131,9 @@ async function loadFeatureRequests() {
       const ago = timeAgo(r.createdAt);
       return `<div class="feature-card">
         <div class="feature-votes">
-          <button class="feature-vote-btn ${r.myVote === 'up' ? 'voted-up' : ''}" data-vote-id="${r.id}" data-vote="up" title="Upvote">&#128077;</button>
+          <button class="feature-vote-btn ${r.myVote === 'up' ? 'voted-up' : ''}" data-vote-id="${r.id}" data-vote="up" title="Upvote"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/><path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg></button>
           <span class="feature-score">${r.score}</span>
-          <button class="feature-vote-btn ${r.myVote === 'down' ? 'voted-down' : ''}" data-vote-id="${r.id}" data-vote="down" title="Downvote">&#128078;</button>
+          <button class="feature-vote-btn ${r.myVote === 'down' ? 'voted-down' : ''}" data-vote-id="${r.id}" data-vote="down" title="Downvote"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10z"/><path d="M17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg></button>
         </div>
         <div class="feature-content">
           <div class="feature-summary">${escapeHtml(r.summary)}</div>

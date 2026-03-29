@@ -46,7 +46,7 @@
 
     <!-- Notifications at top -->
     <button class="sidebar-nav-item sidebar-notif-btn" id="btn-notifications" style="position: relative; margin: 0.25rem 0;">
-      <span class="sidebar-icon">&#128276;</span>
+      <span class="sidebar-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></span>
       <span>Notifications</span>
       <span class="notif-badge" id="notif-badge" style="display: none;">0</span>
     </button>
@@ -55,7 +55,7 @@
       <!-- Tasks Section -->
       <div class="sidebar-section">
         <button class="sidebar-nav-item active" data-view="tasks">
-          <span class="sidebar-icon">&#9745;</span>
+          <span class="sidebar-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span>
           <span>Tasks</span>
           <span class="sidebar-caret" id="tasks-caret">&#9662;</span>
         </button>
@@ -82,7 +82,7 @@
       <!-- Notes Section -->
       <div class="sidebar-section">
         <button class="sidebar-nav-item" data-view="notes">
-          <span class="sidebar-icon">&#128196;</span>
+          <span class="sidebar-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></span>
           <span>Strategy &amp; Notes</span>
           <span class="sidebar-caret" id="notes-caret">&#9656;</span>
         </button>
@@ -97,11 +97,11 @@
       <!-- Middle section items -->
       <div class="sidebar-section">
         <button class="sidebar-nav-item" id="btn-open-chat">
-          <span class="sidebar-icon">&#10024;</span>
+          <span class="sidebar-icon" style="color:var(--follett-light-blue);">&#10024;</span>
           <span>AI Assistant</span>
         </button>
         <button class="sidebar-nav-item" id="btn-feature-requests" data-view="features">
-          <span class="sidebar-icon">&#128161;</span>
+          <span class="sidebar-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/></svg></span>
           <span>Ideas &amp; Feedback</span>
         </button>
       </div>
@@ -111,7 +111,7 @@
     <div class="sidebar-settings">
       <div class="sidebar-section" id="sidebar-team-section" style="display: none;">
         <button class="sidebar-nav-item" data-view="team">
-          <span class="sidebar-icon">&#128101;</span>
+          <span class="sidebar-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
           <span>Team Management</span>
         </button>
       </div>
@@ -182,7 +182,7 @@
       <div class="task-list-container">
         <div class="task-list" id="task-list"></div>
         <div class="empty-state" id="empty-state" style="display: none;">
-          <div class="empty-icon">&#9776;</div>
+          <div class="empty-icon"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--follett-medium-blue)" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div>
           <p class="empty-title">No tasks yet</p>
           <p class="empty-subtitle">Click "Add Task" to get started, or import from email/Slack</p>
         </div>
@@ -261,7 +261,7 @@
             <select class="filter-select-compact" id="note-folder-select" title="Move to folder"></select>
             <button class="btn btn-secondary btn-sm" id="btn-share-note">Share</button>
             <button class="btn btn-ghost btn-sm" id="btn-archive-note" title="Archive note" style="font-size: 0.7rem;">Archive</button>
-            <button class="btn-danger" id="btn-delete-note" title="Delete note">&#128465;</button>
+            <button class="btn-danger" id="btn-delete-note" title="Delete note"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
           </div>
         </div>
         <div class="editor-toolbar">
@@ -307,7 +307,7 @@
 
       <!-- No note selected -->
       <div class="notes-no-selection" id="notes-no-selection">
-        <div class="empty-icon">&#128196;</div>
+        <div class="empty-icon"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--follett-medium-blue)" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></div>
         <p class="empty-subtitle">Select a note or create a new one</p>
       </div>
     </div><!-- /view-notes -->
@@ -316,7 +316,7 @@
     <div id="view-ai" class="ai-view" style="display: none;">
       <div class="ai-chat-container">
         <div class="ai-welcome" id="ai-welcome">
-          <div class="ai-welcome-icon">&#10024;</div>
+          <div class="ai-welcome-icon" style="color:var(--follett-medium-blue);">&#10024;</div>
           <h2 class="ai-welcome-title">How can I help?</h2>
           <p class="ai-welcome-subtitle">I can see all your tasks and notes. Ask me about priorities, status updates, strategy, or anything else.</p>
           <div class="ai-suggestions">
@@ -449,7 +449,7 @@
     <div id="view-features" style="display: none;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
         <h2 style="font-family: 'IBM Plex Serif', Georgia, serif; font-size: 1.25rem; color: var(--follett-dark-blue);">Ideas &amp; Feedback</h2>
-        <button class="btn btn-primary btn-sm" id="btn-suggest-feature-inline">&#128161; Suggest Improvement</button>
+        <button class="btn btn-primary btn-sm" id="btn-suggest-feature-inline"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:3px;"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/></svg>Suggest Improvement</button>
       </div>
       <div id="feature-requests-list"></div>
       <div id="feature-requests-empty" style="display:none;text-align:center;padding:2rem;color:var(--color-text-muted);">No suggestions yet. Be the first!</div>
