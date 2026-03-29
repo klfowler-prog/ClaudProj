@@ -2579,7 +2579,7 @@ async function showNotifications() {
         item.classList.add('notif-read');
         loadNotifications(); // Update badge count
       }
-      if (item.dataset.taskId) { switchView('tasks'); }
+      if (item.dataset.taskId) { showTaskDetail(item.dataset.taskId); }
     });
   });
 }
