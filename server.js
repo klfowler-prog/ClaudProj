@@ -758,7 +758,7 @@ app.get('/api/notes', auth, async (req, res) => {
     if (req.query.folderId) {
       query = orgCol(req, 'notes').where('folderId', '==', req.query.folderId);
     } else {
-      query = orgCol(req, 'notes').orderBy('updatedAt', 'desc');
+      query = orgCol(req, 'notes');
     }
     const snapshot = await query.get();
 
@@ -819,7 +819,10 @@ app.get('/api/notes', auth, async (req, res) => {
       return (b.updatedAt || '').localeCompare(a.updatedAt || '');
     });
     res.json(notes);
-  } catch (err) { res.status(500).json({ error: 'Failed to fetch notes' }); }
+  } catch (err) {
+    console.error('Failed to fetch notes:', err.message);
+    res.status(500).json({ error: 'Failed to fetch notes: ' + err.message });
+  }
 });
 
 app.get('/api/notes/:id', auth, async (req, res) => {
