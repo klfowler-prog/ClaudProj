@@ -6,7 +6,7 @@ const SUB_DEPARTMENTS = {
 };
 const ALL_SUB_DEPTS = Object.values(SUB_DEPARTMENTS).flat();
 const PRIORITIES = ['High', 'Medium', 'Low'];
-const STATUSES = ['Not Started', 'In Progress', 'Awaiting Feedback', 'Delegated', 'Completed'];
+const STATUSES = ['Not Started', 'In Progress', 'Awaiting Feedback', 'Approved', 'Delegated', 'Completed'];
 const STORAGE_KEY = 'cmo_tasks';
 const MIGRATION_KEY = 'cmo_migrated_to_cloud';
 
@@ -43,6 +43,7 @@ const STATUS_KEYS = {
   'Not Started': 'not-started',
   'In Progress': 'in-progress',
   'Awaiting Feedback': 'awaiting',
+  'Approved': 'approved',
   'Delegated': 'delegated',
   'Completed': 'completed'
 };
@@ -134,12 +135,14 @@ function renderStats() {
   const notStarted = filtered.filter(t => t.status === 'Not Started').length;
   const inProgress = filtered.filter(t => t.status === 'In Progress').length;
   const awaiting = filtered.filter(t => t.status === 'Awaiting Feedback').length;
+  const approved = filtered.filter(t => t.status === 'Approved').length;
   const delegated = filtered.filter(t => t.status === 'Delegated').length;
   const overdue = filtered.filter(t => t.status !== 'Completed' && t.status !== 'Delegated' && t.dueDate && t.dueDate < today).length;
   const completed = filtered.filter(t => t.status === 'Completed').length;
   document.getElementById('stat-not-started').textContent = notStarted;
   document.getElementById('stat-in-progress').textContent = inProgress;
   document.getElementById('stat-awaiting').textContent = awaiting;
+  document.getElementById('stat-approved').textContent = approved;
   document.getElementById('stat-delegated').textContent = delegated;
   document.getElementById('stat-overdue').textContent = overdue;
   document.getElementById('stat-completed').textContent = completed;
@@ -320,6 +323,8 @@ function renderTaskList() {
     activeTasks = activeTasks.filter(t => t.status === 'In Progress');
   } else if (sf === 'awaiting') {
     activeTasks = activeTasks.filter(t => t.status === 'Awaiting Feedback');
+  } else if (sf === 'approved') {
+    activeTasks = activeTasks.filter(t => t.status === 'Approved');
   } else if (sf === 'overdue') {
     activeTasks = activeTasks.filter(t => t.dueDate && t.dueDate < today);
   } else if (sf === 'delegated') {

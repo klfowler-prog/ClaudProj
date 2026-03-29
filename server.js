@@ -1847,6 +1847,7 @@ app.listen(PORT, async () => {
 <tr><td>Not Started</td><td>Haven't begun yet</td></tr>
 <tr><td>In Progress</td><td>Actively working on it</td></tr>
 <tr><td>Awaiting Feedback</td><td>Blocked — waiting on someone else</td></tr>
+<tr><td>Approved</td><td>Signed off — ready to finalize</td></tr>
 <tr><td>Delegated</td><td>Assigned to someone else</td></tr>
 <tr><td>Completed</td><td>Done!</td></tr>
 </table>
