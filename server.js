@@ -400,6 +400,11 @@ app.put('/api/tasks/:id', auth, async (req, res) => {
 
     if (updates.status) updates.completed = updates.status === 'Completed';
 
+    // Track who approved the task
+    if (updates.status === 'Approved') {
+      updates.approvedBy = req.userId;
+    }
+
     // When a task is reassigned, reset Delegated status back to Not Started
     if (updates.assignedTo && updates.assignedTo !== oldTask.assignedTo && oldTask.status === 'Delegated') {
       if (!updates.status) {
@@ -426,6 +431,28 @@ app.put('/api/tasks/:id', auth, async (req, res) => {
       await createNotification(req.orgId, oldTask.createdBy, {
         type: 'task_approved',
         title: `${req.memberName} approved: ${oldTask.title}`,
+        taskId: req.params.id,
+        fromUserId: req.userId,
+        fromName: req.memberName
+      });
+    }
+
+    // Notify the approver when an approved task is completed
+    if (updates.status === 'Completed' && oldTask.approvedBy && oldTask.approvedBy !== req.userId) {
+      await createNotification(req.orgId, oldTask.approvedBy, {
+        type: 'task_completed_after_approval',
+        title: `${req.memberName} completed: ${oldTask.title}`,
+        taskId: req.params.id,
+        fromUserId: req.userId,
+        fromName: req.memberName
+      });
+    }
+
+    // Notify the creator when their delegated task is completed (if not the approver)
+    if (updates.status === 'Completed' && oldTask.createdBy && oldTask.createdBy !== req.userId && oldTask.createdBy !== oldTask.approvedBy) {
+      await createNotification(req.orgId, oldTask.createdBy, {
+        type: 'task_completed',
+        title: `${req.memberName} completed: ${oldTask.title}`,
         taskId: req.params.id,
         fromUserId: req.userId,
         fromName: req.memberName
