@@ -225,6 +225,10 @@ body {
 .sidebar-icon svg {
   flex-shrink: 0;
 }
+.sidebar-icon-ai {
+  color: var(--follett-light-blue) !important;
+  font-size: 1.1rem;
+}
 
 .sidebar-caret {
   margin-left: auto;
@@ -557,16 +561,18 @@ body {
   cursor: pointer;
   font-size: 0.7rem;
   opacity: 0.3;
-  transition: opacity 0.2s;
+  transition: opacity 0.2s, color 0.2s;
+  color: var(--color-text-muted);
 }
 
 .note-list-item:hover .note-pin-btn { opacity: 0.7; }
-.note-pin-btn.pinned { opacity: 1; }
+.note-pin-btn.pinned { opacity: 1; color: var(--follett-coral); }
 .note-pin-btn:hover { opacity: 1 !important; }
 
 .note-pin-icon {
   font-size: 0.7rem;
-  opacity: 0.5;
+  opacity: 0.7;
+  color: var(--follett-coral);
 }
 
 .notes-empty {
