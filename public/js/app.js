@@ -78,8 +78,6 @@ async function loadTasks() {
   }
 }
 
-// No-op: each mutation calls the API directly
-function saveTasks() {}
 
 // === localStorage Migration ===
 async function migrateLocalStorage() {
@@ -2494,19 +2492,16 @@ async function loadProfile() {
 
 // === Daily Briefing / Onboarding ===
 async function showBriefingIfNeeded() {
-  console.log('[Briefing] myProfile:', myProfile ? myProfile.name : 'null');
-  if (!myProfile) { console.warn('[Briefing] No profile, skipping'); return; }
+  if (!myProfile) return;
 
   const overlay = document.getElementById('briefing-overlay');
   const content = document.getElementById('briefing-content');
-  if (!overlay || !content) { console.warn('[Briefing] Overlay element not found in DOM'); return; }
+  if (!overlay || !content) return;
 
   // First-time onboarding: show once ever
   const onboardingKey = `onboarding_complete_${currentUser.uid}`;
-  console.log('[Briefing] onboarding key:', onboardingKey, 'value:', localStorage.getItem(onboardingKey));
   if (!localStorage.getItem(onboardingKey)) {
     const firstName = (myProfile.name || myProfile.displayName || 'there').split(' ')[0];
-    console.log('[Briefing] Showing onboarding for', firstName);
     content.innerHTML = `
       <div class="briefing-greeting">Welcome to Follett Marketing, ${escapeHtml(firstName)}!</div>
       <p style="font-size:0.9rem;color:var(--color-text-muted);margin-bottom:1.25rem;">This is our home base for tracking work, sharing notes, and staying on top of priorities across the marketing team.</p>

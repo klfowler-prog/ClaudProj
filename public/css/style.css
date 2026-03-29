@@ -1359,9 +1359,14 @@ body {
   color: #2e7aaa;
 }
 
-.status-select.status-awaiting {
+.status-select.status-blocked {
   background-color: var(--color-medium-light);
   color: #a17508;
+}
+
+.status-select.status-approved {
+  background-color: #d9f0d9;
+  color: #2e7d32;
 }
 
 .status-select.status-delegated {
@@ -1413,7 +1418,8 @@ body {
 
 /* Task left border by status */
 .task-item.status-in-progress { border-left-color: var(--follett-medium-blue); }
-.task-item.status-awaiting { border-left-color: #d4960a; }
+.task-item.status-blocked { border-left-color: #d4960a; }
+.task-item.status-approved { border-left-color: #2e7d32; }
 .task-item.status-not-started { border-left-color: transparent; }
 .task-item.status-delegated { border-left-color: var(--follett-dark-blue); }
 .task-item.status-completed { border-left-color: var(--follett-sage); }

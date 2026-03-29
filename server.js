@@ -57,6 +57,25 @@ function getMemberSubDepts(m) {
   return [];
 }
 
+// Check if user has access to a note
+async function checkNoteAccess(req, note) {
+  if (req.memberRole === 'cmo') return true;
+  if (note.createdBy === req.userId) return true;
+  if (note.folderId) {
+    const folderDoc = await orgCol(req, 'folders').doc(note.folderId).get();
+    if (folderDoc.exists) {
+      const fd = folderDoc.data();
+      if (fd.shared) return true;
+      if (fd.leadersOnly && req.memberRole === 'lead') return true;
+    }
+  }
+  const sw = note.sharedWith || [];
+  if (sw.includes(req.userId) || sw.includes('all')) return true;
+  if (req.memberDepts.some(d => sw.includes('dept:' + d))) return true;
+  if (req.memberReportsTo && sw.includes('reports:' + req.memberReportsTo)) return true;
+  return false;
+}
+
 // === Org Resolution Middleware ===
 async function resolveOrg(req, res, next) {
   try {
@@ -394,8 +413,12 @@ app.put('/api/tasks/:id', auth, async (req, res) => {
       'completed', 'completedAt', 'dueDate', 'attachments', 'emailMessageId', 'recurring',
       'assignedTo', 'sharedWith', 'parentTaskId', 'subDepartment', 'blockedReason'];
 
+    const validStatuses = ['Not Started', 'In Progress', 'Blocked', 'Approved', 'Delegated', 'Completed'];
     for (const field of allowedFields) {
       if (req.body[field] !== undefined) updates[field] = req.body[field];
+    }
+    if (updates.status && !validStatuses.includes(updates.status)) {
+      return res.status(400).json({ error: 'Invalid status value' });
     }
 
     if (updates.status) updates.completed = updates.status === 'Completed';
@@ -514,6 +537,11 @@ app.delete('/api/tasks/:id', authWrite, async (req, res) => {
     const taskRef = orgCol(req, 'tasks').doc(req.params.id);
     const doc = await taskRef.get();
     if (!doc.exists) return res.status(404).json({ error: 'Task not found' });
+    const task = doc.data();
+    // Only creator or CMO can delete
+    if (req.memberRole !== 'cmo' && task.createdBy !== req.userId) {
+      return res.status(403).json({ error: 'Only the task creator can delete this task' });
+    }
     await taskRef.delete();
     res.json({ deleted: true });
   } catch (err) {
@@ -564,6 +592,15 @@ app.post('/api/tasks/:id/comments', auth, async (req, res) => {
   try {
     const { text } = req.body;
     if (!text || !text.trim()) return res.status(400).json({ error: 'Comment text required' });
+
+    // Verify user can access this task
+    const taskCheck = await orgCol(req, 'tasks').doc(req.params.id).get();
+    if (!taskCheck.exists) return res.status(404).json({ error: 'Task not found' });
+    const taskData = taskCheck.data();
+    if (req.memberRole !== 'cmo' && taskData.createdBy !== req.userId && taskData.assignedTo !== req.userId &&
+        !req.memberDepts.includes(taskData.department) && !(taskData.sharedWith || []).includes(req.userId)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
 
     const comment = {
       taskId: req.params.id,
@@ -893,22 +930,8 @@ app.get('/api/notes/:id', auth, async (req, res) => {
     const doc = await orgCol(req, 'notes').doc(req.params.id).get();
     if (!doc.exists) return res.status(404).json({ error: 'Note not found' });
     const note = doc.data();
-    // Non-CMO can only read their own notes, shared notes, or notes in shared folders
-    if (req.memberRole !== 'cmo' && note.createdBy !== req.userId) {
-      // Check if note is in a shared or leaders-only folder
-      let hasAccess = false;
-      if (note.folderId) {
-        const folderDoc = await orgCol(req, 'folders').doc(note.folderId).get();
-        if (folderDoc.exists) {
-          const fd = folderDoc.data();
-          if (fd.shared) hasAccess = true;
-          if (fd.leadersOnly && req.memberRole === 'lead') hasAccess = true;
-        }
-      }
-      const sw = note.sharedWith || [];
-      if (!hasAccess && !sw.includes(req.userId) && !req.memberDepts.some(d => sw.includes('dept:' + d)) && !(req.memberReportsTo && sw.includes('reports:' + req.memberReportsTo)) && !sw.includes('all')) {
-        return res.status(403).json({ error: 'Access denied' });
-      }
+    if (!(await checkNoteAccess(req, note))) {
+      return res.status(403).json({ error: 'Access denied' });
     }
     res.json({ id: doc.id, ...note });
   } catch (err) { res.status(500).json({ error: 'Failed to fetch note' }); }
@@ -951,6 +974,12 @@ app.put('/api/notes/:id', authWrite, async (req, res) => {
 
 app.delete('/api/notes/:id', authWrite, async (req, res) => {
   try {
+    const doc = await orgCol(req, 'notes').doc(req.params.id).get();
+    if (!doc.exists) return res.status(404).json({ error: 'Note not found' });
+    const note = doc.data();
+    if (req.memberRole !== 'cmo' && note.createdBy !== req.userId) {
+      return res.status(403).json({ error: 'Only the note creator can delete this note' });
+    }
     await orgCol(req, 'notes').doc(req.params.id).delete();
     res.json({ deleted: true });
   } catch (err) { res.status(500).json({ error: 'Failed to delete note' }); }
@@ -1056,6 +1085,7 @@ app.post('/api/notes/:id/summarize', auth, async (req, res) => {
     if (!doc.exists) return res.status(404).json({ error: 'Note not found' });
 
     const note = doc.data();
+    if (!(await checkNoteAccess(req, note))) return res.status(403).json({ error: 'Access denied' });
     const text = stripHtml(note.content || '');
     if (!text || text.length < 10) return res.status(400).json({ error: 'Note is too short to summarize' });
 
@@ -1085,6 +1115,7 @@ app.post('/api/notes/:id/ask', auth, async (req, res) => {
     if (!doc.exists) return res.status(404).json({ error: 'Note not found' });
 
     const note = doc.data();
+    if (!(await checkNoteAccess(req, note))) return res.status(403).json({ error: 'Access denied' });
     const text = stripHtml(note.content || '');
 
     const model = getGeminiModel();
@@ -1105,6 +1136,7 @@ app.post('/api/notes/:id/generate-tasks', auth, async (req, res) => {
     if (!doc.exists) return res.status(404).json({ error: 'Note not found' });
 
     const note = doc.data();
+    if (!(await checkNoteAccess(req, note))) return res.status(403).json({ error: 'Access denied' });
     const text = stripHtml(note.content || '');
 
     // Get team members for assignee suggestions
@@ -2008,98 +2040,6 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, async () => {
+app.listen(PORT, () => {
   console.log(`CMO Task Manager running on port ${PORT}`);
-
-  // One-time migration: update Welcome note content
-  try {
-    const orgsSnap = await db.collection('orgs').get();
-    for (const orgDoc of orgsSnap.docs) {
-      const foldersSnap = await orgDoc.ref.collection('folders').where('name', '==', 'All Team').get();
-      if (foldersSnap.empty) continue;
-      const allTeamFolderId = foldersSnap.docs[0].id;
-
-      // Find the Welcome note
-      const notesSnap = await orgDoc.ref.collection('notes')
-        .where('folderId', '==', allTeamFolderId)
-        .where('title', '==', 'Welcome!')
-        .get();
-
-      if (notesSnap.empty) {
-        console.log('[Migration] No Welcome note found in All Team folder, skipping');
-        continue;
-      }
-
-      const welcomeContent = `<h2>Welcome to Follett Marketing</h2>
-<p>Hi team! I'm excited to share a tool I've built to help us stay organized and aligned across marketing. <strong>Follett Marketing</strong> is our task and strategy management app — think of it as our home base for tracking work, sharing notes, and staying on top of priorities.</p>
-
-<h3>What you can do:</h3>
-
-<p><strong>Tasks</strong> — Create, assign, and track tasks across your department. Each task has a priority, due date, status, subtasks, comments, and file attachments. Use the <strong>My Tasks / My Team / All</strong> toggles to focus your view.</p>
-
-<p><strong>Strategy &amp; Notes</strong> — Keep meeting notes, strategy docs, and department documentation organized by folder. Notes are private by default — share them with specific people, your department, or the whole team. You can attach files and links to notes too.</p>
-
-<p><strong>AI Assistant</strong> — Click the sparkle icon in the sidebar. It can see your tasks and notes to help with priorities, summaries, and strategy questions. Try asking "What should I focus on today?" You can also use <strong>Quick Add</strong> to paste an email or Slack message and let AI turn it into a task.</p>
-
-<p><strong>Daily Briefing</strong> — Each morning when you log in, you'll see a personalized summary of what's due today, what's overdue, and what's coming up this week.</p>
-
-<p><strong>Notifications</strong> — You'll get notified when tasks are assigned to you, when someone comments on your tasks, or when due dates are approaching.</p>
-
-<h3>Getting started:</h3>
-<ol>
-<li>Use the password reset link I sent you to set your password</li>
-<li>Log in with your email and password</li>
-<li>Your assigned tasks and department tasks will be waiting for you</li>
-<li>Create notes in Strategy &amp; Notes — they're private unless you share them</li>
-</ol>
-
-<h3>Task statuses:</h3>
-<table>
-<tr><th>Status</th><th>What it means</th></tr>
-<tr><td>Not Started</td><td>Haven't begun yet</td></tr>
-<tr><td>In Progress</td><td>Actively working on it</td></tr>
-<tr><td>Blocked</td><td>Stuck on an external dependency — waiting on someone or something</td></tr>
-<tr><td>Approved</td><td>Signed off — ready to finalize</td></tr>
-<tr><td>Delegated</td><td>Assigned to someone else</td></tr>
-<tr><td>Completed</td><td>Done!</td></tr>
-</table>
-<p>Update your statuses as you work — it helps everyone see where things stand without having to ask.</p>
-
-<h3>Tips:</h3>
-<ul>
-<li>Set due dates on everything so we can sort by urgency</li>
-<li>Use <strong>Quick Add</strong> to paste in emails or messages and create tasks instantly</li>
-<li>Add subtasks to break big tasks into smaller pieces</li>
-<li>Share notes when you want the team to see your strategy docs</li>
-<li>Got an idea to make the app better? Use <strong>Ideas &amp; Feedback</strong> in the sidebar</li>
-</ul>
-
-<p>This is a living tool — we'll keep improving it together. If something is confusing, missing, or could be better, let me know in our next 1:1 or drop it in Ideas &amp; Feedback.</p>
-
-<p>— Leann</p>`;
-
-      for (const noteDoc of notesSnap.docs) {
-        await noteDoc.ref.update({ content: welcomeContent, updatedAt: new Date().toISOString() });
-        console.log('[Migration] Updated Welcome note:', noteDoc.id);
-      }
-    }
-  } catch (err) {
-    console.error('[Migration] Failed to update Welcome note:', err.message);
-  }
-
-  // One-time migration: rename "Awaiting Feedback" → "Blocked"
-  try {
-    const orgsSnap2 = await db.collection('orgs').get();
-    for (const orgDoc of orgsSnap2.docs) {
-      const tasksSnap = await orgDoc.ref.collection('tasks')
-        .where('status', '==', 'Awaiting Feedback').get();
-      if (tasksSnap.empty) continue;
-      console.log(`[Migration] Renaming ${tasksSnap.size} "Awaiting Feedback" tasks to "Blocked" in org ${orgDoc.id}`);
-      for (const taskDoc of tasksSnap.docs) {
-        await taskDoc.ref.update({ status: 'Blocked' });
-      }
-    }
-  } catch (err) {
-    console.error('[Migration] Failed to rename Awaiting Feedback:', err.message);
-  }
 });
