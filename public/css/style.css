@@ -955,8 +955,19 @@ body {
   padding: 0.75rem 1rem;
   border-radius: var(--radius-lg);
   max-width: 85%;
-  white-space: pre-wrap;
 }
+.ai-msg-user { white-space: pre-wrap; }
+.ai-msg-ai pre {
+  background: var(--follett-light-gray);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.75rem;
+  overflow-x: auto;
+  font-size: 0.8rem;
+  margin: 0.5em 0;
+  white-space: pre;
+}
+.ai-msg-ai code { font-family: 'Courier New', monospace; }
+.ai-msg-ai li { margin-bottom: 0.25em; }
 
 .ai-msg-user {
   background: var(--follett-dark-blue);

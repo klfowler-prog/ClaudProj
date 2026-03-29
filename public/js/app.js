@@ -280,7 +280,6 @@ function renderTaskItem(task) {
 
   return `
     <div class="task-item ${isCompleted ? 'completed' : ''} status-${statusKey} ${isSubtask ? 'subtask-item' : ''}" data-id="${task.id}">
-      <button class="task-check ${isCompleted ? 'checked' : ''}" data-action="toggle-complete" data-id="${task.id}" title="${isCompleted ? 'Mark incomplete' : 'Mark complete'}">${isCompleted ? '&#10003;' : ''}</button>
       <select class="status-select status-${statusKey}" data-action="status" data-id="${task.id}" onclick="event.stopPropagation()" onmousedown="event.stopPropagation()">
         ${statusOptions}
       </select>
@@ -439,11 +438,39 @@ function escapeHtmlWithLinks(str) {
   return escaped.replace(
     /(https?:\/\/[^\s<>"']+)/g,
     function(url) {
-      // Unescape &amp; back to & for the href attribute
       const cleanUrl = url.replace(/&amp;/g, '&');
       return `<a href="${cleanUrl}" target="_blank" rel="noopener" class="inline-link">${url}</a>`;
     }
   );
+}
+
+function renderMarkdown(str) {
+  let html = escapeHtml(str);
+  // Code blocks (``` ... ```)
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code style="background:var(--follett-light-gray);padding:0.1em 0.3em;border-radius:3px;font-size:0.85em;">$1</code>');
+  // Headers
+  html = html.replace(/^### (.+)$/gm, '<strong style="font-size:0.95em;display:block;margin-top:0.75em;">$1</strong>');
+  html = html.replace(/^## (.+)$/gm, '<strong style="font-size:1.05em;display:block;margin-top:0.75em;">$1</strong>');
+  html = html.replace(/^# (.+)$/gm, '<strong style="font-size:1.1em;display:block;margin-top:0.75em;">$1</strong>');
+  // Bold and italic
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  // Unordered lists
+  html = html.replace(/^[-•] (.+)$/gm, '<li style="margin-left:1.25em;list-style:disc;">$1</li>');
+  // Numbered lists
+  html = html.replace(/^\d+\. (.+)$/gm, '<li style="margin-left:1.25em;list-style:decimal;">$1</li>');
+  // Line breaks (but not inside pre blocks)
+  html = html.replace(/\n/g, '<br>');
+  // Clean up br inside pre
+  html = html.replace(/<pre><code>([\s\S]*?)<\/code><\/pre>/g, (m, code) => '<pre><code>' + code.replace(/<br>/g, '\n') + '</code></pre>');
+  // Links
+  html = html.replace(/(https?:\/\/[^\s<>"']+)/g, (url) => {
+    const cleanUrl = url.replace(/&amp;/g, '&');
+    return `<a href="${cleanUrl}" target="_blank" rel="noopener" class="inline-link">${url}</a>`;
+  });
+  return html;
 }
 
 // === Due Date Formatting ===
@@ -1915,7 +1942,7 @@ function addChatMessage(role, text) {
   const container = document.getElementById('ai-messages');
   const div = document.createElement('div');
   div.className = `ai-msg ${role === 'user' ? 'ai-msg-user' : 'ai-msg-ai'}`;
-  div.innerHTML = role === 'user' ? escapeHtml(text) : escapeHtmlWithLinks(text);
+  div.innerHTML = role === 'user' ? escapeHtml(text) : renderMarkdown(text);
   container.appendChild(div);
   container.scrollTop = container.scrollHeight;
   return div;
@@ -1939,7 +1966,7 @@ async function sendChatMessage(messageOverride) {
       history: chatHistory.slice(-10)
     });
     loadingDiv.classList.remove('loading');
-    loadingDiv.innerHTML = escapeHtmlWithLinks(result.reply);
+    loadingDiv.innerHTML = renderMarkdown(result.reply);
     chatHistory.push({ role: 'model', text: result.reply });
   } catch (err) {
     loadingDiv.classList.remove('loading');
