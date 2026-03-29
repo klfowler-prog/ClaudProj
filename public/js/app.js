@@ -2024,7 +2024,7 @@ async function init() {
     } catch (err) {
       alert('AI parsing failed: ' + err.message);
     }
-    btn.innerHTML = '&#10024; Create Task';
+    btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="vertical-align:-1px;"><path d="M12 0l1.8 7.6L22 8l-6.4 4.2L18 20l-6-4.8L6 20l2.4-7.8L2 8l8.2-.4z"/></svg> Create Task';
     btn.disabled = false;
   });
 
