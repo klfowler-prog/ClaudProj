@@ -857,7 +857,7 @@ function showTaskDetail(id) {
     </div>
 
     <div class="detail-actions">
-      ${(myProfile && task.createdBy && task.createdBy !== myProfile.userId && task.status !== 'Approved' && task.status !== 'Completed') ? `<button class="btn btn-primary" onclick="approveAndReturn('${task.id}', '${task.createdBy}')" style="background:#2e7d32;">&#10003; Approve &amp; Assign Back</button>` : ''}
+      ${(myProfile && task.createdBy && task.createdBy !== myProfile.userId && task.status !== 'Approved' && task.status !== 'Completed') ? `<button class="btn btn-primary" onclick="approveAndReturn('${task.id}', '${task.createdBy}')" style="background:#2e7d32;">&#10003; Approve</button><button class="btn btn-secondary" onclick="needsRevision('${task.id}', '${task.createdBy}')" style="color:var(--follett-coral);border-color:var(--follett-coral);">&#8617; Needs Revision</button>` : ''}
       <button class="btn btn-primary" onclick="editTask('${task.id}')">Edit Task</button>
     </div>
   `;
@@ -943,6 +943,18 @@ async function approveAndReturn(taskId, createdBy) {
     await loadTasks();
     render();
   } catch (err) { alert('Failed to approve: ' + err.message); }
+}
+
+async function needsRevision(taskId, createdBy) {
+  const comment = prompt('What needs to be revised?');
+  if (!comment) return; // cancelled or empty — don't send back without feedback
+  try {
+    await api('POST', `/api/tasks/${taskId}/comments`, { text: comment });
+    await api('PUT', `/api/tasks/${taskId}`, { status: 'In Progress', assignedTo: createdBy });
+    closeModal('modal-detail');
+    await loadTasks();
+    render();
+  } catch (err) { alert('Failed to send back: ' + err.message); }
 }
 
 async function reassignTask(taskId, newAssignee) {
