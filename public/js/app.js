@@ -306,12 +306,16 @@ function renderTaskList() {
   const completedCount = document.getElementById('completed-count');
 
   const today = new Date().toISOString().split('T')[0];
+  const approvedSection = document.getElementById('approved-section');
+  const approvedList = document.getElementById('approved-list');
+  const approvedCountEl = document.getElementById('approved-count');
   const delegatedSection = document.getElementById('delegated-section');
   const delegatedList = document.getElementById('delegated-list');
   const delegatedCountEl = document.getElementById('delegated-count');
 
-  // Split tasks: active (not delegated, not completed), delegated, completed
-  let activeTasks = filtered.filter(t => t.status !== 'Completed' && t.status !== 'Delegated');
+  // Split tasks: active (not approved, not delegated, not completed), approved, delegated, completed
+  let activeTasks = filtered.filter(t => t.status !== 'Completed' && t.status !== 'Delegated' && t.status !== 'Approved');
+  const approvedTasks = filtered.filter(t => t.status === 'Approved');
   const delegatedTasks = filtered.filter(t => t.status === 'Delegated');
   const completedTasks = getFilteredCompletedTasks();
 
@@ -324,7 +328,7 @@ function renderTaskList() {
   } else if (sf === 'awaiting') {
     activeTasks = activeTasks.filter(t => t.status === 'Awaiting Feedback');
   } else if (sf === 'approved') {
-    activeTasks = activeTasks.filter(t => t.status === 'Approved');
+    activeTasks = approvedTasks;
   } else if (sf === 'overdue') {
     activeTasks = activeTasks.filter(t => t.dueDate && t.dueDate < today);
   } else if (sf === 'delegated') {
@@ -334,7 +338,7 @@ function renderTaskList() {
   }
 
   // Active tasks
-  const totalVisible = activeTasks.length + delegatedTasks.length + completedTasks.length;
+  const totalVisible = activeTasks.length + approvedTasks.length + delegatedTasks.length + completedTasks.length;
   if (totalVisible === 0) {
     container.innerHTML = '';
     emptyState.style.display = 'block';
@@ -345,6 +349,7 @@ function renderTaskList() {
       document.querySelector('.empty-title').textContent = 'No matching tasks';
       document.querySelector('.empty-subtitle').textContent = 'Try adjusting your filters';
     }
+    approvedSection.style.display = 'none';
     delegatedSection.style.display = 'none';
     completedSection.style.display = 'none';
     return;
@@ -362,6 +367,15 @@ function renderTaskList() {
     container.innerHTML = '<div class="empty-state" style="padding: 1.5rem;"><p class="empty-subtitle">No active tasks matching this filter</p></div>';
   } else {
     container.innerHTML = sortTasks(activeTasks).map(renderTaskItem).join('');
+  }
+
+  // Approved section (collapsed by default, hidden when approved pill is active)
+  if (approvedTasks.length > 0 && sf !== 'approved') {
+    approvedSection.style.display = 'block';
+    approvedCountEl.textContent = approvedTasks.length;
+    approvedList.innerHTML = sortTasks(approvedTasks).map(renderTaskItem).join('');
+  } else {
+    approvedSection.style.display = 'none';
   }
 
   // Delegated section (collapsed by default, hidden when delegated pill is active)
@@ -2302,6 +2316,14 @@ async function init() {
   document.getElementById('completed-period').addEventListener('change', render);
 
   // Delegated section toggle
+  document.getElementById('approved-toggle').addEventListener('click', () => {
+    const list = document.getElementById('approved-list');
+    const toggle = document.getElementById('approved-toggle');
+    const isHidden = list.style.display === 'none';
+    list.style.display = isHidden ? 'flex' : 'none';
+    toggle.textContent = isHidden ? 'Hide' : 'Show';
+  });
+
   document.getElementById('delegated-toggle').addEventListener('click', () => {
     const list = document.getElementById('delegated-list');
     const toggle = document.getElementById('delegated-toggle');

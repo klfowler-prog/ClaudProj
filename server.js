@@ -421,6 +421,17 @@ app.put('/api/tasks/:id', auth, async (req, res) => {
       });
     }
 
+    // Notify the delegator when a task is approved
+    if (updates.status === 'Approved' && oldTask.createdBy && oldTask.createdBy !== req.userId) {
+      await createNotification(req.orgId, oldTask.createdBy, {
+        type: 'task_approved',
+        title: `${req.memberName} approved: ${oldTask.title}`,
+        taskId: req.params.id,
+        fromUserId: req.userId,
+        fromName: req.memberName
+      });
+    }
+
     // Notify parent task owner when a sub-task is completed
     if (updates.status === 'Completed' && oldTask.parentTaskId) {
       const parentDoc = await orgCol(req, 'tasks').doc(oldTask.parentTaskId).get();
