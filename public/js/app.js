@@ -2610,6 +2610,34 @@ async function showBriefingIfNeeded() {
       html += `</div>`;
     }
 
+    // Monday weekly digest
+    if (b.weeklyDigest) {
+      const wd = b.weeklyDigest;
+      html += `<div class="briefing-team-section">`;
+      html += `<div class="briefing-greeting" style="font-size:1.1rem;margin-bottom:0.5rem;">Weekly Recap</div>`;
+      html += `<div class="briefing-stats" style="margin-bottom:0.75rem;">`;
+      html += `<div class="briefing-stat"><div class="briefing-stat-num">${wd.completedByPerson.reduce((s, p) => s + p.tasks.length, 0)}</div><div class="briefing-stat-label">Completed</div></div>`;
+      html += `<div class="briefing-stat"><div class="briefing-stat-num">${wd.newTasksCount}</div><div class="briefing-stat-label">New Tasks</div></div>`;
+      html += `<div class="briefing-stat"><div class="briefing-stat-num">${wd.totalOpen}</div><div class="briefing-stat-label">Open</div></div>`;
+      html += `<div class="briefing-stat"><div class="briefing-stat-num" style="color:${wd.blocked.length > 0 ? 'var(--follett-coral)' : ''}">${wd.blocked.length}</div><div class="briefing-stat-label">Blocked</div></div>`;
+      html += `</div>`;
+
+      if (wd.completedByPerson.length > 0) {
+        html += `<div class="briefing-section-title">Completed by Person</div>`;
+        wd.completedByPerson.sort((a, c) => c.tasks.length - a.tasks.length).forEach(p => {
+          html += `<div class="briefing-team-row"><span>${escapeHtml(p.name)}</span><strong>${p.tasks.length}</strong></div>`;
+        });
+      }
+
+      if (wd.blocked.length > 0) {
+        html += `<div class="briefing-section-title" style="margin-top:0.5rem;">Currently Blocked</div>`;
+        wd.blocked.forEach(t => {
+          html += `<div style="font-size:0.8rem;padding:0.25rem 0;"><strong>${escapeHtml(t.assignee)}</strong>: ${escapeHtml(t.title)}${t.reason ? ` &mdash; <em>${escapeHtml(t.reason)}</em>` : ''}</div>`;
+        });
+      }
+      html += `</div>`;
+    }
+
     html += `<button class="briefing-dismiss" id="briefing-got-it">Let&rsquo;s get to work</button>`;
     content.innerHTML = html;
     overlay.style.display = 'flex';
@@ -2768,6 +2796,7 @@ async function showTeamView() {
           <div class="team-member-meta">${escapeHtml(m.email)}${reportsLabel ? ` · ${reportsLabel}` : ''}</div>
         </div>
         <div class="team-member-actions">
+          ${canManage(m) && m.role !== 'cmo' ? `<button class="btn btn-ghost btn-sm" onclick="showPrepOneOnOne('${m.userId}')">Prep 1:1</button>` : ''}
           ${canManage(m) ? `<button class="btn btn-ghost btn-sm" onclick="editMember('${m.id}')">Edit</button>
           <button class="btn btn-ghost btn-sm" style="color:var(--follett-coral);" onclick="deleteMember('${m.id}', '${escapeHtml(m.displayName)}')">Remove</button>` : ''}
         </div>
@@ -2777,6 +2806,105 @@ async function showTeamView() {
   }
 
   container.innerHTML = html;
+}
+
+async function showPrepOneOnOne(userId) {
+  const overlay = document.getElementById('briefing-overlay');
+  const content = document.getElementById('briefing-content');
+  content.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--color-text-muted);">Loading 1:1 prep...</div>';
+  overlay.style.display = 'flex';
+
+  try {
+    const p = await api('GET', `/api/prep/${userId}`);
+    const depts = [...(p.departments || []), ...(p.subDepartments || [])].filter(Boolean).join(', ');
+
+    let html = `<div class="briefing-greeting">1:1 Prep: ${escapeHtml(p.name)}</div>`;
+    html += `<div class="briefing-date">${escapeHtml(p.role === 'lead' ? 'Dept Lead' : p.role)} · ${escapeHtml(depts)} · ${p.totalTasks} open tasks</div>`;
+
+    // Stats
+    html += `<div class="briefing-stats">`;
+    html += `<div class="briefing-stat"><div class="briefing-stat-num">${p.completedThisWeek.length}</div><div class="briefing-stat-label">Done This Week</div></div>`;
+    html += `<div class="briefing-stat"><div class="briefing-stat-num">${p.inProgress.length}</div><div class="briefing-stat-label">In Progress</div></div>`;
+    html += `<div class="briefing-stat"><div class="briefing-stat-num" style="color:${p.overdue.length > 0 ? 'var(--follett-coral)' : ''}">${p.overdue.length}</div><div class="briefing-stat-label">Overdue</div></div>`;
+    html += `<div class="briefing-stat"><div class="briefing-stat-num" style="color:${p.blocked.length > 0 ? '#d4960a' : ''}">${p.blocked.length}</div><div class="briefing-stat-label">Blocked</div></div>`;
+    html += `</div>`;
+
+    // Completed this week
+    if (p.completedThisWeek.length > 0) {
+      html += `<div class="briefing-section"><div class="briefing-section-title">Completed This Week</div>`;
+      p.completedThisWeek.forEach(t => {
+        html += `<div class="briefing-task" data-task-id="${t.id}"><span class="dot-upcoming"></span> ${escapeHtml(t.title)}</div>`;
+      });
+      html += `</div>`;
+    }
+
+    // In progress
+    if (p.inProgress.length > 0) {
+      html += `<div class="briefing-section"><div class="briefing-section-title">In Progress</div>`;
+      p.inProgress.forEach(t => {
+        const dueFmt = t.dueDate ? new Date(t.dueDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+        html += `<div class="briefing-task" data-task-id="${t.id}"><span class="dot-due"></span> ${escapeHtml(t.title)}${dueFmt ? `<span class="briefing-task-due">${dueFmt}</span>` : ''}</div>`;
+      });
+      html += `</div>`;
+    }
+
+    // Overdue
+    if (p.overdue.length > 0) {
+      html += `<div class="briefing-section"><div class="briefing-section-title">Overdue</div>`;
+      p.overdue.forEach(t => {
+        const dueFmt = t.dueDate ? new Date(t.dueDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+        html += `<div class="briefing-task" data-task-id="${t.id}"><span class="dot-overdue"></span> ${escapeHtml(t.title)}<span class="briefing-task-due">${dueFmt}</span></div>`;
+      });
+      html += `</div>`;
+    }
+
+    // Blocked
+    if (p.blocked.length > 0) {
+      html += `<div class="briefing-section"><div class="briefing-section-title">Blocked</div>`;
+      p.blocked.forEach(t => {
+        html += `<div class="briefing-task" data-task-id="${t.id}"><span class="dot-overdue" style="background:#d4960a;"></span> ${escapeHtml(t.title)}${t.blockedReason ? ` <span style="font-size:0.75rem;color:var(--color-text-muted);">&mdash; ${escapeHtml(t.blockedReason)}</span>` : ''}</div>`;
+      });
+      html += `</div>`;
+    }
+
+    // Not started
+    if (p.notStarted.length > 0) {
+      html += `<div class="briefing-section"><div class="briefing-section-title">Not Started (${p.notStarted.length})</div>`;
+      p.notStarted.slice(0, 5).forEach(t => {
+        const dueFmt = t.dueDate ? new Date(t.dueDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+        html += `<div class="briefing-task" data-task-id="${t.id}"><span style="width:6px;height:6px;border-radius:50%;background:var(--color-text-light);flex-shrink:0;"></span> ${escapeHtml(t.title)}${dueFmt ? `<span class="briefing-task-due">${dueFmt}</span>` : ''}</div>`;
+      });
+      if (p.notStarted.length > 5) html += `<div style="font-size:0.75rem;color:var(--color-text-muted);padding:0.25rem 0;">+ ${p.notStarted.length - 5} more</div>`;
+      html += `</div>`;
+    }
+
+    // Recent comments
+    if (p.recentComments.length > 0) {
+      html += `<div class="briefing-team-section"><div class="briefing-section-title">Recent Discussion</div>`;
+      p.recentComments.forEach(c => {
+        html += `<div style="font-size:0.8rem;padding:0.3rem 0;border-bottom:1px solid var(--color-border);"><strong>${escapeHtml(c.author)}</strong> on "${escapeHtml(c.taskTitle)}" <span style="color:var(--color-text-muted);">(${c.date})</span><br><span style="color:var(--color-text-muted);">${escapeHtml(c.text)}</span></div>`;
+      });
+      html += `</div>`;
+    }
+
+    html += `<button class="briefing-dismiss" id="briefing-got-it">Close</button>`;
+    content.innerHTML = html;
+
+    // Clickable tasks
+    content.querySelectorAll('.briefing-task[data-task-id]').forEach(el => {
+      el.addEventListener('click', () => {
+        overlay.style.display = 'none';
+        showTaskDetail(el.dataset.taskId);
+      });
+    });
+
+    document.getElementById('briefing-got-it').onclick = () => { overlay.style.display = 'none'; };
+    document.getElementById('briefing-close').onclick = () => { overlay.style.display = 'none'; };
+  } catch (err) {
+    content.innerHTML = `<div style="color:var(--follett-coral);padding:1rem;">Failed to load prep: ${escapeHtml(err.message)}</div><button class="briefing-dismiss" id="briefing-got-it">Close</button>`;
+    document.getElementById('briefing-got-it').onclick = () => { overlay.style.display = 'none'; };
+    document.getElementById('briefing-close').onclick = () => { overlay.style.display = 'none'; };
+  }
 }
 
 let realProfile = null;

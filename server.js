@@ -1577,6 +1577,50 @@ app.get('/api/briefing', auth, async (req, res) => {
       completedCount: completedThisWeek.length
     };
 
+    // Monday weekly digest for leads and CMO
+    const dayOfWeek = new Date().getDay(); // 0=Sun, 1=Mon
+    if (dayOfWeek === 1 && (req.memberRole === 'cmo' || req.memberRole === 'lead')) {
+      const membersSnap2 = await orgCol(req, 'members').get();
+      const memberNames2 = {};
+      membersSnap2.docs.forEach(d => { memberNames2[d.data().userId] = d.data().displayName; });
+
+      // Scope: CMO sees all, leads see their dept
+      let scopedTasks = allTasks;
+      if (req.memberRole === 'lead') {
+        const myReportIds = new Set();
+        membersSnap2.docs.forEach(d => {
+          if (d.data().reportsTo === req.userId) myReportIds.add(d.data().userId);
+        });
+        myReportIds.add(req.userId);
+        scopedTasks = allTasks.filter(t => myReportIds.has(t.assignedTo) || myReportIds.has(t.createdBy));
+      }
+
+      // Completed last week by person
+      const completedByPerson = {};
+      scopedTasks.filter(t => t.status === 'Completed' && t.completedAt && t.completedAt >= weekAgo).forEach(t => {
+        const name = memberNames2[t.assignedTo] || memberNames2[t.createdBy] || 'Unknown';
+        if (!completedByPerson[name]) completedByPerson[name] = [];
+        completedByPerson[name].push(t.title);
+      });
+
+      // Currently blocked
+      const blocked = scopedTasks.filter(t => t.status === 'Blocked').map(t => ({
+        title: t.title,
+        assignee: memberNames2[t.assignedTo] || 'Unassigned',
+        reason: t.blockedReason || ''
+      }));
+
+      // New tasks created last week
+      const newLastWeek = scopedTasks.filter(t => t.createdAt && t.createdAt >= weekAgo).length;
+
+      briefing.weeklyDigest = {
+        completedByPerson: Object.entries(completedByPerson).map(([name, tasks]) => ({ name, tasks })),
+        blocked,
+        newTasksCount: newLastWeek,
+        totalOpen: scopedTasks.filter(t => t.status !== 'Completed').length
+      };
+    }
+
     // CMO extras: team stats
     if (req.memberRole === 'cmo') {
       const teamOverdue = allTasks.filter(t => t.dueDate && t.dueDate < today && t.status !== 'Completed' && t.status !== 'Delegated' && t.assignedTo !== req.userId);
@@ -1601,6 +1645,82 @@ app.get('/api/briefing', auth, async (req, res) => {
     res.json(briefing);
   } catch (err) {
     res.status(500).json({ error: 'Failed to generate briefing: ' + err.message });
+  }
+});
+
+// GET /api/prep/:userId — 1:1 prep for a team member (leads/CMO)
+app.get('/api/prep/:userId', auth, async (req, res) => {
+  if (req.memberRole !== 'cmo' && req.memberRole !== 'lead') {
+    return res.status(403).json({ error: 'Only leads and CMO can use 1:1 prep' });
+  }
+  try {
+    const targetId = req.params.userId;
+    const membersSnap = await orgCol(req, 'members').get();
+    const memberDoc = membersSnap.docs.find(d => d.data().userId === targetId);
+    if (!memberDoc) return res.status(404).json({ error: 'Member not found' });
+    const member = memberDoc.data();
+
+    const today = new Date().toISOString().split('T')[0];
+    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
+
+    // Get their tasks
+    const tasksSnap = await orgCol(req, 'tasks').get();
+    const theirTasks = tasksSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+      .filter(t => t.assignedTo === targetId || t.createdBy === targetId);
+
+    // Completed this week
+    const completedThisWeek = theirTasks.filter(t =>
+      t.status === 'Completed' && t.completedAt && t.completedAt >= weekAgo
+    ).map(t => ({ id: t.id, title: t.title, completedAt: t.completedAt }));
+
+    // Currently in progress
+    const inProgress = theirTasks.filter(t => t.status === 'In Progress')
+      .map(t => ({ id: t.id, title: t.title, dueDate: t.dueDate || null }));
+
+    // Blocked
+    const blocked = theirTasks.filter(t => t.status === 'Blocked')
+      .map(t => ({ id: t.id, title: t.title, blockedReason: t.blockedReason || '' }));
+
+    // Overdue
+    const overdue = theirTasks.filter(t =>
+      t.dueDate && t.dueDate < today && t.status !== 'Completed' && t.status !== 'Delegated'
+    ).map(t => ({ id: t.id, title: t.title, dueDate: t.dueDate }));
+
+    // Not started (assigned but not begun)
+    const notStarted = theirTasks.filter(t => t.status === 'Not Started')
+      .map(t => ({ id: t.id, title: t.title, dueDate: t.dueDate || null }));
+
+    // Recent comments on their tasks (last 2 weeks)
+    const commentsSnap = await orgCol(req, 'comments').get();
+    const recentComments = commentsSnap.docs.map(d => d.data())
+      .filter(c => c.createdAt && c.createdAt >= twoWeeksAgo)
+      .filter(c => {
+        const task = theirTasks.find(t => t.id === c.taskId);
+        return !!task;
+      })
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
+      .slice(0, 10)
+      .map(c => {
+        const task = theirTasks.find(t => t.id === c.taskId);
+        return { author: c.authorName, taskTitle: task ? task.title : '', text: c.text.substring(0, 150), date: c.createdAt.split('T')[0] };
+      });
+
+    res.json({
+      name: member.displayName,
+      role: member.role,
+      departments: member.departments || [],
+      subDepartments: member.subDepartments || [],
+      completedThisWeek,
+      inProgress,
+      blocked,
+      overdue,
+      notStarted,
+      recentComments,
+      totalTasks: theirTasks.filter(t => t.status !== 'Completed').length
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to generate 1:1 prep: ' + err.message });
   }
 });
 
