@@ -1802,7 +1802,7 @@ app.listen(PORT, async () => {
       // Find the Welcome note
       const notesSnap = await orgDoc.ref.collection('notes')
         .where('folderId', '==', allTeamFolderId)
-        .where('title', '==', 'Welcome')
+        .where('title', '==', 'Welcome!')
         .get();
 
       if (notesSnap.empty) {
