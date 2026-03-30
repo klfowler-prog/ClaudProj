@@ -3125,6 +3125,7 @@ async function showTeamView() {
         </div>
         <div class="team-member-actions">
           ${canManage(m) && m.role !== 'cmo' ? `<button class="btn btn-ghost btn-sm" onclick="showPrepOneOnOne('${m.userId}')">Prep 1:1</button>` : ''}
+          ${canManage(m) && m.role !== 'cmo' ? `<button class="btn btn-ghost btn-sm" onclick="resetPassword('${m.id}', '${escapeHtml(m.displayName)}')">Reset PW</button>` : ''}
           ${canManage(m) ? `<button class="btn btn-ghost btn-sm" onclick="editMember('${m.id}')">Edit</button>
           <button class="btn btn-ghost btn-sm" style="color:var(--follett-coral);" onclick="deleteMember('${m.id}', '${escapeHtml(m.displayName)}')">Remove</button>` : ''}
         </div>
@@ -3416,6 +3417,14 @@ async function saveMemberEdit(id) {
 async function deleteMember(id, name) {
   if (!confirm(`Remove ${name} from the team? This deletes their account entirely so you can re-invite them if needed.`)) return;
   try { await api('DELETE', `/api/team/${id}`); showTeamView(); } catch (err) { alert(err.message); }
+}
+
+async function resetPassword(id, name) {
+  try {
+    const result = await api('POST', `/api/team/${id}/reset-password`);
+    await navigator.clipboard.writeText(result.link);
+    alert(`Password reset link for ${name} copied to clipboard!\n\nSend it to them directly.`);
+  } catch (err) { alert('Failed to generate reset link: ' + err.message); }
 }
 
 // === Feature Requests ===

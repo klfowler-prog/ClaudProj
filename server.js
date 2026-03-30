@@ -1903,6 +1903,20 @@ app.post('/api/team/:id/enable', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Failed to enable member' }); }
 });
 
+// POST /api/team/:id/reset-password — Generate a password reset link (CMO or lead for their reports)
+app.post('/api/team/:id/reset-password', auth, async (req, res) => {
+  if (req.memberRole !== 'cmo' && req.memberRole !== 'lead') return res.status(403).json({ error: 'Only CMO and leads can reset passwords' });
+  try {
+    const memberDoc = await orgCol(req, 'members').doc(req.params.id).get();
+    if (!memberDoc.exists) return res.status(404).json({ error: 'Member not found' });
+    const email = memberDoc.data().email;
+    if (!email) return res.status(400).json({ error: 'Member has no email address' });
+
+    const link = await admin.auth().generatePasswordResetLink(email);
+    res.json({ link, email });
+  } catch (err) { res.status(500).json({ error: 'Failed to generate reset link: ' + err.message }); }
+});
+
 // === Daily Briefing ===
 app.get('/api/briefing', auth, async (req, res) => {
   try {
