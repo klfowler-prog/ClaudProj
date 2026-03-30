@@ -127,6 +127,15 @@ function render() {
   renderTaskList();
 }
 
+function toggleSection(listId, caretId) {
+  const list = document.getElementById(listId);
+  const caret = document.getElementById(caretId);
+  if (!list) return;
+  const isHidden = list.style.display === 'none' || !list.style.display;
+  list.style.display = isHidden ? 'flex' : 'none';
+  if (caret) caret.classList.toggle('open', isHidden);
+}
+
 function renderStats() {
   const filtered = getFilteredTasks();
   const today = new Date().toISOString().split('T')[0];
@@ -2440,12 +2449,6 @@ async function init() {
   // Load team members for Assign To dropdown (all users need this)
   await loadTeam();
 
-  // Re-bind task body clicks after sections are revealed (iOS Safari fix)
-  function bindTaskBodyClicks(container) {
-    container.querySelectorAll('.task-body[data-task-id]').forEach(el => {
-      el.addEventListener('click', () => showTaskDetail(el.dataset.taskId));
-    });
-  }
 
   // Task list event delegation (for both active + completed lists)
   function handleTaskClick(e) {
@@ -2503,23 +2506,6 @@ async function init() {
 
   // Completed period filter
   document.getElementById('completed-period').addEventListener('change', render);
-
-  // Delegated section toggle
-  function toggleSection(listId, caretId) {
-    const list = document.getElementById(listId);
-    const caret = document.getElementById(caretId);
-    const isHidden = list.style.display === 'none' || !list.style.display;
-    list.style.display = isHidden ? 'flex' : 'none';
-    if (caret) caret.classList.toggle('open', isHidden);
-    if (isHidden) bindTaskBodyClicks(list);
-  }
-
-  document.getElementById('approved-toggle').addEventListener('click', () => toggleSection('approved-list', 'approved-caret'));
-  document.getElementById('delegated-toggle').addEventListener('click', () => toggleSection('delegated-list', 'delegated-caret'));
-  document.getElementById('completed-toggle').addEventListener('click', (e) => {
-    if (e.target.tagName === 'SELECT' || e.target.tagName === 'OPTION') return;
-    toggleSection('completed-list', 'completed-caret');
-  });
 
   // File drag & drop
   const dropZone = document.getElementById('drop-zone');

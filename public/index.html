@@ -189,7 +189,7 @@
 
         <!-- Approved Section -->
         <div class="completed-section" id="approved-section" style="display: none;">
-          <div class="section-toggle" id="approved-toggle">
+          <div class="section-toggle" onclick="toggleSection('approved-list','approved-caret')">
             <span class="section-caret" id="approved-caret">&#9656;</span>
             <h3>Approved <span class="completed-count" id="approved-count">0</span></h3>
           </div>
@@ -198,7 +198,7 @@
 
         <!-- Delegated Section -->
         <div class="completed-section" id="delegated-section" style="display: none;">
-          <div class="section-toggle" id="delegated-toggle">
+          <div class="section-toggle" onclick="toggleSection('delegated-list','delegated-caret')">
             <span class="section-caret" id="delegated-caret">&#9656;</span>
             <h3>Delegated <span class="completed-count" id="delegated-count">0</span></h3>
           </div>
@@ -207,7 +207,7 @@
 
         <!-- Completed Section -->
         <div class="completed-section" id="completed-section" style="display: none;">
-          <div class="section-toggle" id="completed-toggle" style="display:flex;justify-content:space-between;align-items:center;">
+          <div class="section-toggle" onclick="toggleSection('completed-list','completed-caret')" style="display:flex;justify-content:space-between;align-items:center;">
             <div style="display:flex;align-items:center;gap:0.5rem;">
               <span class="section-caret" id="completed-caret">&#9656;</span>
               <h3>Completed <span class="completed-count" id="completed-count">0</span></h3>
