@@ -2505,33 +2505,20 @@ async function init() {
   document.getElementById('completed-period').addEventListener('change', render);
 
   // Delegated section toggle
-  function toggleSection(listId, toggleId) {
+  function toggleSection(listId, caretId) {
     const list = document.getElementById(listId);
-    const toggle = document.getElementById(toggleId);
-    const isHidden = !list.classList.contains('section-open');
-    if (isHidden) {
-      list.classList.add('section-open');
-      list.style.display = 'flex';
-      toggle.textContent = 'Hide';
-      bindTaskBodyClicks(list);
-    } else {
-      list.classList.remove('section-open');
-      list.style.display = 'none';
-      toggle.textContent = 'Show';
-    }
+    const caret = document.getElementById(caretId);
+    const isHidden = list.style.display === 'none' || !list.style.display;
+    list.style.display = isHidden ? 'flex' : 'none';
+    if (caret) caret.classList.toggle('open', isHidden);
+    if (isHidden) bindTaskBodyClicks(list);
   }
 
-  document.getElementById('approved-toggle').addEventListener('click', (e) => {
-    e.preventDefault(); e.stopPropagation();
-    toggleSection('approved-list', 'approved-toggle');
-  });
-  document.getElementById('delegated-toggle').addEventListener('click', (e) => {
-    e.preventDefault(); e.stopPropagation();
-    toggleSection('delegated-list', 'delegated-toggle');
-  });
+  document.getElementById('approved-toggle').addEventListener('click', () => toggleSection('approved-list', 'approved-caret'));
+  document.getElementById('delegated-toggle').addEventListener('click', () => toggleSection('delegated-list', 'delegated-caret'));
   document.getElementById('completed-toggle').addEventListener('click', (e) => {
-    e.preventDefault(); e.stopPropagation();
-    toggleSection('completed-list', 'completed-toggle');
+    if (e.target.tagName === 'SELECT' || e.target.tagName === 'OPTION') return;
+    toggleSection('completed-list', 'completed-caret');
   });
 
   // File drag & drop

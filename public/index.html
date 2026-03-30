@@ -189,34 +189,30 @@
 
         <!-- Approved Section -->
         <div class="completed-section" id="approved-section" style="display: none;">
-          <div class="completed-header">
-            <div class="completed-header-left">
-              <h3>Approved <span class="completed-count" id="approved-count">0</span></h3>
-              <button class="btn-link" id="approved-toggle">Show</button>
-            </div>
+          <div class="section-toggle" id="approved-toggle">
+            <span class="section-caret" id="approved-caret">&#9656;</span>
+            <h3>Approved <span class="completed-count" id="approved-count">0</span></h3>
           </div>
           <div class="task-list" id="approved-list" style="display: none;"></div>
         </div>
 
         <!-- Delegated Section -->
         <div class="completed-section" id="delegated-section" style="display: none;">
-          <div class="completed-header">
-            <div class="completed-header-left">
-              <h3>Delegated <span class="completed-count" id="delegated-count">0</span></h3>
-              <button class="btn-link" id="delegated-toggle">Show</button>
-            </div>
+          <div class="section-toggle" id="delegated-toggle">
+            <span class="section-caret" id="delegated-caret">&#9656;</span>
+            <h3>Delegated <span class="completed-count" id="delegated-count">0</span></h3>
           </div>
           <div class="task-list" id="delegated-list" style="display: none;"></div>
         </div>
 
         <!-- Completed Section -->
         <div class="completed-section" id="completed-section" style="display: none;">
-          <div class="completed-header">
-            <div class="completed-header-left">
+          <div class="section-toggle" id="completed-toggle" style="display:flex;justify-content:space-between;align-items:center;">
+            <div style="display:flex;align-items:center;gap:0.5rem;">
+              <span class="section-caret" id="completed-caret">&#9656;</span>
               <h3>Completed <span class="completed-count" id="completed-count">0</span></h3>
-              <button class="btn-link" id="completed-toggle">Show</button>
             </div>
-            <select id="completed-period" class="filter-select-compact">
+            <select id="completed-period" class="filter-select-compact" onclick="event.stopPropagation()">
               <option value="all">All Time</option>
               <option value="week">This Week</option>
               <option value="month">This Month</option>
