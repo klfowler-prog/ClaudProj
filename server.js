@@ -1549,13 +1549,25 @@ const SLACK_NOTIFICATION_COLORS = {
 };
 
 // Make a Slack API call using the org's bot token
-async function slackApiCall(botToken, method, body) {
+async function slackApiCall(botToken, method, body, useGet) {
   try {
-    const res = await fetch(`https://slack.com/api/${method}`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${botToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
+    let url = `https://slack.com/api/${method}`;
+    const opts = { headers: { 'Authorization': `Bearer ${botToken}` } };
+
+    if (useGet) {
+      const qs = new URLSearchParams();
+      for (const [k, v] of Object.entries(body || {})) {
+        if (v !== undefined && v !== null) qs.set(k, String(v));
+      }
+      if (qs.toString()) url += '?' + qs.toString();
+      opts.method = 'GET';
+    } else {
+      opts.method = 'POST';
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(body);
+    }
+
+    const res = await fetch(url, opts);
     const json = await res.json();
     if (!json.ok) console.error(`Slack API ${method} failed:`, json.error);
     return json;
@@ -1572,7 +1584,7 @@ async function fetchAllSlackUsers(botToken) {
   do {
     const params = { limit: 200 };
     if (cursor) params.cursor = cursor;
-    const result = await slackApiCall(botToken, 'users.list', params);
+    const result = await slackApiCall(botToken, 'users.list', params, true);
     if (!result.ok) throw new Error('Slack users.list failed: ' + (result.error || 'unknown'));
     allMembers = allMembers.concat(result.members || []);
     cursor = result.response_metadata && result.response_metadata.next_cursor
@@ -2335,7 +2347,7 @@ app.get('/api/slack/channels', auth, async (req, res) => {
       types: 'public_channel,private_channel',
       exclude_archived: true,
       limit: 200
-    });
+    }, true);
 
     if (!result.ok) return res.status(500).json({ error: 'Failed to list channels' });
 
