@@ -1256,9 +1256,18 @@ function renderSidebarFolders() {
       document.getElementById('notes-no-selection').style.display = 'flex';
       activeFolderId = btn.dataset.folderId || null;
       switchView('notes');
+      const folder = activeFolderId ? folders.find(f => f.id === activeFolderId) : null;
+      const isPersonal = folder && (folder.personal || folder.name === 'Personal');
+      // Personal folder: force "mine" and hide toggle
+      if (isPersonal) {
+        showMyNotesOnly = true;
+        document.getElementById('btn-my-notes').classList.add('active');
+        document.getElementById('btn-all-notes').classList.remove('active');
+      }
+      document.getElementById('btn-all-notes').style.display = isPersonal ? 'none' : '';
+      document.getElementById('btn-my-notes').style.display = isPersonal ? 'none' : '';
       loadNotesList(activeFolderId);
       renderSidebarFolders();
-      const folder = activeFolderId ? folders.find(f => f.id === activeFolderId) : null;
       document.getElementById('notes-folder-title').textContent = folder ? folder.name : 'Notes';
       closeSidebar();
     });
