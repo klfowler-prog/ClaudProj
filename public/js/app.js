@@ -1266,6 +1266,7 @@ function renderSidebarFolders() {
       }
       document.getElementById('btn-all-notes').style.display = isPersonal ? 'none' : '';
       document.getElementById('btn-my-notes').style.display = isPersonal ? 'none' : '';
+      document.getElementById('notes-personal-banner').style.display = isPersonal ? 'block' : 'none';
       loadNotesList(activeFolderId);
       renderSidebarFolders();
       document.getElementById('notes-folder-title').textContent = folder ? folder.name : 'Notes';
