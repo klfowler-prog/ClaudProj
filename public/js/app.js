@@ -1228,13 +1228,20 @@ function renderSidebarFolders() {
   });
   container.querySelectorAll('[data-folder-id]').forEach(btn => {
     btn.addEventListener('click', async () => {
-      // Save any pending note before switching
-      if (saveTimeout && activeNoteId) {
-        clearTimeout(saveTimeout);
-        await api('PUT', `/api/notes/${activeNoteId}`, {
-          title: document.getElementById('editor-title').value || 'Untitled',
-          content: document.getElementById('editor-content').innerHTML
-        }).catch(() => {});
+      // Save or cleanup pending note before switching
+      if (activeNoteId) {
+        if (saveTimeout) clearTimeout(saveTimeout);
+        const title = document.getElementById('editor-title').value.trim();
+        const content = document.getElementById('editor-content').innerHTML.trim();
+        const isEmpty = (!title || title === 'Untitled') && (!content || content === '<br>' || content === '');
+        if (isEmpty) {
+          await api('DELETE', `/api/notes/${activeNoteId}`).catch(() => {});
+        } else {
+          await api('PUT', `/api/notes/${activeNoteId}`, {
+            title: title || 'Untitled',
+            content: document.getElementById('editor-content').innerHTML
+          }).catch(() => {});
+        }
       }
       activeNoteId = null;
       document.getElementById('notes-editor-panel').style.display = 'none';
@@ -1408,6 +1415,13 @@ function autoLinkUrls(element) {
 
 function scheduleAutoSave() {
   if (saveTimeout) clearTimeout(saveTimeout);
+  const title = document.getElementById('editor-title').value.trim();
+  const content = document.getElementById('editor-content').innerHTML.trim();
+  const isEmpty = (!title || title === 'Untitled') && (!content || content === '<br>' || content === '');
+  if (isEmpty) {
+    document.getElementById('editor-saved').textContent = '';
+    return;
+  }
   document.getElementById('editor-saved').textContent = 'Saving...';
   saveTimeout = setTimeout(async () => {
     if (!activeNoteId) return;
