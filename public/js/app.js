@@ -2438,7 +2438,13 @@ async function init() {
     if (e.key === 'Enter') { e.preventDefault(); sendNoteAiMessage(); }
   });
   document.querySelectorAll('.note-ai-quick').forEach(btn => {
-    btn.addEventListener('click', () => sendNoteAiMessage(btn.dataset.prompt));
+    btn.addEventListener('click', () => {
+      if (btn.dataset.prompt === 'generate-tasks') {
+        aiGenerateTasks();
+      } else {
+        sendNoteAiMessage(btn.dataset.prompt);
+      }
+    });
   });
   document.getElementById('ai-panel-close').addEventListener('click', hideAiPanel);
   document.getElementById('btn-close-note-ai').addEventListener('click', () => {
