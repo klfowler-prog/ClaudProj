@@ -1555,6 +1555,57 @@ app.post('/api/team/invite', auth, async (req, res) => {
     // Store orgId on the invited user's doc for fast lookup on login
     await db.collection('users').doc(userRecord.uid).set({ orgId: req.orgId }, { merge: true });
 
+    // Create a Getting Started task with subtasks for the new user
+    const now = new Date().toISOString();
+    const parentRef = await orgCol(req, 'tasks').add({
+      title: 'Getting Started with Follett Marketing',
+      department: Array.isArray(departments) ? departments[0] : departments,
+      subDepartment: '',
+      priority: 'Medium',
+      notes: 'Welcome to the team! Complete these steps to get familiar with the app.',
+      status: 'Delegated',
+      completed: false,
+      completedAt: '',
+      createdAt: now,
+      source: 'system',
+      attachments: [],
+      dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      emailMessageId: '',
+      recurring: 'none',
+      createdBy: req.userId,
+      assignedTo: userRecord.uid,
+      sharedWith: [],
+      parentTaskId: ''
+    });
+
+    const subtasks = [
+      { title: 'Read the Welcome note in Strategy & Notes > All Team', priority: 'Medium' },
+      { title: 'Update the status on this task to "In Progress"', priority: 'Low' },
+      { title: 'Try Quick Add: paste any text and let AI create a task for you', priority: 'Low' }
+    ];
+    for (const sub of subtasks) {
+      await orgCol(req, 'tasks').add({
+        title: sub.title,
+        department: Array.isArray(departments) ? departments[0] : departments,
+        subDepartment: '',
+        priority: sub.priority,
+        notes: '',
+        status: 'Delegated',
+        completed: false,
+        completedAt: '',
+        createdAt: now,
+        source: 'system',
+        attachments: [],
+        dueDate: '',
+        emailMessageId: '',
+        recurring: 'none',
+        createdBy: req.userId,
+        assignedTo: userRecord.uid,
+        sharedWith: [],
+        parentTaskId: parentRef.id
+      });
+    }
+
     // Send password reset email so they can set their own password
     const resetLink = await admin.auth().generatePasswordResetLink(email);
 
