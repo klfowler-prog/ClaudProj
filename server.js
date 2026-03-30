@@ -294,6 +294,9 @@ app.get('/api/tasks', auth, async (req, res) => {
     const snapshot = await orgCol(req, 'tasks').orderBy('createdAt', 'desc').get();
     let tasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
+    // Hide private tasks from anyone except the creator
+    tasks = tasks.filter(t => !t.private || t.createdBy === req.userId);
+
     // Filter by role: CMO sees all, others see their dept + assigned/shared
     if (req.memberRole !== 'cmo') {
       tasks = tasks.filter(t =>
@@ -397,7 +400,8 @@ app.post('/api/tasks', authWrite, async (req, res) => {
       createdBy: req.userId,
       assignedTo: req.body.assignedTo || req.userId,
       sharedWith: req.body.sharedWith || [],
-      parentTaskId: req.body.parentTaskId || ''
+      parentTaskId: req.body.parentTaskId || '',
+      private: req.body.private || false
     };
 
     const docRef = await orgCol(req, 'tasks').add(task);
@@ -485,7 +489,7 @@ app.put('/api/tasks/:id', auth, async (req, res) => {
     const updates = {};
     const allowedFields = ['title', 'department', 'priority', 'notes', 'status',
       'completed', 'completedAt', 'dueDate', 'attachments', 'emailMessageId', 'recurring',
-      'assignedTo', 'sharedWith', 'parentTaskId', 'subDepartment', 'blockedReason'];
+      'assignedTo', 'sharedWith', 'parentTaskId', 'subDepartment', 'blockedReason', 'private'];
 
     for (const field of allowedFields) {
       if (req.body[field] !== undefined) updates[field] = req.body[field];
@@ -960,9 +964,13 @@ app.get('/api/notes', auth, async (req, res) => {
         sharedWith: d.sharedWith || [],
         authorName: memberNames[d.createdBy] || 'Unknown',
         pinned: d.pinned || false,
-        archived: d.archived || false
+        archived: d.archived || false,
+        private: d.private || false
       };
     });
+
+    // Hide private notes from anyone except the creator
+    notes = notes.filter(n => !n.private || n.createdBy === req.userId);
 
     // Build folder visibility maps
     const foldersSnap = await orgCol(req, 'folders').get();
@@ -1032,7 +1040,8 @@ app.post('/api/notes', authWrite, async (req, res) => {
       folderId: req.body.folderId || '', source: req.body.source || 'manual',
       createdAt: now, updatedAt: now, aiSummary: '', createdBy: req.userId,
       links: req.body.links || [],
-      pinned: false
+      pinned: false,
+      private: req.body.private || false
     };
     const ref = await orgCol(req, 'notes').add(note);
     res.status(201).json({ id: ref.id, ...note });
@@ -1052,7 +1061,7 @@ app.put('/api/notes/:id', authWrite, async (req, res) => {
     }
 
     const updates = { updatedAt: new Date().toISOString() };
-    const allowed = ['title', 'content', 'folderId', 'aiSummary', 'sharedWith', 'links', 'pinned', 'archived'];
+    const allowed = ['title', 'content', 'folderId', 'aiSummary', 'sharedWith', 'links', 'pinned', 'archived', 'private'];
     for (const f of allowed) { if (req.body[f] !== undefined) updates[f] = req.body[f]; }
     await ref.update(updates);
     res.json({ id: req.params.id, ...updates });
@@ -1362,6 +1371,8 @@ app.post('/api/ai/chat', auth, async (req, res) => {
     // Gather tasks — apply same role-based filtering as task list
     const tasksSnap = await orgCol(req, 'tasks').orderBy('createdAt', 'desc').get();
     let taskDocs = tasksSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    // Hide other users' private tasks from AI context
+    taskDocs = taskDocs.filter(t => !t.private || t.createdBy === req.userId);
     if (req.memberRole !== 'cmo') {
       taskDocs = taskDocs.filter(t =>
         req.memberDepts.includes(t.department) ||
@@ -1394,6 +1405,8 @@ app.post('/api/ai/chat', auth, async (req, res) => {
     });
 
     let noteDocs = notesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    // Hide other users' private notes from AI context
+    noteDocs = noteDocs.filter(n => !n.private || n.createdBy === req.userId);
     if (req.memberRole !== 'cmo') {
       noteDocs = noteDocs.filter(n => {
         if (n.createdBy === req.userId) return true;
@@ -1729,6 +1742,9 @@ app.get('/api/briefing', auth, async (req, res) => {
     const tasksSnap = await orgCol(req, 'tasks').get();
     let allTasks = tasksSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
+    // Hide other users' private tasks
+    allTasks = allTasks.filter(t => !t.private || t.createdBy === req.userId);
+
     // Filter to user's visible tasks
     if (req.memberRole !== 'cmo') {
       allTasks = allTasks.filter(t =>
@@ -1850,9 +1866,10 @@ app.get('/api/prep/:userId', auth, async (req, res) => {
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
 
-    // Get their tasks
+    // Get their tasks (exclude private — managers should not see private tasks)
     const tasksSnap = await orgCol(req, 'tasks').get();
     const theirTasks = tasksSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+      .filter(t => !t.private)
       .filter(t => t.assignedTo === targetId || t.createdBy === targetId);
 
     // Completed this week

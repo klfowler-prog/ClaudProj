@@ -861,6 +861,8 @@ function showTaskDetail(id) {
       </div>
     </div>
 
+    ${myProfile && task.createdBy === myProfile.userId ? `<div style="margin-bottom:0.75rem;"><label style="font-size:0.8rem;cursor:pointer;display:inline-flex;align-items:center;gap:0.375rem;color:var(--color-text-muted);"><input type="checkbox" ${task.private ? 'checked' : ''} onchange="toggleTaskPrivate('${task.id}', this.checked)" style="accent-color:var(--follett-dark-blue);"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Private — only visible to you</label></div>` : (task.private ? '<div style="font-size:0.75rem;color:var(--color-text-muted);margin-bottom:0.75rem;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Private</div>' : '')}
+
     ${task.blockedReason ? `<div style="background:var(--color-medium-light);border-radius:var(--radius);padding:0.625rem 0.875rem;margin-bottom:0.75rem;font-size:0.85rem;"><strong style="color:#a17508;">Blocked:</strong> ${escapeHtml(task.blockedReason)}</div>` : ''}
     ${task.notes ? `<div class="detail-section"><div class="detail-section-title">Notes</div><div class="detail-notes">${escapeHtmlWithLinks(task.notes)}</div></div>` : ''}
     ${attachmentsHtml}
@@ -954,6 +956,12 @@ function showSubtaskForm(parentId, dept) {
 
 function hideSubtaskForm() {
   document.getElementById('subtask-form').style.display = 'none';
+}
+
+async function toggleTaskPrivate(taskId, isPrivate) {
+  try {
+    await api('PUT', `/api/tasks/${taskId}`, { private: isPrivate });
+  } catch (err) { alert('Failed to update: ' + err.message); }
 }
 
 async function setTaskStatusFromDetail(taskId, newStatus) {
@@ -1306,6 +1314,14 @@ async function openNote(noteId) {
     document.getElementById('editor-saved').textContent = '';
     document.getElementById('note-ai-panel').style.display = 'none';
     noteAiHistory = [];
+
+    // Private toggle — only show for the creator
+    const privateBtn = document.getElementById('btn-toggle-note-private');
+    const isCreator = myProfile && note.createdBy === myProfile.userId;
+    privateBtn.style.display = isCreator ? '' : 'none';
+    privateBtn.style.color = note.private ? 'var(--follett-coral)' : '';
+    privateBtn.title = note.private ? 'Private — click to make visible' : 'Click to make private';
+    privateBtn.dataset.notePrivate = note.private ? 'true' : 'false';
 
     // Check if user can edit this note (creator or CMO)
     const canEdit = myProfile && (myProfile.role === 'cmo' || note.createdBy === myProfile.userId);
@@ -2215,6 +2231,18 @@ async function init() {
   });
   document.getElementById('btn-delete-note').addEventListener('click', deleteNote);
   document.getElementById('btn-archive-note').addEventListener('click', archiveNote);
+  document.getElementById('btn-toggle-note-private').addEventListener('click', async () => {
+    if (!activeNoteId) return;
+    const btn = document.getElementById('btn-toggle-note-private');
+    const isPrivate = btn.dataset.notePrivate !== 'true';
+    try {
+      await api('PUT', `/api/notes/${activeNoteId}`, { private: isPrivate });
+      btn.dataset.notePrivate = isPrivate ? 'true' : 'false';
+      btn.style.color = isPrivate ? 'var(--follett-coral)' : '';
+      btn.title = isPrivate ? 'Private — click to make visible' : 'Click to make private';
+      document.getElementById('editor-saved').textContent = isPrivate ? 'Private' : 'Saved';
+    } catch (err) { alert('Failed to update: ' + err.message); }
+  });
   document.getElementById('notes-archived-toggle').addEventListener('click', () => {
     const list = document.getElementById('notes-archived-list');
     list.style.display = list.style.display === 'none' ? 'block' : 'none';
