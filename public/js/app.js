@@ -1335,8 +1335,8 @@ async function openNote(noteId) {
     privateBtn.title = note.private ? 'Private — click to make visible' : 'Click to make private';
     privateBtn.dataset.notePrivate = note.private ? 'true' : 'false';
 
-    // Check if user can edit this note (creator or CMO)
-    const canEdit = myProfile && (myProfile.role === 'cmo' || note.createdBy === myProfile.userId);
+    // Check if user can edit this note (creator, CMO, or shared user when allowEditing is on)
+    const canEdit = myProfile && (myProfile.role === 'cmo' || note.createdBy === myProfile.userId || note.allowEditing);
     document.getElementById('editor-title').readOnly = !canEdit;
     document.getElementById('editor-content').contentEditable = canEdit ? 'true' : 'false';
     document.getElementById('editor-content').style.opacity = canEdit ? '1' : '0.85';
@@ -1660,6 +1660,9 @@ async function openShareModal() {
   // All team checkbox
   document.getElementById('share-all-team').checked = currentNoteSharedWith.includes('all');
 
+  // Allow editing checkbox
+  document.getElementById('share-allow-editing').checked = note.allowEditing || false;
+
   openModal('modal-share-note');
 }
 
@@ -1679,11 +1682,12 @@ async function saveSharing() {
   // All team
   if (document.getElementById('share-all-team').checked) sharedWith.push('all');
 
+  const allowEditing = document.getElementById('share-allow-editing').checked;
   try {
-    await api('PUT', `/api/notes/${activeNoteId}`, { sharedWith });
+    await api('PUT', `/api/notes/${activeNoteId}`, { sharedWith, allowEditing });
     closeModal('modal-share-note');
     const count = sharedWith.length;
-    alert(count > 0 ? `Note shared with ${count} ${count === 1 ? 'recipient' : 'recipients'}.` : 'Note is now private.');
+    alert(count > 0 ? `Note shared with ${count} ${count === 1 ? 'recipient' : 'recipients'}${allowEditing ? ' (editing enabled)' : ''}.` : 'Note is now private.');
   } catch (err) {
     alert('Failed to save sharing: ' + err.message);
   }

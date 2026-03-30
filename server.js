@@ -971,7 +971,8 @@ app.get('/api/notes', auth, async (req, res) => {
         authorName: memberNames[d.createdBy] || 'Unknown',
         pinned: d.pinned || false,
         archived: d.archived || false,
-        private: d.private || false
+        private: d.private || false,
+        allowEditing: d.allowEditing || false
       };
     });
 
@@ -1060,14 +1061,23 @@ app.put('/api/notes/:id', authWrite, async (req, res) => {
     const doc = await ref.get();
     if (!doc.exists) return res.status(404).json({ error: 'Note not found' });
 
-    // Only creator and CMO can edit
+    // Only creator, CMO, or shared users (when allowEditing) can edit
     const note = doc.data();
     if (req.memberRole !== 'cmo' && note.createdBy !== req.userId) {
-      return res.status(403).json({ error: 'Only the note creator can edit this note' });
+      if (!note.allowEditing || !(await checkNoteAccess(req, note))) {
+        return res.status(403).json({ error: 'You do not have permission to edit this note' });
+      }
+      // Shared editors can only update content/title, not sharing settings
+      const editOnly = ['title', 'content'];
+      for (const key of Object.keys(req.body)) {
+        if (!editOnly.includes(key)) {
+          return res.status(403).json({ error: 'Shared editors can only edit title and content' });
+        }
+      }
     }
 
     const updates = { updatedAt: new Date().toISOString() };
-    const allowed = ['title', 'content', 'folderId', 'aiSummary', 'sharedWith', 'links', 'pinned', 'archived', 'private'];
+    const allowed = ['title', 'content', 'folderId', 'aiSummary', 'sharedWith', 'links', 'pinned', 'archived', 'private', 'allowEditing'];
     for (const f of allowed) { if (req.body[f] !== undefined) updates[f] = req.body[f]; }
     await ref.update(updates);
     res.json({ id: req.params.id, ...updates });
