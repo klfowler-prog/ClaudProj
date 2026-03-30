@@ -294,8 +294,14 @@ app.get('/api/tasks', auth, async (req, res) => {
     const snapshot = await orgCol(req, 'tasks').orderBy('createdAt', 'desc').get();
     let tasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-    // Hide private tasks from anyone except the creator
-    tasks = tasks.filter(t => !t.private || t.createdBy === req.userId);
+    // Hide private tasks from anyone except the creator or subtask assignees
+    const privateTaskIds = new Set(tasks.filter(t => t.private).map(t => t.id));
+    const subtaskAssigneeParents = new Set();
+    if (privateTaskIds.size > 0) {
+      tasks.filter(t => t.parentTaskId && privateTaskIds.has(t.parentTaskId) && t.assignedTo === req.userId)
+        .forEach(t => subtaskAssigneeParents.add(t.parentTaskId));
+    }
+    tasks = tasks.filter(t => !t.private || t.createdBy === req.userId || subtaskAssigneeParents.has(t.id));
 
     // Filter by role: CMO sees all, others see their dept + assigned/shared
     if (req.memberRole !== 'cmo') {
@@ -1371,8 +1377,12 @@ app.post('/api/ai/chat', auth, async (req, res) => {
     // Gather tasks — apply same role-based filtering as task list
     const tasksSnap = await orgCol(req, 'tasks').orderBy('createdAt', 'desc').get();
     let taskDocs = tasksSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    // Hide other users' private tasks from AI context
-    taskDocs = taskDocs.filter(t => !t.private || t.createdBy === req.userId);
+    // Hide other users' private tasks from AI context (allow subtask assignees)
+    const privateAiIds = new Set(taskDocs.filter(t => t.private).map(t => t.id));
+    const aiSubParents = new Set();
+    taskDocs.filter(t => t.parentTaskId && privateAiIds.has(t.parentTaskId) && t.assignedTo === req.userId)
+      .forEach(t => aiSubParents.add(t.parentTaskId));
+    taskDocs = taskDocs.filter(t => !t.private || t.createdBy === req.userId || aiSubParents.has(t.id));
     if (req.memberRole !== 'cmo') {
       taskDocs = taskDocs.filter(t =>
         req.memberDepts.includes(t.department) ||
@@ -1742,8 +1752,12 @@ app.get('/api/briefing', auth, async (req, res) => {
     const tasksSnap = await orgCol(req, 'tasks').get();
     let allTasks = tasksSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-    // Hide other users' private tasks
-    allTasks = allTasks.filter(t => !t.private || t.createdBy === req.userId);
+    // Hide other users' private tasks (but allow if assigned to a subtask)
+    const privateBriefingIds = new Set(allTasks.filter(t => t.private).map(t => t.id));
+    const briefingSubParents = new Set();
+    allTasks.filter(t => t.parentTaskId && privateBriefingIds.has(t.parentTaskId) && t.assignedTo === req.userId)
+      .forEach(t => briefingSubParents.add(t.parentTaskId));
+    allTasks = allTasks.filter(t => !t.private || t.createdBy === req.userId || briefingSubParents.has(t.id));
 
     // Filter to user's visible tasks
     if (req.memberRole !== 'cmo') {

@@ -1065,6 +1065,11 @@ async function submitSubtask(parentId, department) {
   if (!title) return;
   const assignedTo = document.getElementById('subtask-assign').value || undefined;
   const dueDate = document.getElementById('subtask-due').value || '';
+  // Warn if assigning subtask on a private parent task
+  const parentTask = tasks.find(t => t.id === parentId);
+  if (parentTask && parentTask.private && assignedTo && myProfile && assignedTo !== myProfile.userId) {
+    if (!confirm('This task is private. The assignee will be able to see this task and its subtasks, but it stays hidden from the rest of the team. Continue?')) return;
+  }
   try {
     await api('POST', '/api/tasks', {
       title,
