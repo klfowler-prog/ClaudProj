@@ -1064,14 +1064,22 @@ app.put('/api/notes/:id', authWrite, async (req, res) => {
     // Only creator, CMO, or shared users (when allowEditing) can edit
     const note = doc.data();
     if (req.memberRole !== 'cmo' && note.createdBy !== req.userId) {
-      if (!note.allowEditing || !(await checkNoteAccess(req, note))) {
+      const hasAccess = await checkNoteAccess(req, note);
+      const fields = Object.keys(req.body);
+      const isPinOnly = fields.length === 1 && fields[0] === 'pinned';
+
+      // Anyone with access can pin/unpin
+      if (isPinOnly && hasAccess) {
+        // Allow — fall through to update
+      } else if (!note.allowEditing || !hasAccess) {
         return res.status(403).json({ error: 'You do not have permission to edit this note' });
-      }
-      // Shared editors can only update content/title, not sharing settings
-      const editOnly = ['title', 'content'];
-      for (const key of Object.keys(req.body)) {
-        if (!editOnly.includes(key)) {
-          return res.status(403).json({ error: 'Shared editors can only edit title and content' });
+      } else {
+        // Shared editors can update content, title, and pin
+        const editOnly = ['title', 'content', 'pinned'];
+        for (const key of fields) {
+          if (!editOnly.includes(key)) {
+            return res.status(403).json({ error: 'Shared editors can only edit title and content' });
+          }
         }
       }
     }

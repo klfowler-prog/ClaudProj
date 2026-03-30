@@ -1279,7 +1279,7 @@ function renderNotesList() {
     const authorLabel = isOwn ? '' : ` &middot; ${escapeHtml(n.authorName || 'Unknown')}`;
     const pinSvg = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 2h6l-1 7h-4L9 2z"/><path d="M5 14h14l-2-5H7l-2 5z"/></svg>';
     const pinIcon = n.pinned ? pinSvg : '';
-    const pinBtn = (canPin || isOwn) ? `<span class="note-pin-btn ${n.pinned ? 'pinned' : ''}" data-pin-id="${n.id}" title="${n.pinned ? 'Unpin' : 'Pin to top'}">${pinSvg}</span>` : (n.pinned ? `<span class="note-pin-icon">${pinSvg}</span>` : '');
+    const pinBtn = `<span class="note-pin-btn ${n.pinned ? 'pinned' : ''}" data-pin-id="${n.id}" title="${n.pinned ? 'Unpin' : 'Pin to top'}">${pinSvg}</span>`;
     return `<button class="note-list-item ${activeNoteId === n.id ? 'active' : ''} ${n.pinned ? 'note-pinned' : ''}" data-note-id="${n.id}">
       <div class="note-list-item-title">${pinIcon ? '' : ''}${escapeHtml(n.title || 'Untitled')}</div>
       <div class="note-list-item-date">${date}${authorLabel} ${pinBtn}</div>
