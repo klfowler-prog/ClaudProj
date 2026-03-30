@@ -75,16 +75,18 @@ function getMemberSubDepts(m) {
 
 // Check if user has access to a note
 async function checkNoteAccess(req, note) {
-  if (req.memberRole === 'cmo') return true;
   if (note.createdBy === req.userId) return true;
   if (note.folderId) {
     const folderDoc = await orgCol(req, 'folders').doc(note.folderId).get();
     if (folderDoc.exists) {
       const fd = folderDoc.data();
+      // Personal folder: only the creator has access
+      if (fd.personal || fd.name === 'Personal') return false;
       if (fd.shared) return true;
       if (fd.leadersOnly && req.memberRole === 'lead') return true;
     }
   }
+  if (req.memberRole === 'cmo') return true;
   const sw = note.sharedWith || [];
   if (sw.includes(req.userId) || sw.includes('all')) return true;
   if (req.memberDepts.some(d => sw.includes('dept:' + d))) return true;
@@ -208,12 +210,12 @@ async function resolveOrg(req, res, next) {
       { name: 'Internal Comms', order: 2 },
       { name: 'Rev Ops', order: 3 },
       { name: 'B2C Marketing', order: 4 },
-      { name: 'Personal', order: 5 }
+      { name: 'Personal', order: 5, personal: true }
     ];
     const batch = db.batch();
     defaults.forEach(f => {
       const ref = orgRef.collection('folders').doc();
-      batch.set(ref, { name: f.name, order: f.order, shared: f.shared || false, createdAt: new Date().toISOString() });
+      batch.set(ref, { name: f.name, order: f.order, shared: f.shared || false, personal: f.personal || false, createdAt: new Date().toISOString() });
     });
     await batch.commit();
 
@@ -903,14 +905,18 @@ app.get('/api/folders', auth, async (req, res) => {
     const all = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
     // Deduplicate folders by name (delete extras, keep first)
+    // Also migrate: mark Personal folder with personal flag if missing
     const seen = new Set();
     const unique = [];
     for (const f of all) {
       if (seen.has(f.name)) {
-        // Delete the duplicate
         await orgCol(req, 'folders').doc(f.id).delete();
       } else {
         seen.add(f.name);
+        if (f.name === 'Personal' && !f.personal) {
+          await orgCol(req, 'folders').doc(f.id).update({ personal: true });
+          f.personal = true;
+        }
         unique.push(f);
       }
     }
@@ -982,20 +988,27 @@ app.get('/api/notes', auth, async (req, res) => {
       };
     });
 
-    // Hide private notes from anyone except the creator
-    notes = notes.filter(n => !n.private || n.createdBy === req.userId);
-
     // Build folder visibility maps
     const foldersSnap = await orgCol(req, 'folders').get();
     const sharedFolderIds = new Set();
     const leadersFolderIds = new Set();
+    const personalFolderIds = new Set();
     foldersSnap.docs.forEach(d => {
       if (d.data().shared) sharedFolderIds.add(d.id);
       if (d.data().leadersOnly) leadersFolderIds.add(d.id);
+      if (d.data().personal || d.data().name === 'Personal') personalFolderIds.add(d.id);
     });
 
-    // Notes are private: only show your own + shared + leaders-only (if lead/cmo) + dept-shared
-    // CMO sees all
+    // Personal folder notes: only visible to the creator (even CMO can't see others')
+    notes = notes.filter(n => {
+      if (personalFolderIds.has(n.folderId)) return n.createdBy === req.userId;
+      return true;
+    });
+
+    // Hide private notes from anyone except the creator
+    notes = notes.filter(n => !n.private || n.createdBy === req.userId);
+
+    // Non-CMO access control for remaining notes
     if (req.memberRole !== 'cmo') {
       notes = notes.filter(n => {
         if (n.createdBy === req.userId) return true;
@@ -1160,10 +1173,12 @@ app.get('/api/search', auth, async (req, res) => {
     const folderMap = {};
     const sharedFolderIds = new Set();
     const leadersFolderIds = new Set();
+    const personalFolderIds = new Set();
     foldersSnap.docs.forEach(d => {
       folderMap[d.id] = d.data().name;
       if (d.data().shared) sharedFolderIds.add(d.id);
       if (d.data().leadersOnly) leadersFolderIds.add(d.id);
+      if (d.data().personal || d.data().name === 'Personal') personalFolderIds.add(d.id);
     });
 
     const membersSnap = await orgCol(req, 'members').get();
@@ -1183,6 +1198,12 @@ app.get('/api/search', auth, async (req, res) => {
     }).filter(n => {
       const searchable = `${n.title} ${n.contentPreview} ${n.folderName}`.toLowerCase();
       return searchable.includes(q);
+    });
+
+    // Personal folder: creator-only (even CMO can't see others')
+    noteResults = noteResults.filter(n => {
+      if (personalFolderIds.has(n.folderId)) return n.createdBy === req.userId;
+      return true;
     });
 
     // Filter notes by access
@@ -1452,13 +1473,17 @@ app.post('/api/ai/chat', auth, async (req, res) => {
     const folderMap = {};
     const sharedFolderIds = new Set();
     const leadersFolderIds = new Set();
+    const personalFolderIds = new Set();
     foldersSnap.docs.forEach(d => {
       folderMap[d.id] = d.data().name;
       if (d.data().shared) sharedFolderIds.add(d.id);
       if (d.data().leadersOnly) leadersFolderIds.add(d.id);
+      if (d.data().personal || d.data().name === 'Personal') personalFolderIds.add(d.id);
     });
 
     let noteDocs = notesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    // Personal folder: creator-only
+    noteDocs = noteDocs.filter(n => !personalFolderIds.has(n.folderId) || n.createdBy === req.userId);
     // Hide other users' private notes from AI context
     noteDocs = noteDocs.filter(n => !n.private || n.createdBy === req.userId);
     if (req.memberRole !== 'cmo') {
