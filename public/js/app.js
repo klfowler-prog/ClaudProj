@@ -1706,15 +1706,27 @@ async function saveSharing() {
 // Note AI Chat
 let noteAiHistory = [];
 
+function showAiPanel(title, content) {
+  const panel = document.getElementById('ai-panel');
+  document.getElementById('ai-panel-title').textContent = title;
+  document.getElementById('ai-panel-content').innerHTML = content;
+  panel.style.display = 'block';
+}
+
+function hideAiPanel() {
+  document.getElementById('ai-panel').style.display = 'none';
+}
+
 function toggleNoteAi() {
   const panel = document.getElementById('note-ai-panel');
-  if (panel.style.display === 'none') {
-    panel.style.display = 'block';
+  const isOpen = panel.style.display === 'flex';
+  if (isOpen) {
+    panel.style.display = 'none';
+  } else {
+    panel.style.display = 'flex';
     noteAiHistory = [];
     document.getElementById('note-ai-messages').innerHTML = '';
     document.getElementById('note-ai-input').focus();
-  } else {
-    panel.style.display = 'none';
   }
 }
 
@@ -2429,7 +2441,16 @@ async function init() {
     btn.addEventListener('click', () => sendNoteAiMessage(btn.dataset.prompt));
   });
   document.getElementById('ai-panel-close').addEventListener('click', hideAiPanel);
+  document.getElementById('btn-close-note-ai').addEventListener('click', () => {
+    document.getElementById('note-ai-panel').style.display = 'none';
+  });
   document.getElementById('btn-create-ai-tasks').addEventListener('click', createAiTasks);
+  document.getElementById('btn-ai-tasks-select-all').addEventListener('click', () => {
+    document.querySelectorAll('#ai-tasks-list input[type="checkbox"]').forEach(cb => cb.checked = true);
+  });
+  document.getElementById('btn-ai-tasks-deselect-all').addEventListener('click', () => {
+    document.querySelectorAll('#ai-tasks-list input[type="checkbox"]').forEach(cb => cb.checked = false);
+  });
 
   // Editor toolbar (execCommand for rich text)
   document.querySelectorAll('.editor-btn').forEach(btn => {

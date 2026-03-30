@@ -658,6 +658,13 @@ body {
   margin: 0 0.25rem;
 }
 
+.editor-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .editor-content {
   flex: 1;
   padding: 1rem;
@@ -667,6 +674,43 @@ body {
   color: var(--color-text);
   outline: none;
   min-height: 200px;
+}
+
+/* Note AI side panel */
+.note-ai-panel {
+  display: none;
+  width: 320px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--color-border);
+  background: #f8fbfd;
+  flex-direction: column;
+  overflow: hidden;
+}
+.note-ai-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--color-border);
+}
+.note-ai-quick-actions {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.5rem 0.75rem;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--color-border);
+}
+.note-ai-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.75rem;
+  font-size: 0.85rem;
+}
+.note-ai-input-row {
+  display: flex;
+  gap: 0.375rem;
+  padding: 0.5rem 0.75rem;
+  border-top: 1px solid var(--color-border);
 }
 
 .editor-content:empty::before {
@@ -1038,6 +1082,15 @@ body {
   }
   .notes-editor-panel, .notes-no-selection {
     min-height: 400px;
+  }
+  .editor-body {
+    flex-direction: column;
+  }
+  .note-ai-panel {
+    width: 100% !important;
+    border-left: none !important;
+    border-top: 1px solid var(--color-border);
+    max-height: 300px;
   }
 }
 

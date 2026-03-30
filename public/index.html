@@ -272,19 +272,25 @@
           <span class="editor-divider"></span>
           <button class="editor-btn editor-btn-ai" id="btn-note-ai" title="Ask AI about this note"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="vertical-align:-1px;"><path d="M12 0l1.8 7.6L22 8l-6.4 4.2L18 20l-6-4.8L6 20l2.4-7.8L2 8l8.2-.4z"/></svg> Ask AI</button>
         </div>
-        <div class="editor-content" id="editor-content" contenteditable="true" placeholder="Start writing..."></div>
-        <!-- Note AI Chat -->
-        <div id="note-ai-panel" style="display:none;border-top:1px solid var(--color-border);padding:0.75rem;background:var(--follett-light-gray);border-radius:0 0 var(--radius) var(--radius);">
-          <div id="note-ai-messages" style="max-height:200px;overflow-y:auto;margin-bottom:0.5rem;font-size:0.85rem;"></div>
-          <div style="display:flex;gap:0.375rem;">
-            <input type="text" id="note-ai-input" placeholder="Ask about this note... (summarize, extract tasks, questions)" style="flex:1;padding:0.4rem 0.6rem;border:1px solid var(--color-border);border-radius:var(--radius);font-size:0.85rem;font-family:'Roboto',sans-serif;">
-            <button class="btn btn-primary btn-sm" id="btn-note-ai-send">Send</button>
-          </div>
-          <div style="display:flex;gap:0.25rem;margin-top:0.375rem;flex-wrap:wrap;">
-            <button class="btn btn-ghost btn-sm note-ai-quick" data-prompt="Summarize this note concisely" style="font-size:0.7rem;">Summarize</button>
-            <button class="btn btn-ghost btn-sm note-ai-quick" data-prompt="What are the key action items in this note?" style="font-size:0.7rem;">Action Items</button>
-            <button class="btn btn-ghost btn-sm note-ai-quick" data-prompt="What decisions were made in this note?" style="font-size:0.7rem;">Decisions</button>
-            <button class="btn btn-ghost btn-sm note-ai-quick" data-prompt="Generate tasks from this note" style="font-size:0.7rem;">Create Tasks</button>
+        <div class="editor-body">
+          <div class="editor-content" id="editor-content" contenteditable="true" placeholder="Start writing..."></div>
+          <!-- Note AI Chat -->
+          <div id="note-ai-panel" class="note-ai-panel">
+            <div class="note-ai-panel-header">
+              <span style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--follett-medium-blue);">AI Assistant</span>
+              <button class="ai-panel-close" id="btn-close-note-ai">&times;</button>
+            </div>
+            <div class="note-ai-quick-actions">
+              <button class="btn btn-ghost btn-sm note-ai-quick" data-prompt="Summarize this note concisely" style="font-size:0.7rem;">Summarize</button>
+              <button class="btn btn-ghost btn-sm note-ai-quick" data-prompt="What are the key action items in this note?" style="font-size:0.7rem;">Action Items</button>
+              <button class="btn btn-ghost btn-sm note-ai-quick" data-prompt="What decisions were made in this note?" style="font-size:0.7rem;">Decisions</button>
+              <button class="btn btn-ghost btn-sm note-ai-quick" data-prompt="Generate tasks from this note" style="font-size:0.7rem;">Create Tasks</button>
+            </div>
+            <div id="note-ai-messages" class="note-ai-messages"></div>
+            <div class="note-ai-input-row">
+              <input type="text" id="note-ai-input" placeholder="Ask about this note..." style="flex:1;padding:0.4rem 0.6rem;border:1px solid var(--color-border);border-radius:var(--radius);font-size:0.85rem;font-family:'Roboto',sans-serif;">
+              <button class="btn btn-primary btn-sm" id="btn-note-ai-send">Send</button>
+            </div>
           </div>
         </div>
         <!-- Note Links -->
@@ -718,11 +724,17 @@
         <button class="modal-close" data-close="modal-ai-tasks">&times;</button>
       </div>
       <div style="padding: 0.75rem 1.5rem 1.5rem;">
-        <p style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 0.75rem;">Review and edit before creating. Uncheck any you don't want.</p>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
+          <p style="font-size: 0.85rem; color: var(--color-text-muted); margin: 0;">Review and edit. Uncheck any you don't want.</p>
+          <div style="display:flex;gap:0.375rem;">
+            <button class="btn btn-ghost btn-sm" id="btn-ai-tasks-select-all" style="font-size:0.7rem;">Select All</button>
+            <button class="btn btn-ghost btn-sm" id="btn-ai-tasks-deselect-all" style="font-size:0.7rem;">Deselect All</button>
+          </div>
+        </div>
         <div id="ai-tasks-list" style="max-height: 50vh; overflow-y: auto;"></div>
         <div class="modal-actions">
           <button class="btn btn-ghost" data-close="modal-ai-tasks">Cancel</button>
-          <button class="btn btn-primary" id="btn-create-ai-tasks">Create Tasks</button>
+          <button class="btn btn-primary" id="btn-create-ai-tasks">Create Selected Tasks</button>
         </div>
       </div>
     </div>
