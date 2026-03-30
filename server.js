@@ -86,6 +86,45 @@ async function checkNoteAccess(req, note) {
   return false;
 }
 
+// Seed a Getting Started task for new team members (runs once per user)
+async function seedGettingStarted(orgId, userId, member) {
+  const orgRef = db.collection('orgs').doc(orgId);
+  const existing = await orgRef.collection('tasks')
+    .where('assignedTo', '==', userId)
+    .where('source', '==', 'system')
+    .get();
+  if (!existing.empty) return; // Already has a system task
+
+  const now = new Date().toISOString();
+  const dept = (member.departments && member.departments[0]) || 'Personal';
+  const parentRef = await orgRef.collection('tasks').add({
+    title: 'Getting Started with Follett Marketing',
+    department: dept, subDepartment: '', priority: 'Medium',
+    notes: 'Welcome to the team! Complete these steps to get familiar with the app.',
+    status: 'Delegated', completed: false, completedAt: '',
+    createdAt: now, source: 'system', attachments: [],
+    dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    emailMessageId: '', recurring: 'none',
+    createdBy: member.reportsTo || userId, assignedTo: userId,
+    sharedWith: [], parentTaskId: ''
+  });
+  const subtasks = [
+    'Read the Welcome note in Strategy & Notes > All Team',
+    'Update the status on this task to "In Progress"',
+    'Try Quick Add: paste any text and let AI create a task for you'
+  ];
+  for (const title of subtasks) {
+    await orgRef.collection('tasks').add({
+      title, department: dept, subDepartment: '', priority: 'Low',
+      notes: '', status: 'Delegated', completed: false, completedAt: '',
+      createdAt: now, source: 'system', attachments: [], dueDate: '',
+      emailMessageId: '', recurring: 'none',
+      createdBy: member.reportsTo || userId, assignedTo: userId,
+      sharedWith: [], parentTaskId: parentRef.id
+    });
+  }
+}
+
 // === Org Resolution Middleware ===
 async function resolveOrg(req, res, next) {
   try {
@@ -106,6 +145,12 @@ async function resolveOrg(req, res, next) {
         req.memberName = m.displayName;
         req.memberReportsTo = m.reportsTo || '';
         req.memberSubDepts = getMemberSubDepts(m);
+
+        // Create Getting Started task if this user doesn't have one yet (non-CMO only)
+        if (m.role !== 'cmo') {
+          seedGettingStarted(userData.orgId, req.userId, m).catch(() => {});
+        }
+
         return next();
       }
     }
