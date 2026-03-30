@@ -2003,7 +2003,9 @@ async function sendChatMessage(messageOverride) {
 // === Event Binding ===
 async function init() {
   await loadTasks();
+  await loadTeam();
   await migrateLocalStorage();
+  render();
 
   // Add Task button
   document.getElementById('btn-add-task').addEventListener('click', () => {
