@@ -23,7 +23,7 @@ jobs:
             --source . \
             --region us-central1 \
             --allow-unauthenticated \
-            --set-env-vars "GMAIL_CLIENT_ID=${{ secrets.GMAIL_CLIENT_ID }},GMAIL_CLIENT_SECRET=${{ secrets.GMAIL_CLIENT_SECRET }},GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}"
+            --set-env-vars "GMAIL_CLIENT_ID=${{ secrets.GMAIL_CLIENT_ID }},GMAIL_CLIENT_SECRET=${{ secrets.GMAIL_CLIENT_SECRET }},GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }},SLACK_CLIENT_ID=${{ secrets.SLACK_CLIENT_ID }},SLACK_CLIENT_SECRET=${{ secrets.SLACK_CLIENT_SECRET }}"
 
       - name: Cleanup credentials
         if: always()
