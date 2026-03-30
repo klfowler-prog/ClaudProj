@@ -837,7 +837,7 @@ function showTaskDetail(id) {
 
   document.getElementById('detail-content').innerHTML = `
     ${parentContext}
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1rem;">
+    <div class="detail-grid">
       <div>
         <div class="detail-section-title">Status</div>
         <select class="filter-select-compact" onchange="setTaskStatusFromDetail('${task.id}', this.value)" style="font-size:0.8rem;">
@@ -986,8 +986,7 @@ async function setTaskStatusFromDetail(taskId, newStatus) {
     await api('PUT', `/api/tasks/${taskId}`, updates);
     await loadTasks();
     render();
-    // Refresh the detail view
-    showTaskDetail(taskId);
+    closeModal('modal-detail');
   } catch (err) { alert('Failed to update status: ' + err.message); }
 }
 
