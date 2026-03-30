@@ -2361,10 +2361,19 @@ app.get('/api/slack/users', auth, async (req, res) => {
     const doc = await db.collection('orgs').doc(req.orgId).collection('settings').doc('slack').get();
     if (!doc.exists || !doc.data().botToken) return res.status(400).json({ error: 'Slack not connected' });
 
-    const result = await slackApiCall(doc.data().botToken, 'users.list', {});
-    if (!result.ok) return res.status(500).json({ error: 'Failed to list Slack users' });
+    // Paginate through all Slack users
+    let allMembers = [];
+    let cursor = '';
+    do {
+      const params = { limit: 200 };
+      if (cursor) params.cursor = cursor;
+      const result = await slackApiCall(doc.data().botToken, 'users.list', params);
+      if (!result.ok) return res.status(500).json({ error: 'Failed to list Slack users' });
+      allMembers = allMembers.concat(result.members || []);
+      cursor = (result.response_metadata && result.response_metadata.next_cursor) || '';
+    } while (cursor);
 
-    const users = (result.members || [])
+    const users = allMembers
       .filter(u => !u.is_bot && !u.deleted && u.id !== 'USLACKBOT')
       .map(u => ({
         id: u.id,
@@ -2404,12 +2413,20 @@ app.post('/api/slack/auto-map', auth, async (req, res) => {
     const settingsDoc = await db.collection('orgs').doc(req.orgId).collection('settings').doc('slack').get();
     if (!settingsDoc.exists || !settingsDoc.data().botToken) return res.status(400).json({ error: 'Slack not connected' });
 
-    // Get Slack users
-    const slackResult = await slackApiCall(settingsDoc.data().botToken, 'users.list', {});
-    if (!slackResult.ok) return res.status(500).json({ error: 'Failed to list Slack users' });
+    // Get all Slack users (paginated)
+    let allSlackMembers = [];
+    let cursor = '';
+    do {
+      const params = { limit: 200 };
+      if (cursor) params.cursor = cursor;
+      const slackResult = await slackApiCall(settingsDoc.data().botToken, 'users.list', params);
+      if (!slackResult.ok) return res.status(500).json({ error: 'Failed to list Slack users' });
+      allSlackMembers = allSlackMembers.concat(slackResult.members || []);
+      cursor = (slackResult.response_metadata && slackResult.response_metadata.next_cursor) || '';
+    } while (cursor);
 
     const slackByEmail = {};
-    (slackResult.members || []).forEach(u => {
+    allSlackMembers.forEach(u => {
       if (u.profile && u.profile.email && !u.is_bot && !u.deleted) {
         slackByEmail[u.profile.email.toLowerCase()] = u.id;
       }
