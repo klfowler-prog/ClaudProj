@@ -348,6 +348,7 @@
     <div id="view-team" style="display: none;">
       <div class="stats-bar" style="margin-bottom: 1rem;">
         <h2 style="font-family: 'IBM Plex Serif', Georgia, serif; font-size: 1.25rem; color: var(--follett-dark-blue);">Team Management</h2>
+        <button class="btn btn-secondary btn-sm" id="btn-slack-settings" style="display:none;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;"><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5V7h2.5A2.5 2.5 0 0 0 14.5 2z"/><path d="M2 14.5A2.5 2.5 0 0 0 4.5 17H7v-2.5A2.5 2.5 0 0 0 2 14.5z"/><path d="M22 9.5A2.5 2.5 0 0 0 19.5 7H17v2.5A2.5 2.5 0 0 0 22 9.5z"/><path d="M9.5 22a2.5 2.5 0 0 0 2.5-2.5V17H9.5A2.5 2.5 0 0 0 9.5 22z"/><path d="M7 9.5A2.5 2.5 0 0 0 4.5 7 2.5 2.5 0 0 0 2 9.5 2.5 2.5 0 0 0 4.5 12H7V9.5z"/><path d="M17 14.5a2.5 2.5 0 0 0 2.5 2.5 2.5 2.5 0 0 0 2.5-2.5 2.5 2.5 0 0 0-2.5-2.5H17v2.5z"/><path d="M9.5 2A2.5 2.5 0 0 0 7 4.5V7h2.5A2.5 2.5 0 0 0 9.5 2z"/><path d="M14.5 22a2.5 2.5 0 0 0 2.5-2.5V17h-2.5a2.5 2.5 0 0 0 0 5z"/></svg> Slack</button>
         <button class="btn btn-primary btn-sm" id="btn-invite-member">+ Add Team Member</button>
       </div>
       <div id="team-roster"></div>
@@ -411,6 +412,19 @@
             <p style="margin-top: 0.5rem;" id="invite-result-text"></p>
             <button class="btn btn-primary btn-sm" id="btn-copy-invite-link" style="margin-top: 0.5rem;">Copy Link</button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Slack Settings Modal -->
+    <div class="modal-overlay" id="modal-slack" style="display: none;">
+      <div class="modal modal-wide">
+        <div class="modal-header">
+          <h2>Slack Notifications</h2>
+          <button class="modal-close" data-close="modal-slack">&times;</button>
+        </div>
+        <div id="slack-settings-content" style="padding: 0 1.5rem 1.5rem;">
+          <div id="slack-loading" style="text-align:center;padding:2rem;color:var(--color-text-muted);">Loading...</div>
         </div>
       </div>
     </div>

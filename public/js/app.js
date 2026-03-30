@@ -2354,6 +2354,7 @@ async function init() {
   // Team (CMO only)
   document.getElementById('btn-invite-member') && document.getElementById('btn-invite-member').addEventListener('click', inviteMember);
   document.getElementById('form-invite') && document.getElementById('form-invite').addEventListener('submit', submitInvite);
+  document.getElementById('btn-slack-settings') && document.getElementById('btn-slack-settings').addEventListener('click', openSlackSettings);
   document.querySelectorAll('[data-view="team"]').forEach(btn => {
     btn.addEventListener('click', () => { showTeamView(); closeSidebar(); });
   });
@@ -2578,6 +2579,7 @@ function applyRoleUI() {
   const r = myProfile.role;
   document.getElementById('sidebar-team-section').style.display = (r === 'cmo' || r === 'lead') ? 'block' : 'none';
   document.getElementById('btn-sync-email').style.display = r === 'cmo' ? '' : 'none';
+  document.getElementById('btn-slack-settings').style.display = r === 'cmo' ? '' : 'none';
   document.getElementById('btn-add-task').style.display = r === 'viewer' ? 'none' : '';
   document.getElementById('btn-quick-import').style.display = r === 'viewer' ? 'none' : '';
   document.getElementById('btn-new-note').style.display = r === 'viewer' ? 'none' : '';
@@ -2823,6 +2825,185 @@ function populateAssignToDropdown() {
     teamMembers.filter(m => m.status === 'active' || !m.status).map(m =>
       `<option value="${m.userId}">${escapeHtml(m.displayName)} (${(m.departments || [m.department]).join(', ')})</option>`
     ).join('');
+}
+
+// === Slack Settings ===
+async function openSlackSettings() {
+  openModal('modal-slack');
+  const container = document.getElementById('slack-settings-content');
+  container.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--color-text-muted);">Loading Slack settings...</div>';
+
+  try {
+    const status = await api('GET', '/api/slack/status');
+
+    if (!status.connected) {
+      container.innerHTML = `
+        <div style="text-align:center;padding:2rem;">
+          <div style="font-size:2.5rem;margin-bottom:0.75rem;">💬</div>
+          <h3 style="margin-bottom:0.5rem;color:var(--follett-dark-blue);">Connect Slack</h3>
+          <p style="font-size:0.85rem;color:var(--color-text-muted);margin-bottom:1.25rem;max-width:360px;margin-left:auto;margin-right:auto;">
+            Get instant Slack notifications when tasks are assigned, completed, blocked, or approved. Team members receive DMs, and you can route alerts to channels.
+          </p>
+          <button class="btn btn-primary" id="btn-slack-connect">Add to Slack</button>
+          <p style="font-size:0.7rem;color:var(--color-text-muted);margin-top:0.75rem;">
+            Requires a Slack app with Bot Token Scopes: <code>chat:write</code>, <code>users:read</code>, <code>users:read.email</code>, <code>channels:read</code>, <code>groups:read</code>, <code>im:write</code>
+          </p>
+        </div>`;
+      document.getElementById('btn-slack-connect').addEventListener('click', async () => {
+        try {
+          const { url } = await api('GET', '/api/slack/install');
+          window.open(url, 'slack-auth', 'width=600,height=700');
+          // Poll for connection
+          const poll = setInterval(async () => {
+            const s = await api('GET', '/api/slack/status');
+            if (s.connected) { clearInterval(poll); openSlackSettings(); }
+          }, 2000);
+          setTimeout(() => clearInterval(poll), 120000);
+        } catch (err) { alert('Failed to start Slack connection: ' + err.message); }
+      });
+      return;
+    }
+
+    // Connected — show full settings
+    const [slackUsers, channels, mappings, notifChannels] = await Promise.all([
+      api('GET', '/api/slack/users').catch(() => []),
+      api('GET', '/api/slack/channels').catch(() => []),
+      loadTeam().then(() => teamMembers),
+      api('GET', '/api/slack/notification-channels').catch(() => ({}))
+    ]);
+
+    let html = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;padding:0.625rem;background:var(--color-comms-light);border-radius:var(--radius);">
+        <div>
+          <span style="font-size:0.85rem;font-weight:600;color:var(--follett-dark-blue);">Connected to ${escapeHtml(status.teamName)}</span>
+        </div>
+        <div style="display:flex;gap:0.5rem;">
+          <button class="btn btn-ghost btn-sm" id="btn-slack-test">Send Test</button>
+          <button class="btn btn-ghost btn-sm" style="color:var(--follett-coral);" id="btn-slack-disconnect">Disconnect</button>
+        </div>
+      </div>`;
+
+    // User mapping section
+    html += `<div style="margin-bottom:1.25rem;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem;">
+        <h3 style="font-size:0.9rem;font-weight:600;color:var(--follett-dark-blue);margin:0;">User Mapping</h3>
+        <button class="btn btn-secondary btn-sm" id="btn-slack-automap">Auto-Map by Email</button>
+      </div>
+      <p style="font-size:0.75rem;color:var(--color-text-muted);margin-bottom:0.5rem;">Match each team member to their Slack account to enable DM notifications.</p>
+      <div style="max-height:240px;overflow-y:auto;">
+        <table style="width:100%;font-size:0.8rem;border-collapse:collapse;">
+          <thead><tr style="text-align:left;border-bottom:1px solid var(--color-border);">
+            <th style="padding:0.375rem 0.5rem;">Team Member</th>
+            <th style="padding:0.375rem 0.5rem;">Slack User</th>
+          </tr></thead>
+          <tbody>`;
+
+    const activeMembers = teamMembers.filter(m => m.status === 'active' || !m.status);
+    activeMembers.forEach(m => {
+      const currentSlackId = m.slackUserId || '';
+      html += `<tr style="border-bottom:1px solid var(--color-border);">
+        <td style="padding:0.375rem 0.5rem;">${escapeHtml(m.displayName)}<br><span style="font-size:0.7rem;color:var(--color-text-muted);">${escapeHtml(m.email || '')}</span></td>
+        <td style="padding:0.375rem 0.5rem;">
+          <select class="slack-user-map filter-select-compact" data-member-id="${m.id}" style="width:100%;font-size:0.8rem;">
+            <option value="">Not mapped</option>
+            ${slackUsers.map(su => `<option value="${su.id}" ${su.id === currentSlackId ? 'selected' : ''}>${escapeHtml(su.name)}${su.email ? ' (' + escapeHtml(su.email) + ')' : ''}</option>`).join('')}
+          </select>
+        </td>
+      </tr>`;
+    });
+
+    html += `</tbody></table></div>
+      <button class="btn btn-primary btn-sm" id="btn-slack-save-mappings" style="margin-top:0.5rem;">Save Mappings</button>
+    </div>`;
+
+    // Channel notification routing
+    const notifTypes = [
+      { key: 'all', label: 'All Notifications' },
+      { key: 'task_assigned', label: 'Task Assigned' },
+      { key: 'task_blocked', label: 'Task Blocked' },
+      { key: 'task_approved', label: 'Task Approved' },
+      { key: 'task_completed', label: 'Task Completed' },
+      { key: 'comment', label: 'Comments' }
+    ];
+
+    html += `<div>
+      <h3 style="font-size:0.9rem;font-weight:600;color:var(--follett-dark-blue);margin-bottom:0.25rem;">Channel Notifications</h3>
+      <p style="font-size:0.75rem;color:var(--color-text-muted);margin-bottom:0.5rem;">Optionally route notification types to Slack channels. The bot must be added to the channel first.</p>`;
+
+    if (channels.length === 0) {
+      html += `<p style="font-size:0.8rem;color:var(--color-text-muted);font-style:italic;">No channels found. Invite the bot to a channel first (type <code>/invite @YourBotName</code> in the channel).</p>`;
+    } else {
+      html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;">`;
+      notifTypes.forEach(nt => {
+        const selected = (notifChannels[nt.key] || [])[0] || '';
+        html += `<div>
+          <label style="font-size:0.75rem;font-weight:500;display:block;margin-bottom:0.125rem;">${nt.label}</label>
+          <select class="slack-channel-map filter-select-compact" data-notif-type="${nt.key}" style="width:100%;font-size:0.8rem;">
+            <option value="">None</option>
+            ${channels.map(ch => `<option value="${ch.id}" ${ch.id === selected ? 'selected' : ''}>${ch.isPrivate ? '🔒' : '#'}${escapeHtml(ch.name)}</option>`).join('')}
+          </select>
+        </div>`;
+      });
+      html += `</div>
+        <button class="btn btn-primary btn-sm" id="btn-slack-save-channels" style="margin-top:0.5rem;">Save Channels</button>`;
+    }
+
+    html += `</div>`;
+    container.innerHTML = html;
+
+    // Event listeners
+    document.getElementById('btn-slack-disconnect').addEventListener('click', async () => {
+      if (!confirm('Disconnect Slack? This will stop all Slack notifications.')) return;
+      try { await api('POST', '/api/slack/disconnect'); openSlackSettings(); } catch (err) { alert(err.message); }
+    });
+
+    document.getElementById('btn-slack-test').addEventListener('click', async () => {
+      try {
+        await api('POST', '/api/slack/test');
+        alert('Test notification sent! Check your Slack DMs.');
+      } catch (err) { alert(err.message); }
+    });
+
+    document.getElementById('btn-slack-automap').addEventListener('click', async () => {
+      try {
+        const result = await api('POST', '/api/slack/auto-map');
+        alert(`Auto-mapped ${result.mapped} user(s) by email.`);
+        openSlackSettings(); // Refresh
+      } catch (err) { alert(err.message); }
+    });
+
+    document.getElementById('btn-slack-save-mappings').addEventListener('click', async () => {
+      const selects = document.querySelectorAll('.slack-user-map');
+      const mappings = [];
+      selects.forEach(sel => {
+        mappings.push({ memberId: sel.dataset.memberId, slackUserId: sel.value });
+      });
+      try {
+        await api('POST', '/api/slack/map-users', { mappings });
+        await loadTeam();
+        alert('User mappings saved!');
+      } catch (err) { alert(err.message); }
+    });
+
+    const saveChannelsBtn = document.getElementById('btn-slack-save-channels');
+    if (saveChannelsBtn) {
+      saveChannelsBtn.addEventListener('click', async () => {
+        const selects = document.querySelectorAll('.slack-channel-map');
+        const notificationChannels = {};
+        selects.forEach(sel => {
+          const type = sel.dataset.notifType;
+          if (sel.value) notificationChannels[type] = [sel.value];
+        });
+        try {
+          await api('PUT', '/api/slack/notification-channels', { notificationChannels });
+          alert('Channel notifications saved!');
+        } catch (err) { alert(err.message); }
+      });
+    }
+
+  } catch (err) {
+    container.innerHTML = `<p style="color:var(--follett-coral);padding:1rem;">Failed to load Slack settings: ${escapeHtml(err.message)}</p>`;
+  }
 }
 
 async function showTeamView() {

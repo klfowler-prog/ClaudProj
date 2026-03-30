@@ -18,6 +18,12 @@ const GMAIL_CLIENT_ID = process.env.GMAIL_CLIENT_ID;
 const GMAIL_CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET;
 const GMAIL_REDIRECT_URI = process.env.GMAIL_REDIRECT_URI || 'https://cmo-task-manager-951932541878.us-central1.run.app/api/gmail/callback';
 
+// Slack OAuth config — set these as Cloud Run environment variables
+const SLACK_CLIENT_ID = process.env.SLACK_CLIENT_ID;
+const SLACK_CLIENT_SECRET = process.env.SLACK_CLIENT_SECRET;
+const SLACK_REDIRECT_URI = process.env.SLACK_REDIRECT_URI || 'https://cmo-task-manager-951932541878.us-central1.run.app/api/slack/callback';
+const APP_BASE_URL = process.env.APP_BASE_URL || 'https://cmo-task-manager-951932541878.us-central1.run.app';
+
 const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',')
   : ['https://cmo-task-manager-951932541878.us-central1.run.app', 'http://localhost:8080'];
@@ -1518,6 +1524,131 @@ ${allNotes.join('\n---\n')}`;
   }
 });
 
+// === Slack Integration Helpers ===
+
+const SLACK_NOTIFICATION_ICONS = {
+  task_assigned: ':clipboard:',
+  task_blocked: ':no_entry:',
+  task_approved: ':white_check_mark:',
+  task_completed: ':tada:',
+  task_completed_after_approval: ':tada:',
+  subtask_completed: ':ballot_box_with_check:',
+  subtasks_all_done: ':star2:',
+  comment: ':speech_balloon:'
+};
+
+const SLACK_NOTIFICATION_COLORS = {
+  task_assigned: '#1a73e8',
+  task_blocked: '#d93025',
+  task_approved: '#188038',
+  task_completed: '#188038',
+  task_completed_after_approval: '#188038',
+  subtask_completed: '#1a73e8',
+  subtasks_all_done: '#f9ab00',
+  comment: '#5f6368'
+};
+
+// Make a Slack API call using the org's bot token
+async function slackApiCall(botToken, method, body) {
+  const res = await fetch(`https://slack.com/api/${method}`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${botToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  const json = await res.json();
+  if (!json.ok) console.error(`Slack API ${method} failed:`, json.error);
+  return json;
+}
+
+// Build Slack Block Kit message for a notification
+function buildSlackBlocks(type, title, taskId, fromName) {
+  const icon = SLACK_NOTIFICATION_ICONS[type] || ':bell:';
+  const color = SLACK_NOTIFICATION_COLORS[type] || '#1a73e8';
+  const taskUrl = `${APP_BASE_URL}/?task=${taskId}`;
+
+  return {
+    attachments: [{
+      color,
+      blocks: [
+        {
+          type: 'section',
+          text: { type: 'mrkdwn', text: `${icon} *${title}*` }
+        },
+        {
+          type: 'actions',
+          elements: [{
+            type: 'button',
+            text: { type: 'plain_text', text: 'View Task' },
+            url: taskUrl,
+            style: 'primary'
+          }]
+        }
+      ]
+    }]
+  };
+}
+
+// Send a Slack DM to a user
+async function sendSlackDM(botToken, slackUserId, type, title, taskId, fromName) {
+  // Open a DM channel
+  const openRes = await slackApiCall(botToken, 'conversations.open', { users: slackUserId });
+  if (!openRes.ok || !openRes.channel) return;
+
+  const message = buildSlackBlocks(type, title, taskId, fromName);
+  await slackApiCall(botToken, 'chat.postMessage', {
+    channel: openRes.channel.id,
+    text: title, // fallback for notifications
+    ...message
+  });
+}
+
+// Send a Slack notification to configured channels
+async function sendSlackChannelNotification(botToken, channels, type, title, taskId, fromName) {
+  const message = buildSlackBlocks(type, title, taskId, fromName);
+  for (const channelId of channels) {
+    await slackApiCall(botToken, 'chat.postMessage', {
+      channel: channelId,
+      text: title,
+      ...message
+    });
+  }
+}
+
+// Send Slack notification (DM + channels) for a notification event
+async function sendSlackNotification(orgId, toUserId, data) {
+  try {
+    const settingsDoc = await db.collection('orgs').doc(orgId).collection('settings').doc('slack').get();
+    if (!settingsDoc.exists) return;
+
+    const settings = settingsDoc.data();
+    if (!settings.botToken || !settings.connected) return;
+
+    const { type, title, taskId, fromName } = data;
+
+    // Send DM if user has a slackUserId mapped
+    const memberDoc = await db.collection('orgs').doc(orgId).collection('members').doc(toUserId).get();
+    if (memberDoc.exists) {
+      const member = memberDoc.data();
+      if (member.slackUserId) {
+        await sendSlackDM(settings.botToken, member.slackUserId, type, title, taskId, fromName);
+      }
+    }
+
+    // Send to configured notification channels
+    const channelTypes = settings.notificationChannels || {};
+    // 'all' channel gets everything; type-specific channels get their type
+    const targetChannels = new Set();
+    if (channelTypes.all) channelTypes.all.forEach(ch => targetChannels.add(ch));
+    if (channelTypes[type]) channelTypes[type].forEach(ch => targetChannels.add(ch));
+
+    if (targetChannels.size > 0) {
+      await sendSlackChannelNotification(settings.botToken, [...targetChannels], type, title, taskId, fromName);
+    }
+  } catch (err) {
+    console.error('Slack notification failed:', err);
+  }
+}
+
 // === Notification System ===
 async function createNotification(orgId, toUserId, data) {
   await db.collection('orgs').doc(orgId).collection('notifications').add({
@@ -1527,12 +1658,16 @@ async function createNotification(orgId, toUserId, data) {
     createdAt: new Date().toISOString()
   });
 
+  // Send Slack notification (non-blocking)
+  sendSlackNotification(orgId, toUserId, data).catch(err =>
+    console.error('Slack notification error:', err)
+  );
+
   // Send email notification
   try {
     const memberDoc = await db.collection('orgs').doc(orgId).collection('members').doc(toUserId).get();
     if (memberDoc.exists) {
       const email = memberDoc.data().email;
-      // Use Firebase Auth to send email (via custom email or just log for now)
       console.log(`NOTIFICATION: Email to ${email}: ${data.title}`);
     }
   } catch (err) { console.error('Failed to send email notification:', err); }
@@ -2061,6 +2196,248 @@ app.get('/api/gmail/status', auth, async (req, res) => {
     res.json({ connected: !!data.gmailRefreshToken, email: data.gmailEmail || '' });
   } catch (err) {
     res.status(500).json({ error: 'Failed to check Gmail status' });
+  }
+});
+
+// === Slack Bot Integration Endpoints ===
+
+// GET /api/slack/install — Start Slack OAuth flow (CMO only)
+app.get('/api/slack/install', auth, async (req, res) => {
+  if (req.memberRole !== 'cmo') return res.status(403).json({ error: 'CMO only' });
+  if (!SLACK_CLIENT_ID) return res.status(500).json({ error: 'Slack not configured on server' });
+
+  const state = Buffer.from(JSON.stringify({ orgId: req.orgId, userId: req.userId })).toString('base64');
+  const scopes = 'chat:write,users:read,users:read.email,channels:read,groups:read,im:write';
+  const url = `https://slack.com/oauth/v2/authorize?client_id=${SLACK_CLIENT_ID}&scope=${scopes}&redirect_uri=${encodeURIComponent(SLACK_REDIRECT_URI)}&state=${state}`;
+  res.json({ url });
+});
+
+// GET /api/slack/callback — Slack OAuth callback
+app.get('/api/slack/callback', async (req, res) => {
+  try {
+    const { code, state } = req.query;
+    if (!code || !state) return res.status(400).send('Missing code or state');
+
+    const { orgId, userId } = JSON.parse(Buffer.from(state, 'base64').toString());
+
+    // Exchange code for token
+    const tokenRes = await fetch('https://slack.com/api/oauth.v2.access', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: SLACK_CLIENT_ID,
+        client_secret: SLACK_CLIENT_SECRET,
+        code,
+        redirect_uri: SLACK_REDIRECT_URI
+      })
+    });
+    const tokenData = await tokenRes.json();
+    if (!tokenData.ok) return res.status(400).send('Slack authorization failed: ' + tokenData.error);
+
+    // Store the bot token and team info
+    await db.collection('orgs').doc(orgId).collection('settings').doc('slack').set({
+      connected: true,
+      botToken: tokenData.access_token,
+      teamId: tokenData.team.id,
+      teamName: tokenData.team.name,
+      botUserId: tokenData.bot_user_id,
+      installedBy: userId,
+      installedAt: new Date().toISOString(),
+      notificationChannels: {}
+    });
+
+    res.send('<html><body><h2>Slack connected successfully!</h2><p>You can close this tab and go back to the app.</p><script>window.close();</script></body></html>');
+  } catch (err) {
+    console.error('Slack OAuth error:', err);
+    res.status(500).send('Slack authorization failed: ' + err.message);
+  }
+});
+
+// GET /api/slack/status — Check if Slack is connected
+app.get('/api/slack/status', auth, async (req, res) => {
+  try {
+    const doc = await db.collection('orgs').doc(req.orgId).collection('settings').doc('slack').get();
+    if (!doc.exists || !doc.data().connected) return res.json({ connected: false });
+    const d = doc.data();
+    res.json({ connected: true, teamName: d.teamName, teamId: d.teamId });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to check Slack status' });
+  }
+});
+
+// POST /api/slack/disconnect — Remove Slack connection (CMO only)
+app.post('/api/slack/disconnect', auth, async (req, res) => {
+  if (req.memberRole !== 'cmo') return res.status(403).json({ error: 'CMO only' });
+  try {
+    await db.collection('orgs').doc(req.orgId).collection('settings').doc('slack').delete();
+    // Clear slackUserId from all members
+    const snap = await db.collection('orgs').doc(req.orgId).collection('members').get();
+    const batch = db.batch();
+    snap.docs.forEach(d => batch.update(d.ref, { slackUserId: '' }));
+    await batch.commit();
+    res.json({ disconnected: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to disconnect Slack' });
+  }
+});
+
+// GET /api/slack/channels — List Slack channels the bot can post to
+app.get('/api/slack/channels', auth, async (req, res) => {
+  if (req.memberRole !== 'cmo') return res.status(403).json({ error: 'CMO only' });
+  try {
+    const doc = await db.collection('orgs').doc(req.orgId).collection('settings').doc('slack').get();
+    if (!doc.exists || !doc.data().botToken) return res.status(400).json({ error: 'Slack not connected' });
+
+    const result = await slackApiCall(doc.data().botToken, 'conversations.list', {
+      types: 'public_channel,private_channel',
+      exclude_archived: true,
+      limit: 200
+    });
+
+    if (!result.ok) return res.status(500).json({ error: 'Failed to list channels' });
+
+    const channels = (result.channels || [])
+      .filter(ch => ch.is_member)
+      .map(ch => ({ id: ch.id, name: ch.name, isPrivate: ch.is_private }));
+    res.json(channels);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch channels' });
+  }
+});
+
+// GET /api/slack/notification-channels — Get configured notification channel mappings
+app.get('/api/slack/notification-channels', auth, async (req, res) => {
+  if (req.memberRole !== 'cmo') return res.status(403).json({ error: 'CMO only' });
+  try {
+    const doc = await db.collection('orgs').doc(req.orgId).collection('settings').doc('slack').get();
+    if (!doc.exists) return res.json({});
+    res.json(doc.data().notificationChannels || {});
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch notification channels' });
+  }
+});
+
+// PUT /api/slack/notification-channels — Update notification channel mappings
+app.put('/api/slack/notification-channels', auth, async (req, res) => {
+  if (req.memberRole !== 'cmo') return res.status(403).json({ error: 'CMO only' });
+  try {
+    const { notificationChannels } = req.body;
+    if (!notificationChannels || typeof notificationChannels !== 'object') {
+      return res.status(400).json({ error: 'Invalid notification channels' });
+    }
+    await db.collection('orgs').doc(req.orgId).collection('settings').doc('slack').update({ notificationChannels });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update notification channels' });
+  }
+});
+
+// GET /api/slack/users — List Slack workspace users for mapping
+app.get('/api/slack/users', auth, async (req, res) => {
+  if (req.memberRole !== 'cmo') return res.status(403).json({ error: 'CMO only' });
+  try {
+    const doc = await db.collection('orgs').doc(req.orgId).collection('settings').doc('slack').get();
+    if (!doc.exists || !doc.data().botToken) return res.status(400).json({ error: 'Slack not connected' });
+
+    const result = await slackApiCall(doc.data().botToken, 'users.list', {});
+    if (!result.ok) return res.status(500).json({ error: 'Failed to list Slack users' });
+
+    const users = (result.members || [])
+      .filter(u => !u.is_bot && !u.deleted && u.id !== 'USLACKBOT')
+      .map(u => ({
+        id: u.id,
+        name: u.real_name || u.name,
+        email: u.profile ? u.profile.email : '',
+        avatar: u.profile ? u.profile.image_48 : ''
+      }));
+    res.json(users);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch Slack users' });
+  }
+});
+
+// POST /api/slack/map-users — Map app team members to Slack users
+app.post('/api/slack/map-users', auth, async (req, res) => {
+  if (req.memberRole !== 'cmo') return res.status(403).json({ error: 'CMO only' });
+  try {
+    const { mappings } = req.body; // Array of { memberId, slackUserId }
+    if (!Array.isArray(mappings)) return res.status(400).json({ error: 'Invalid mappings' });
+
+    const batch = db.batch();
+    for (const { memberId, slackUserId } of mappings) {
+      const ref = db.collection('orgs').doc(req.orgId).collection('members').doc(memberId);
+      batch.update(ref, { slackUserId: slackUserId || '' });
+    }
+    await batch.commit();
+    res.json({ ok: true, mapped: mappings.length });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to map users' });
+  }
+});
+
+// POST /api/slack/auto-map — Auto-map users by matching email addresses
+app.post('/api/slack/auto-map', auth, async (req, res) => {
+  if (req.memberRole !== 'cmo') return res.status(403).json({ error: 'CMO only' });
+  try {
+    const settingsDoc = await db.collection('orgs').doc(req.orgId).collection('settings').doc('slack').get();
+    if (!settingsDoc.exists || !settingsDoc.data().botToken) return res.status(400).json({ error: 'Slack not connected' });
+
+    // Get Slack users
+    const slackResult = await slackApiCall(settingsDoc.data().botToken, 'users.list', {});
+    if (!slackResult.ok) return res.status(500).json({ error: 'Failed to list Slack users' });
+
+    const slackByEmail = {};
+    (slackResult.members || []).forEach(u => {
+      if (u.profile && u.profile.email && !u.is_bot && !u.deleted) {
+        slackByEmail[u.profile.email.toLowerCase()] = u.id;
+      }
+    });
+
+    // Match against team members
+    const membersSnap = await db.collection('orgs').doc(req.orgId).collection('members').get();
+    const batch = db.batch();
+    let mapped = 0;
+    const results = [];
+
+    membersSnap.docs.forEach(d => {
+      const m = d.data();
+      const email = (m.email || '').toLowerCase();
+      if (email && slackByEmail[email]) {
+        batch.update(d.ref, { slackUserId: slackByEmail[email] });
+        mapped++;
+        results.push({ memberId: d.id, name: m.displayName, slackUserId: slackByEmail[email] });
+      }
+    });
+
+    if (mapped > 0) await batch.commit();
+    res.json({ ok: true, mapped, results });
+  } catch (err) {
+    res.status(500).json({ error: 'Auto-map failed' });
+  }
+});
+
+// POST /api/slack/test — Send a test notification to the current user's Slack DM
+app.post('/api/slack/test', auth, async (req, res) => {
+  try {
+    const settingsDoc = await db.collection('orgs').doc(req.orgId).collection('settings').doc('slack').get();
+    if (!settingsDoc.exists || !settingsDoc.data().botToken) return res.status(400).json({ error: 'Slack not connected' });
+
+    const memberDoc = await db.collection('orgs').doc(req.orgId).collection('members').doc(req.userId).get();
+    if (!memberDoc.exists || !memberDoc.data().slackUserId) {
+      return res.status(400).json({ error: 'Your account is not mapped to a Slack user. Map users first.' });
+    }
+
+    await sendSlackDM(
+      settingsDoc.data().botToken,
+      memberDoc.data().slackUserId,
+      'task_assigned',
+      'This is a test notification from Follett Marketing Task Manager!',
+      '',
+      req.memberName
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Test notification failed: ' + err.message });
   }
 });
 
