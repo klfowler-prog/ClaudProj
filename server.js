@@ -88,12 +88,10 @@ async function checkNoteAccess(req, note) {
 
 // Seed a Getting Started task for new team members (runs once per user)
 async function seedGettingStarted(orgId, userId, member) {
+  if (member.gettingStartedSeeded) return;
+
   const orgRef = db.collection('orgs').doc(orgId);
-  const existing = await orgRef.collection('tasks')
-    .where('assignedTo', '==', userId)
-    .where('source', '==', 'system')
-    .get();
-  if (!existing.empty) return; // Already has a system task
+  await orgRef.collection('members').doc(userId).update({ gettingStartedSeeded: true });
 
   const now = new Date().toISOString();
   const dept = (member.departments && member.departments[0]) || 'Personal';
