@@ -1094,6 +1094,26 @@ app.put('/api/notes/:id', authWrite, async (req, res) => {
     const allowed = ['title', 'content', 'folderId', 'aiSummary', 'sharedWith', 'links', 'pinned', 'archived', 'private', 'allowEditing'];
     for (const f of allowed) { if (req.body[f] !== undefined) updates[f] = req.body[f]; }
     await ref.update(updates);
+
+    // Notify newly shared users
+    if (updates.sharedWith) {
+      const oldShared = note.sharedWith || [];
+      const newShared = updates.sharedWith || [];
+      const added = newShared.filter(s => !oldShared.includes(s));
+      for (const target of added) {
+        // Only notify individual user IDs (skip 'all', 'dept:...', 'reports:...')
+        if (target && !target.includes(':') && target !== 'all') {
+          await createNotification(req.orgId, target, {
+            type: 'note_shared',
+            title: `${req.memberName} shared a note with you: ${note.title}`,
+            taskId: '',
+            fromUserId: req.userId,
+            fromName: req.memberName
+          });
+        }
+      }
+    }
+
     res.json({ id: req.params.id, ...updates });
   } catch (err) { res.status(500).json({ error: 'Failed to update note' }); }
 });
@@ -1534,7 +1554,9 @@ const SLACK_NOTIFICATION_ICONS = {
   task_completed_after_approval: ':tada:',
   subtask_completed: ':ballot_box_with_check:',
   subtasks_all_done: ':star2:',
-  comment: ':speech_balloon:'
+  comment: ':speech_balloon:',
+  note_shared: ':memo:',
+  feature_request: ':bulb:'
 };
 
 const SLACK_NOTIFICATION_COLORS = {
@@ -1545,7 +1567,9 @@ const SLACK_NOTIFICATION_COLORS = {
   task_completed_after_approval: '#188038',
   subtask_completed: '#1a73e8',
   subtasks_all_done: '#f9ab00',
-  comment: '#5f6368'
+  comment: '#5f6368',
+  note_shared: '#1a73e8',
+  feature_request: '#f9ab00'
 };
 
 // Make a Slack API call using the org's bot token
