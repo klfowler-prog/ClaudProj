@@ -147,6 +147,8 @@ async function resolveOrg(req, res, next) {
     req.memberRole = 'cmo';
     req.memberDepts = ['all'];
     req.memberName = req.userName;
+    req.memberReportsTo = '';
+    req.memberSubDepts = [];
 
     if (hasLegacyData) await migrateLegacyData(req.userId, orgRef.id);
 
@@ -227,6 +229,7 @@ function applyViewAs(req, res, next) {
     req.memberDepts = getMemberDepts(m);
     req.memberName = m.displayName;
     req.memberReportsTo = m.reportsTo || '';
+    req.memberSubDepts = getMemberSubDepts(m);
     next();
   }).catch(() => next());
 }
@@ -335,7 +338,7 @@ app.post('/api/tasks', authWrite, async (req, res) => {
     }
     const task = {
       title,
-      department: req.body.department,
+      department: req.body.department || 'Personal',
       subDepartment: req.body.subDepartment || '',
       priority: req.body.priority || 'Medium',
       notes: req.body.notes || '',
@@ -426,6 +429,7 @@ app.put('/api/tasks/:id', auth, async (req, res) => {
       }
       const updates = {};
       if (req.body.status) {
+        if (!VALID_STATUSES.includes(req.body.status)) return res.status(400).json({ error: 'Invalid status' });
         updates.status = req.body.status;
         updates.completed = req.body.status === 'Completed';
         updates.completedAt = req.body.status === 'Completed' ? new Date().toISOString() : '';

@@ -270,8 +270,8 @@ function renderTaskItem(task) {
   let avatarHtml = '';
   if (!showMyTasksOnly) {
     const assignee = teamMembers.find(m => m.userId === task.assignedTo);
-    const name = assignee ? assignee.displayName : (task.assignedTo === (myProfile && myProfile.userId) ? (myProfile.name || 'Me') : 'Me');
-    const initials = name.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase();
+    const name = (assignee ? assignee.displayName : (task.assignedTo === (myProfile && myProfile.userId) ? (myProfile.name || 'Me') : 'Me')) || 'Unknown';
+    const initials = name.trim().split(' ').map(w => w[0]).filter(Boolean).join('').substring(0, 2).toUpperCase() || '?';
     // Generate a consistent color from the name
     const colors = ['#479FC8', '#DC6B67', '#ABC39B', '#204A65', '#7398A9', '#d4960a', '#2e7d32', '#8e6bbf'];
     const colorIdx = name.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % colors.length;
@@ -1686,7 +1686,7 @@ function addNoteAiMessage(role, text) {
 }
 
 async function sendNoteAiMessage(messageOverride) {
-  if (!activeNoteId) return;
+  if (!activeNoteId) { alert('Please select a note first.'); return; }
   const input = document.getElementById('note-ai-input');
   const message = messageOverride || input.value.trim();
   if (!message) return;
@@ -2157,14 +2157,17 @@ async function init() {
 
   // Sidebar navigation
   document.querySelectorAll('.sidebar-nav-item').forEach(item => {
-    item.addEventListener('click', () => {
+    item.addEventListener('click', async () => {
       const view = item.dataset.view;
       switchView(view);
       // Toggle subnav
       if (view === 'tasks') toggleSidebarSection('tasks-subnav', 'tasks-caret');
       if (view === 'notes') {
         toggleSidebarSection('notes-subnav', 'notes-caret');
-        // Default to All Team folder
+        // Load folders if not yet loaded, then default to All Team
+        if (!folders || folders.length === 0) {
+          await loadFolders();
+        }
         const allTeamFolder = folders.find(f => f.name === 'All Team');
         if (allTeamFolder && !activeFolderId) {
           activeFolderId = allTeamFolder.id;
