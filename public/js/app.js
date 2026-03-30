@@ -2505,32 +2505,33 @@ async function init() {
   document.getElementById('completed-period').addEventListener('change', render);
 
   // Delegated section toggle
-  document.getElementById('approved-toggle').addEventListener('click', () => {
-    const list = document.getElementById('approved-list');
-    const toggle = document.getElementById('approved-toggle');
-    const isHidden = list.style.display === 'none';
-    list.style.display = isHidden ? 'flex' : 'none';
-    toggle.textContent = isHidden ? 'Hide' : 'Show';
-    if (isHidden) bindTaskBodyClicks(list);
-  });
+  function toggleSection(listId, toggleId) {
+    const list = document.getElementById(listId);
+    const toggle = document.getElementById(toggleId);
+    const isHidden = !list.classList.contains('section-open');
+    if (isHidden) {
+      list.classList.add('section-open');
+      list.style.display = 'flex';
+      toggle.textContent = 'Hide';
+      bindTaskBodyClicks(list);
+    } else {
+      list.classList.remove('section-open');
+      list.style.display = 'none';
+      toggle.textContent = 'Show';
+    }
+  }
 
-  document.getElementById('delegated-toggle').addEventListener('click', () => {
-    const list = document.getElementById('delegated-list');
-    const toggle = document.getElementById('delegated-toggle');
-    const isHidden = list.style.display === 'none';
-    list.style.display = isHidden ? 'flex' : 'none';
-    toggle.textContent = isHidden ? 'Hide' : 'Show';
-    if (isHidden) bindTaskBodyClicks(list);
+  document.getElementById('approved-toggle').addEventListener('click', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    toggleSection('approved-list', 'approved-toggle');
   });
-
-  // Completed section toggle
-  document.getElementById('completed-toggle').addEventListener('click', () => {
-    const list = document.getElementById('completed-list');
-    const toggle = document.getElementById('completed-toggle');
-    const isHidden = list.style.display === 'none';
-    list.style.display = isHidden ? 'flex' : 'none';
-    toggle.textContent = isHidden ? 'Hide' : 'Show';
-    if (isHidden) bindTaskBodyClicks(list);
+  document.getElementById('delegated-toggle').addEventListener('click', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    toggleSection('delegated-list', 'delegated-toggle');
+  });
+  document.getElementById('completed-toggle').addEventListener('click', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    toggleSection('completed-list', 'completed-toggle');
   });
 
   // File drag & drop
