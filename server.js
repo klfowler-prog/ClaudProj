@@ -1626,12 +1626,20 @@ async function sendSlackNotification(orgId, toUserId, data) {
     const { type, title, taskId, fromName } = data;
 
     // Send DM if user has a slackUserId mapped
+    let slackUserId = '';
     const memberDoc = await db.collection('orgs').doc(orgId).collection('members').doc(toUserId).get();
-    if (memberDoc.exists) {
-      const member = memberDoc.data();
-      if (member.slackUserId) {
-        await sendSlackDM(settings.botToken, member.slackUserId, type, title, taskId, fromName);
+    if (memberDoc.exists && memberDoc.data().slackUserId) {
+      slackUserId = memberDoc.data().slackUserId;
+    } else {
+      // Fallback: search by userId field in case doc ID differs
+      const snap = await db.collection('orgs').doc(orgId).collection('members')
+        .where('userId', '==', toUserId).limit(1).get();
+      if (!snap.empty && snap.docs[0].data().slackUserId) {
+        slackUserId = snap.docs[0].data().slackUserId;
       }
+    }
+    if (slackUserId) {
+      await sendSlackDM(settings.botToken, slackUserId, type, title, taskId, fromName);
     }
 
     // Send to configured notification channels
@@ -2422,14 +2430,26 @@ app.post('/api/slack/test', auth, async (req, res) => {
     const settingsDoc = await db.collection('orgs').doc(req.orgId).collection('settings').doc('slack').get();
     if (!settingsDoc.exists || !settingsDoc.data().botToken) return res.status(400).json({ error: 'Slack not connected' });
 
+    // Try by doc ID first, then search by userId field
+    let slackUserId = '';
     const memberDoc = await db.collection('orgs').doc(req.orgId).collection('members').doc(req.userId).get();
-    if (!memberDoc.exists || !memberDoc.data().slackUserId) {
-      return res.status(400).json({ error: 'Your account is not mapped to a Slack user. Map users first.' });
+    if (memberDoc.exists && memberDoc.data().slackUserId) {
+      slackUserId = memberDoc.data().slackUserId;
+    } else {
+      const snap = await db.collection('orgs').doc(req.orgId).collection('members')
+        .where('userId', '==', req.userId).limit(1).get();
+      if (!snap.empty && snap.docs[0].data().slackUserId) {
+        slackUserId = snap.docs[0].data().slackUserId;
+      }
+    }
+
+    if (!slackUserId) {
+      return res.status(400).json({ error: 'Your account is not mapped to a Slack user. Open the Slack settings and map your name to your Slack account, then save.' });
     }
 
     await sendSlackDM(
       settingsDoc.data().botToken,
-      memberDoc.data().slackUserId,
+      slackUserId,
       'task_assigned',
       'This is a test notification from Follett Marketing Task Manager!',
       '',
