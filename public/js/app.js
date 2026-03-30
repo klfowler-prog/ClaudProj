@@ -284,7 +284,7 @@ function renderTaskItem(task) {
         ${statusOptions}
       </select>
       ${avatarHtml}
-      <div class="task-body" onclick="showTaskDetail('${task.id}')" role="button">
+      <div class="task-body" data-task-id="${task.id}" onclick="showTaskDetail('${task.id}')" role="button">
         <div class="task-title">${escapeHtml(task.title)}</div>
         <div class="task-meta">
           ${isSubtask ? `<span class="task-parent-label">Part of: ${escapeHtml(task.parentTaskTitle || '...')}</span>` : ''}
@@ -2440,6 +2440,13 @@ async function init() {
   // Load team members for Assign To dropdown (all users need this)
   await loadTeam();
 
+  // Re-bind task body clicks after sections are revealed (iOS Safari fix)
+  function bindTaskBodyClicks(container) {
+    container.querySelectorAll('.task-body[data-task-id]').forEach(el => {
+      el.addEventListener('click', () => showTaskDetail(el.dataset.taskId));
+    });
+  }
+
   // Task list event delegation (for both active + completed lists)
   function handleTaskClick(e) {
     // Ignore clicks on the status select — let the browser handle it natively
@@ -2504,6 +2511,7 @@ async function init() {
     const isHidden = list.style.display === 'none';
     list.style.display = isHidden ? 'flex' : 'none';
     toggle.textContent = isHidden ? 'Hide' : 'Show';
+    if (isHidden) bindTaskBodyClicks(list);
   });
 
   document.getElementById('delegated-toggle').addEventListener('click', () => {
@@ -2512,6 +2520,7 @@ async function init() {
     const isHidden = list.style.display === 'none';
     list.style.display = isHidden ? 'flex' : 'none';
     toggle.textContent = isHidden ? 'Hide' : 'Show';
+    if (isHidden) bindTaskBodyClicks(list);
   });
 
   // Completed section toggle
@@ -2521,6 +2530,7 @@ async function init() {
     const isHidden = list.style.display === 'none';
     list.style.display = isHidden ? 'flex' : 'none';
     toggle.textContent = isHidden ? 'Hide' : 'Show';
+    if (isHidden) bindTaskBodyClicks(list);
   });
 
   // File drag & drop
