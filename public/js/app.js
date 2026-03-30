@@ -2901,13 +2901,16 @@ async function openSlackSettings() {
     const activeMembers = teamMembers.filter(m => m.status === 'active' || !m.status);
     activeMembers.forEach(m => {
       const currentSlackId = m.slackUserId || '';
+      const currentSlackUser = slackUsers.find(su => su.id === currentSlackId);
+      const displayVal = currentSlackUser ? `${currentSlackUser.name}${currentSlackUser.email ? ' (' + currentSlackUser.email + ')' : ''}` : '';
       html += `<tr style="border-bottom:1px solid var(--color-border);">
         <td style="padding:0.375rem 0.5rem;">${escapeHtml(m.displayName)}<br><span style="font-size:0.7rem;color:var(--color-text-muted);">${escapeHtml(m.email || '')}</span></td>
-        <td style="padding:0.375rem 0.5rem;">
-          <select class="slack-user-map filter-select-compact" data-member-id="${m.id}" style="width:100%;font-size:0.8rem;">
-            <option value="">Not mapped</option>
-            ${slackUsers.map(su => `<option value="${su.id}" ${su.id === currentSlackId ? 'selected' : ''}>${escapeHtml(su.name)}${su.email ? ' (' + escapeHtml(su.email) + ')' : ''}</option>`).join('')}
-          </select>
+        <td style="padding:0.375rem 0.5rem;position:relative;">
+          <input type="text" class="slack-user-search" data-member-id="${m.id}" data-slack-id="${currentSlackId}"
+            placeholder="Search Slack users..." value="${escapeHtml(displayVal)}"
+            style="width:100%;font-size:0.8rem;padding:0.3rem 0.5rem;border:1px solid var(--color-border);border-radius:var(--radius);box-sizing:border-box;"
+            autocomplete="off">
+          <div class="slack-user-dropdown" style="display:none;position:absolute;left:0.5rem;right:0.5rem;top:100%;background:white;border:1px solid var(--color-border);border-radius:var(--radius);max-height:180px;overflow-y:auto;z-index:100;box-shadow:0 4px 12px rgba(0,0,0,0.15);"></div>
         </td>
       </tr>`;
     });
@@ -2973,16 +2976,65 @@ async function openSlackSettings() {
     });
 
     document.getElementById('btn-slack-save-mappings').addEventListener('click', async () => {
-      const selects = document.querySelectorAll('.slack-user-map');
+      const inputs = document.querySelectorAll('.slack-user-search');
       const mappings = [];
-      selects.forEach(sel => {
-        mappings.push({ memberId: sel.dataset.memberId, slackUserId: sel.value });
+      inputs.forEach(inp => {
+        mappings.push({ memberId: inp.dataset.memberId, slackUserId: inp.dataset.slackId || '' });
       });
       try {
         await api('POST', '/api/slack/map-users', { mappings });
         await loadTeam();
         alert('User mappings saved!');
       } catch (err) { alert(err.message); }
+    });
+
+    // Searchable Slack user dropdowns
+    document.querySelectorAll('.slack-user-search').forEach(input => {
+      const dropdown = input.parentElement.querySelector('.slack-user-dropdown');
+
+      function renderDropdown(filter) {
+        const q = (filter || '').toLowerCase();
+        const filtered = q
+          ? slackUsers.filter(su => su.name.toLowerCase().includes(q) || (su.email || '').toLowerCase().includes(q))
+          : slackUsers;
+        if (filtered.length === 0) {
+          dropdown.innerHTML = '<div style="padding:0.5rem;font-size:0.8rem;color:var(--color-text-muted);">No matches</div>';
+        } else {
+          dropdown.innerHTML = filtered.slice(0, 30).map(su =>
+            `<div class="slack-dropdown-item" data-id="${su.id}" style="padding:0.375rem 0.5rem;font-size:0.8rem;cursor:pointer;border-bottom:1px solid var(--color-border);">
+              <strong>${escapeHtml(su.name)}</strong>${su.email ? '<br><span style="font-size:0.7rem;color:var(--color-text-muted);">' + escapeHtml(su.email) + '</span>' : ''}
+            </div>`
+          ).join('');
+        }
+        // Add "clear" option at top if currently mapped
+        if (input.dataset.slackId) {
+          dropdown.insertAdjacentHTML('afterbegin',
+            `<div class="slack-dropdown-item" data-id="" style="padding:0.375rem 0.5rem;font-size:0.8rem;cursor:pointer;border-bottom:1px solid var(--color-border);color:var(--follett-coral);">Clear mapping</div>`);
+        }
+        dropdown.style.display = 'block';
+      }
+
+      input.addEventListener('focus', () => renderDropdown(input.value));
+      input.addEventListener('input', () => renderDropdown(input.value));
+
+      dropdown.addEventListener('mousedown', (e) => {
+        e.preventDefault(); // Prevent blur from firing before click
+        const item = e.target.closest('.slack-dropdown-item');
+        if (!item) return;
+        const id = item.dataset.id;
+        input.dataset.slackId = id;
+        if (id) {
+          const su = slackUsers.find(s => s.id === id);
+          input.value = su ? `${su.name}${su.email ? ' (' + su.email + ')' : ''}` : '';
+        } else {
+          input.value = '';
+        }
+        dropdown.style.display = 'none';
+      });
+
+      input.addEventListener('blur', () => {
+        setTimeout(() => { dropdown.style.display = 'none'; }, 150);
+      });
     });
 
     const saveChannelsBtn = document.getElementById('btn-slack-save-channels');
