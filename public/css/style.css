@@ -1241,6 +1241,7 @@ body {
   flex: 1;
   min-width: 0;
   cursor: pointer;
+  -webkit-tap-highlight-color: rgba(71, 159, 200, 0.1);
 }
 
 .task-title {

@@ -284,7 +284,7 @@ function renderTaskItem(task) {
         ${statusOptions}
       </select>
       ${avatarHtml}
-      <div class="task-body" data-action="detail" data-id="${task.id}">
+      <div class="task-body" onclick="showTaskDetail('${task.id}')" role="button">
         <div class="task-title">${escapeHtml(task.title)}</div>
         <div class="task-meta">
           ${isSubtask ? `<span class="task-parent-label">Part of: ${escapeHtml(task.parentTaskTitle || '...')}</span>` : ''}
