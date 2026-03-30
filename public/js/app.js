@@ -2865,10 +2865,10 @@ async function openSlackSettings() {
     }
 
     // Connected — show full settings
-    const [slackUsers, channels, mappings, notifChannels] = await Promise.all([
-      api('GET', '/api/slack/users').catch(() => []),
+    await loadTeam();
+    const [slackUsers, channels, notifChannels] = await Promise.all([
+      api('GET', '/api/slack/users').catch(err => { console.error('Slack users fetch failed:', err); return []; }),
       api('GET', '/api/slack/channels').catch(() => []),
-      loadTeam().then(() => teamMembers),
       api('GET', '/api/slack/notification-channels').catch(() => ({}))
     ]);
 

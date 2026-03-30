@@ -1550,14 +1550,35 @@ const SLACK_NOTIFICATION_COLORS = {
 
 // Make a Slack API call using the org's bot token
 async function slackApiCall(botToken, method, body) {
-  const res = await fetch(`https://slack.com/api/${method}`, {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${botToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  });
-  const json = await res.json();
-  if (!json.ok) console.error(`Slack API ${method} failed:`, json.error);
-  return json;
+  try {
+    const res = await fetch(`https://slack.com/api/${method}`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${botToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const json = await res.json();
+    if (!json.ok) console.error(`Slack API ${method} failed:`, json.error);
+    return json;
+  } catch (err) {
+    console.error(`Slack API ${method} error:`, err);
+    return { ok: false, error: err.message };
+  }
+}
+
+// Fetch all Slack workspace users with pagination
+async function fetchAllSlackUsers(botToken) {
+  let allMembers = [];
+  let cursor = undefined;
+  do {
+    const params = { limit: 200 };
+    if (cursor) params.cursor = cursor;
+    const result = await slackApiCall(botToken, 'users.list', params);
+    if (!result.ok) throw new Error('Slack users.list failed: ' + (result.error || 'unknown'));
+    allMembers = allMembers.concat(result.members || []);
+    cursor = result.response_metadata && result.response_metadata.next_cursor
+      ? result.response_metadata.next_cursor : null;
+  } while (cursor);
+  return allMembers.filter(u => !u.is_bot && !u.deleted && u.id !== 'USLACKBOT');
 }
 
 // Build Slack Block Kit message for a notification
@@ -2361,26 +2382,13 @@ app.get('/api/slack/users', auth, async (req, res) => {
     const doc = await db.collection('orgs').doc(req.orgId).collection('settings').doc('slack').get();
     if (!doc.exists || !doc.data().botToken) return res.status(400).json({ error: 'Slack not connected' });
 
-    // Paginate through all Slack users
-    let allMembers = [];
-    let cursor = '';
-    do {
-      const params = { limit: 200 };
-      if (cursor) params.cursor = cursor;
-      const result = await slackApiCall(doc.data().botToken, 'users.list', params);
-      if (!result.ok) return res.status(500).json({ error: 'Failed to list Slack users' });
-      allMembers = allMembers.concat(result.members || []);
-      cursor = (result.response_metadata && result.response_metadata.next_cursor) || '';
-    } while (cursor);
-
-    const users = allMembers
-      .filter(u => !u.is_bot && !u.deleted && u.id !== 'USLACKBOT')
-      .map(u => ({
-        id: u.id,
-        name: u.real_name || u.name,
-        email: u.profile ? u.profile.email : '',
-        avatar: u.profile ? u.profile.image_48 : ''
-      }));
+    const slackMembers = await fetchAllSlackUsers(doc.data().botToken);
+    const users = slackMembers.map(u => ({
+      id: u.id,
+      name: u.real_name || u.name,
+      email: u.profile ? u.profile.email : '',
+      avatar: u.profile ? u.profile.image_48 : ''
+    }));
     res.json(users);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch Slack users' });
@@ -2413,17 +2421,7 @@ app.post('/api/slack/auto-map', auth, async (req, res) => {
     const settingsDoc = await db.collection('orgs').doc(req.orgId).collection('settings').doc('slack').get();
     if (!settingsDoc.exists || !settingsDoc.data().botToken) return res.status(400).json({ error: 'Slack not connected' });
 
-    // Get all Slack users (paginated)
-    let allSlackMembers = [];
-    let cursor = '';
-    do {
-      const params = { limit: 200 };
-      if (cursor) params.cursor = cursor;
-      const slackResult = await slackApiCall(settingsDoc.data().botToken, 'users.list', params);
-      if (!slackResult.ok) return res.status(500).json({ error: 'Failed to list Slack users' });
-      allSlackMembers = allSlackMembers.concat(slackResult.members || []);
-      cursor = (slackResult.response_metadata && slackResult.response_metadata.next_cursor) || '';
-    } while (cursor);
+    const allSlackMembers = await fetchAllSlackUsers(settingsDoc.data().botToken);
 
     const slackByEmail = {};
     allSlackMembers.forEach(u => {
