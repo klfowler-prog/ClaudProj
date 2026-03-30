@@ -3422,8 +3422,14 @@ async function deleteMember(id, name) {
 async function resetPassword(id, name) {
   try {
     const result = await api('POST', `/api/team/${id}/reset-password`);
-    await navigator.clipboard.writeText(result.link);
-    alert(`Password reset link for ${name} copied to clipboard!\n\nSend it to them directly.`);
+    const firstName = name.split(' ')[0];
+    const message = `Hey ${firstName}! Here's your login info for our marketing task manager:\n\n` +
+      `1. First, set your password using this link:\n${result.link}\n\n` +
+      `2. Once that's done, go to the app:\nhttps://cmo-task-manager-951932541878.us-central1.run.app\n\n` +
+      `3. Sign in with your email (${result.email}) and the password you just created.\n\n` +
+      `You'll see a Getting Started task with a few steps to walk you through it. Let me know if you have any questions!`;
+    await navigator.clipboard.writeText(message);
+    alert(`Message for ${name} copied to clipboard! Just paste it into Slack or email.`);
   } catch (err) { alert('Failed to generate reset link: ' + err.message); }
 }
 
