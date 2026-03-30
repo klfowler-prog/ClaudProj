@@ -1384,7 +1384,9 @@ async function openNote(noteId) {
 async function createNote() {
   if (!activeFolderId && folders.length > 0) activeFolderId = folders[0].id;
   try {
-    const note = await api('POST', '/api/notes', { title: 'Untitled', content: '', folderId: activeFolderId || '' });
+    const activeFolder = activeFolderId ? folders.find(f => f.id === activeFolderId) : null;
+    const isPersonal = activeFolder && (activeFolder.personal || activeFolder.name === 'Personal');
+    const note = await api('POST', '/api/notes', { title: 'Untitled', content: '', folderId: activeFolderId || '', private: isPersonal });
     notesList.unshift(note);
     renderNotesList();
     openNote(note.id);

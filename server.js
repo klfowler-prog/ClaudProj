@@ -75,18 +75,18 @@ function getMemberSubDepts(m) {
 
 // Check if user has access to a note
 async function checkNoteAccess(req, note) {
+  // Private notes: only the creator
+  if (note.private) return note.createdBy === req.userId;
   if (note.createdBy === req.userId) return true;
+  if (req.memberRole === 'cmo') return true;
   if (note.folderId) {
     const folderDoc = await orgCol(req, 'folders').doc(note.folderId).get();
     if (folderDoc.exists) {
       const fd = folderDoc.data();
-      // Personal folder: only the creator has access
-      if (fd.personal || fd.name === 'Personal') return false;
       if (fd.shared) return true;
       if (fd.leadersOnly && req.memberRole === 'lead') return true;
     }
   }
-  if (req.memberRole === 'cmo') return true;
   const sw = note.sharedWith || [];
   if (sw.includes(req.userId) || sw.includes('all')) return true;
   if (req.memberDepts.some(d => sw.includes('dept:' + d))) return true;
@@ -992,17 +992,9 @@ app.get('/api/notes', auth, async (req, res) => {
     const foldersSnap = await orgCol(req, 'folders').get();
     const sharedFolderIds = new Set();
     const leadersFolderIds = new Set();
-    const personalFolderIds = new Set();
     foldersSnap.docs.forEach(d => {
       if (d.data().shared) sharedFolderIds.add(d.id);
       if (d.data().leadersOnly) leadersFolderIds.add(d.id);
-      if (d.data().personal || d.data().name === 'Personal') personalFolderIds.add(d.id);
-    });
-
-    // Personal folder notes: only visible to the creator (even CMO can't see others')
-    notes = notes.filter(n => {
-      if (personalFolderIds.has(n.folderId)) return n.createdBy === req.userId;
-      return true;
     });
 
     // Hide private notes from anyone except the creator
@@ -1173,12 +1165,10 @@ app.get('/api/search', auth, async (req, res) => {
     const folderMap = {};
     const sharedFolderIds = new Set();
     const leadersFolderIds = new Set();
-    const personalFolderIds = new Set();
     foldersSnap.docs.forEach(d => {
       folderMap[d.id] = d.data().name;
       if (d.data().shared) sharedFolderIds.add(d.id);
       if (d.data().leadersOnly) leadersFolderIds.add(d.id);
-      if (d.data().personal || d.data().name === 'Personal') personalFolderIds.add(d.id);
     });
 
     const membersSnap = await orgCol(req, 'members').get();
@@ -1193,6 +1183,7 @@ app.get('/api/search', auth, async (req, res) => {
         updatedAt: n.updatedAt, createdBy: n.createdBy,
         authorName: memberNames[n.createdBy] || 'Unknown',
         sharedWith: n.sharedWith || [],
+        private: n.private || false,
         contentPreview: stripHtml(n.content || '').substring(0, 200)
       };
     }).filter(n => {
@@ -1200,11 +1191,8 @@ app.get('/api/search', auth, async (req, res) => {
       return searchable.includes(q);
     });
 
-    // Personal folder: creator-only (even CMO can't see others')
-    noteResults = noteResults.filter(n => {
-      if (personalFolderIds.has(n.folderId)) return n.createdBy === req.userId;
-      return true;
-    });
+    // Hide private notes from anyone except the creator
+    noteResults = noteResults.filter(n => !n.private || n.createdBy === req.userId);
 
     // Filter notes by access
     if (req.memberRole !== 'cmo') {
@@ -1473,18 +1461,14 @@ app.post('/api/ai/chat', auth, async (req, res) => {
     const folderMap = {};
     const sharedFolderIds = new Set();
     const leadersFolderIds = new Set();
-    const personalFolderIds = new Set();
     foldersSnap.docs.forEach(d => {
       folderMap[d.id] = d.data().name;
       if (d.data().shared) sharedFolderIds.add(d.id);
       if (d.data().leadersOnly) leadersFolderIds.add(d.id);
-      if (d.data().personal || d.data().name === 'Personal') personalFolderIds.add(d.id);
     });
 
     let noteDocs = notesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    // Personal folder: creator-only
-    noteDocs = noteDocs.filter(n => !personalFolderIds.has(n.folderId) || n.createdBy === req.userId);
-    // Hide other users' private notes from AI context
+    // Hide private notes from AI context
     noteDocs = noteDocs.filter(n => !n.private || n.createdBy === req.userId);
     if (req.memberRole !== 'cmo') {
       noteDocs = noteDocs.filter(n => {
