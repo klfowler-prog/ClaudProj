@@ -2167,6 +2167,122 @@ body {
 .team-member-meta { font-size: 0.75rem; color: var(--color-text-muted); }
 .team-member-actions { display: flex; gap: 0.375rem; }
 
+/* View toggle (list/calendar) */
+.view-toggle {
+  display: flex;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.view-toggle-btn {
+  background: none;
+  border: none;
+  padding: 0.25rem 0.5rem;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  display: flex;
+  align-items: center;
+}
+.view-toggle-btn.active {
+  background: var(--follett-dark-blue);
+  color: white;
+}
+.view-toggle-btn:hover:not(.active) { background: var(--follett-light-gray); }
+
+/* Calendar view */
+.cal-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 0;
+}
+.cal-month-title {
+  font-family: 'IBM Plex Serif', Georgia, serif;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--follett-dark-blue);
+  min-width: 180px;
+  text-align: center;
+}
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.cal-day-header {
+  padding: 0.375rem;
+  text-align: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  background: var(--follett-light-gray);
+  border-bottom: 1px solid var(--color-border);
+}
+.cal-day {
+  min-height: 90px;
+  padding: 0.25rem;
+  border-right: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+  position: relative;
+  cursor: pointer;
+}
+.cal-day:nth-child(7n) { border-right: none; }
+.cal-day:hover { background: var(--follett-light-gray); }
+.cal-day.cal-other-month { background: #f9fafb; }
+.cal-day.cal-other-month .cal-day-num { color: var(--color-text-light); }
+.cal-day.cal-today { background: #eef5ff; }
+.cal-day.cal-today .cal-day-num {
+  background: var(--follett-dark-blue);
+  color: white;
+  border-radius: 50%;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cal-day-num {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-text);
+  margin-bottom: 0.125rem;
+}
+.cal-task {
+  font-size: 0.65rem;
+  padding: 0.125rem 0.25rem;
+  margin-bottom: 1px;
+  border-radius: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  line-height: 1.4;
+}
+.cal-task:hover { opacity: 0.85; }
+.cal-task-high { background: var(--color-high-light); color: var(--follett-coral); border-left: 2px solid var(--follett-coral); }
+.cal-task-medium { background: var(--color-b2b-light); color: var(--follett-dark-blue); border-left: 2px solid var(--follett-medium-blue); }
+.cal-task-low { background: var(--color-comms-light); color: var(--follett-sage); border-left: 2px solid var(--follett-sage); }
+.cal-task-completed { background: #f0f0f0; color: var(--color-text-muted); text-decoration: line-through; border-left: 2px solid var(--color-text-light); }
+.cal-more {
+  font-size: 0.6rem;
+  color: var(--color-text-muted);
+  padding: 0.125rem 0.25rem;
+  cursor: pointer;
+}
+.cal-more:hover { color: var(--follett-medium-blue); }
+
+@media (max-width: 768px) {
+  .cal-day { min-height: 60px; }
+  .cal-task { font-size: 0.55rem; }
+  .cal-day-num { font-size: 0.65rem; }
+  .view-toggle { display: none; }
+}
+
 /* Slack user search dropdown */
 .slack-dropdown-item:hover { background: var(--follett-light-gray); }
 

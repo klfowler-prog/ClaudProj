@@ -121,10 +121,125 @@ async function migrateLocalStorage() {
 }
 
 // === Rendering ===
+// === Calendar View ===
+let calendarDate = new Date();
+let taskViewMode = 'list'; // 'list' or 'calendar'
+
+function setTaskViewMode(mode) {
+  taskViewMode = mode;
+  document.getElementById('btn-view-list').classList.toggle('active', mode === 'list');
+  document.getElementById('btn-view-calendar').classList.toggle('active', mode === 'calendar');
+  const isCal = mode === 'calendar';
+  document.getElementById('task-list-container').style.display = isCal ? 'none' : '';
+  document.getElementById('task-actions-bar').style.display = isCal ? 'none' : '';
+  document.getElementById('calendar-view').style.display = isCal ? 'block' : 'none';
+  document.getElementById('filter-sort').style.display = isCal ? 'none' : '';
+  if (mode === 'calendar') renderCalendar();
+}
+
+function renderCalendar() {
+  const year = calendarDate.getFullYear();
+  const month = calendarDate.getMonth();
+  const today = new Date();
+  const todayStr = today.toISOString().split('T')[0];
+
+  // Header
+  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  document.getElementById('cal-month-title').textContent = `${monthNames[month]} ${year}`;
+
+  // Build grid
+  const firstDay = new Date(year, month, 1).getDay(); // 0=Sun
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const daysInPrev = new Date(year, month, 0).getDate();
+
+  // Get filtered tasks
+  const filtered = getFilteredTasks();
+
+  // Group tasks by due date
+  const tasksByDate = {};
+  filtered.forEach(t => {
+    if (!t.dueDate) return;
+    if (!tasksByDate[t.dueDate]) tasksByDate[t.dueDate] = [];
+    tasksByDate[t.dueDate].push(t);
+  });
+
+  let html = '';
+  // Day headers
+  ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].forEach(d => {
+    html += `<div class="cal-day-header">${d}</div>`;
+  });
+
+  // Calendar cells
+  const totalCells = Math.ceil((firstDay + daysInMonth) / 7) * 7;
+  for (let i = 0; i < totalCells; i++) {
+    const dayNum = i - firstDay + 1;
+    let dateStr, displayNum, isOtherMonth = false;
+
+    if (dayNum < 1) {
+      // Previous month
+      displayNum = daysInPrev + dayNum;
+      const d = new Date(year, month - 1, displayNum);
+      dateStr = d.toISOString().split('T')[0];
+      isOtherMonth = true;
+    } else if (dayNum > daysInMonth) {
+      // Next month
+      displayNum = dayNum - daysInMonth;
+      const d = new Date(year, month + 1, displayNum);
+      dateStr = d.toISOString().split('T')[0];
+      isOtherMonth = true;
+    } else {
+      displayNum = dayNum;
+      const d = new Date(year, month, dayNum);
+      dateStr = d.toISOString().split('T')[0];
+    }
+
+    const isToday = dateStr === todayStr;
+    const classes = ['cal-day'];
+    if (isOtherMonth) classes.push('cal-other-month');
+    if (isToday) classes.push('cal-today');
+
+    const dayTasks = tasksByDate[dateStr] || [];
+    // Sort: high priority first, then by status
+    dayTasks.sort((a, b) => {
+      const prio = { High: 0, Medium: 1, Low: 2 };
+      return (prio[a.priority] || 1) - (prio[b.priority] || 1);
+    });
+
+    const maxShow = 3;
+    const taskHtml = dayTasks.slice(0, maxShow).map(t => {
+      const cls = t.status === 'Completed' ? 'cal-task-completed' : `cal-task-${t.priority.toLowerCase()}`;
+      return `<div class="cal-task ${cls}" onclick="event.stopPropagation();showTaskDetail('${t.id}')" title="${escapeHtml(t.title)}">${escapeHtml(t.title)}</div>`;
+    }).join('');
+    const moreHtml = dayTasks.length > maxShow ? `<div class="cal-more">+${dayTasks.length - maxShow} more</div>` : '';
+
+    html += `<div class="${classes.join(' ')}" data-date="${dateStr}">
+      <div class="cal-day-num">${displayNum}</div>
+      ${taskHtml}${moreHtml}
+    </div>`;
+  }
+
+  document.getElementById('cal-grid').innerHTML = html;
+
+  // Click empty day to quick-add with date
+  document.querySelectorAll('.cal-day').forEach(cell => {
+    cell.addEventListener('click', (e) => {
+      if (e.target.closest('.cal-task') || e.target.closest('.cal-more')) return;
+      const date = cell.dataset.date;
+      document.getElementById('input-due-date').value = date;
+      editingTaskId = null;
+      document.getElementById('modal-add-title').textContent = 'Add Task';
+      document.getElementById('input-title').value = '';
+      document.getElementById('input-notes').value = '';
+      openModal('modal-add');
+    });
+  });
+}
+
 function render() {
   renderStats();
   renderSidebarCounts();
   renderTaskList();
+  if (taskViewMode === 'calendar') renderCalendar();
 }
 
 function toggleSection(listId, caretId) {
@@ -2078,6 +2193,22 @@ async function init() {
   await loadTeam();
   await migrateLocalStorage();
   render();
+
+  // Calendar view toggle
+  document.getElementById('btn-view-list').addEventListener('click', () => setTaskViewMode('list'));
+  document.getElementById('btn-view-calendar').addEventListener('click', () => setTaskViewMode('calendar'));
+  document.getElementById('btn-cal-prev').addEventListener('click', () => {
+    calendarDate.setMonth(calendarDate.getMonth() - 1);
+    renderCalendar();
+  });
+  document.getElementById('btn-cal-next').addEventListener('click', () => {
+    calendarDate.setMonth(calendarDate.getMonth() + 1);
+    renderCalendar();
+  });
+  document.getElementById('btn-cal-today').addEventListener('click', () => {
+    calendarDate = new Date();
+    renderCalendar();
+  });
 
   // Add Task button
   document.getElementById('btn-add-task').addEventListener('click', () => {
