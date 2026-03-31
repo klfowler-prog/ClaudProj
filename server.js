@@ -1906,6 +1906,20 @@ app.get('/api/notifications', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Failed to fetch notifications' }); }
 });
 
+// POST /api/notifications/read-all — Mark all notifications as read
+app.post('/api/notifications/read-all', auth, async (req, res) => {
+  try {
+    const snap = await orgCol(req, 'notifications')
+      .where('toUserId', '==', req.userId)
+      .where('read', '==', false).get();
+    if (snap.empty) return res.json({ ok: true, marked: 0 });
+    const batch = db.batch();
+    snap.docs.forEach(d => batch.update(d.ref, { read: true }));
+    await batch.commit();
+    res.json({ ok: true, marked: snap.size });
+  } catch (err) { res.status(500).json({ error: 'Failed to mark notifications' }); }
+});
+
 // POST /api/notifications/:id/read — Mark notification as read
 app.post('/api/notifications/:id/read', auth, async (req, res) => {
   try {

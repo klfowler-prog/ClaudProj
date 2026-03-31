@@ -518,7 +518,10 @@
 
     <!-- Notifications View -->
     <div id="view-notifications" style="display: none;">
-      <h2 style="font-family: 'IBM Plex Serif', Georgia, serif; font-size: 1.25rem; color: var(--follett-dark-blue); margin-bottom: 1rem;">Notifications</h2>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+        <h2 style="font-family: 'IBM Plex Serif', Georgia, serif; font-size: 1.25rem; color: var(--follett-dark-blue); margin: 0;">Notifications</h2>
+        <button class="btn btn-ghost btn-sm" id="btn-mark-all-read" style="font-size:0.75rem;">Mark all read</button>
+      </div>
       <div id="notifications-list"></div>
       <div id="notifications-empty" style="display: none; text-align: center; padding: 2rem; color: var(--color-text-muted);">No new notifications</div>
     </div>

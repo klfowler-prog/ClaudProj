@@ -2514,6 +2514,13 @@ async function init() {
   });
 
   document.getElementById('btn-notifications').addEventListener('click', () => { showNotifications(); closeSidebar(); });
+  document.getElementById('btn-mark-all-read').addEventListener('click', async () => {
+    try {
+      await api('POST', '/api/notifications/read-all');
+      await loadNotifications();
+      showNotifications();
+    } catch (err) { alert('Failed to mark all read'); }
+  });
 
   // Team (CMO only)
   document.getElementById('btn-invite-member') && document.getElementById('btn-invite-member').addEventListener('click', inviteMember);
