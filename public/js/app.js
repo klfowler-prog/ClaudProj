@@ -534,8 +534,8 @@ function renderTaskItem(task) {
         <div class="task-title">${escapeHtml(task.title)}</div>
         <div class="task-meta">
           ${isSubtask ? `<span class="task-parent-label">Part of: ${escapeHtml(task.parentTaskTitle || '...')}</span>` : ''}
-          <span class="badge badge-${deptKey}">${escapeHtml(task.department)}</span>
-          ${task.subDepartment ? `<span style="font-size:0.65rem;color:var(--color-text-muted);">${escapeHtml(task.subDepartment)}</span>` : ''}
+          ${!activeWorkspaceId ? `<span class="badge badge-${deptKey}">${escapeHtml(task.department)}</span>` : ''}
+          ${!activeWorkspaceId && task.subDepartment ? `<span style="font-size:0.65rem;color:var(--color-text-muted);">${escapeHtml(task.subDepartment)}</span>` : ''}
           ${task.workspaceId && !activeWorkspaceId ? `<span class="ws-badge" onclick="event.stopPropagation();openWorkspace('${task.workspaceId}')">${escapeHtml(workspaces.find(w => w.id === task.workspaceId)?.name || 'Workspace')}</span>` : ''}
           ${prioDot}
           ${dueDateHtml}
@@ -820,7 +820,7 @@ async function addTask(title, department, priority, notes, source, attachments, 
 
   try {
     const created = await api('POST', '/api/tasks', taskData);
-    tasks.unshift(created);
+    await loadTasks();
     render();
     return created;
   } catch (err) {
@@ -977,8 +977,16 @@ function resetAddForm() {
 
   // Context-aware: pre-fill department from user's profile
   const deptSelect = document.getElementById('input-department');
-  if (myProfile && myProfile.role !== 'cmo' && myProfile.departments && myProfile.departments.length > 0) {
-    deptSelect.value = myProfile.departments[0];
+  const deptRow = document.getElementById('form-row-dept');
+  if (activeWorkspaceId) {
+    // In a workspace: hide department row, auto-default
+    deptRow.style.display = 'none';
+    deptSelect.value = (myProfile && myProfile.departments && myProfile.departments[0]) || 'B2B Marketing';
+  } else {
+    deptRow.style.display = '';
+    if (myProfile && myProfile.role !== 'cmo' && myProfile.departments && myProfile.departments.length > 0) {
+      deptSelect.value = myProfile.departments[0];
+    }
   }
   updateSubDeptDropdown();
 
