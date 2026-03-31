@@ -1579,7 +1579,8 @@ app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
     const allTasks = taskDocs.map(t => {
       const assignee = memberNames[t.assignedTo] || 'Unassigned';
       const creator = memberNames[t.createdBy] || 'Unknown';
-      return `[${t.status}] ${t.title} | Assigned: ${assignee} | Created by: ${creator} | Dept: ${t.department}${t.subDepartment ? '/' + t.subDepartment : ''} | Priority: ${t.priority}${t.createdAt ? ' | Created: ' + t.createdAt.split('T')[0] : ''}${t.dueDate ? ' | Due: ' + t.dueDate : ''}${t.completedAt ? ' | Completed: ' + t.completedAt.split('T')[0] : ''}${t.blockedReason ? ' | Blocked: ' + t.blockedReason : ''}${t.notes ? ' | Notes: ' + t.notes.substring(0, 200) : ''}`;
+      const attachments = (t.attachments || []).filter(a => a.type === 'file').map(a => `[filelink:${a.gcsPath}:${a.name}]`).join(' ');
+      return `[tasklink:${t.id}:${t.title}] [${t.status}] | Assigned: ${assignee} | Created by: ${creator} | Dept: ${t.department}${t.subDepartment ? '/' + t.subDepartment : ''} | Priority: ${t.priority}${t.createdAt ? ' | Created: ' + t.createdAt.split('T')[0] : ''}${t.dueDate ? ' | Due: ' + t.dueDate : ''}${t.completedAt ? ' | Completed: ' + t.completedAt.split('T')[0] : ''}${t.blockedReason ? ' | Blocked: ' + t.blockedReason : ''}${attachments ? ' | Files: ' + attachments : ''}${t.notes ? ' | Notes: ' + t.notes.substring(0, 200) : ''}`;
     });
 
     // Gather notes — apply same access filtering as notes list
@@ -1614,7 +1615,8 @@ app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
       const folder = folderMap[n.folderId] || 'Unfiled';
       const author = memberNames[n.createdBy] || 'Unknown';
       const content = stripHtml(n.content || '').substring(0, 3000);
-      return `Note #${i + 1}: "${n.title}" [Folder: ${folder}] (by ${author}, created ${n.createdAt ? n.createdAt.split('T')[0] : 'unknown'}, updated ${n.updatedAt ? n.updatedAt.split('T')[0] : 'unknown'})\n${content}`;
+      const noteLinks = (n.links || []).filter(l => l.type === 'file').map(l => `[filelink:${l.gcsPath}:${l.name}]`).join(' ');
+      return `[notelink:${n.id}:${n.title}] [Folder: ${folder}] (by ${author}, created ${n.createdAt ? n.createdAt.split('T')[0] : 'unknown'}, updated ${n.updatedAt ? n.updatedAt.split('T')[0] : 'unknown'})${noteLinks ? '\nFiles: ' + noteLinks : ''}\n${content}`;
     });
 
     // Gather recent comments for context
@@ -1668,6 +1670,12 @@ app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
 When discussing tasks or notes, consider their creation and update dates to identify trends, progress, and stale items. Reference specific timeframes in your answers (e.g., "created 3 weeks ago", "completed last week", "no updates in 2 weeks").
 
 When the user asks about a specific note, search the NOTES section below by title or content and reference it by name. Quote relevant content directly from the note when answering.
+
+IMPORTANT — Linking: Tasks, notes, and files have special link tags in the data. When referencing them in your response, include the EXACT link tag so the user can click through:
+- Tasks: [tasklink:TASK_ID:Task Title] — user can click to open the task
+- Notes: [notelink:NOTE_ID:Note Title] — user can click to open the note
+- Files: [filelink:GCS_PATH:File Name] — user can click to download the file
+Always include these link tags when mentioning a specific task, note, or file. Copy the exact tag from the data.
 ${orgContext ? `\nORGANIZATION CONTEXT:\n${orgContext}\n` : ''}
 ACTIVITY SUMMARY:
 This week: ${completedThisWeek} tasks completed, ${createdThisWeek} new tasks created, ${currentlyBlocked} currently blocked

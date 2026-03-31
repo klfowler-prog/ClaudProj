@@ -2405,6 +2405,19 @@ body {
   .view-toggle { display: none; }
 }
 
+/* AI response links */
+.ai-link {
+  color: var(--follett-medium-blue);
+  text-decoration: none;
+  font-weight: 500;
+  border-bottom: 1px dashed var(--follett-medium-blue);
+  cursor: pointer;
+}
+.ai-link:hover { border-bottom-style: solid; }
+.ai-link-task::before { content: '\2611 '; font-size: 0.85em; }
+.ai-link-note::before { content: '\1F4DD '; font-size: 0.85em; }
+.ai-link-file::before { content: '\1F4CE '; font-size: 0.85em; }
+
 /* Slack user search dropdown */
 .slack-dropdown-item:hover { background: var(--follett-light-gray); }
 

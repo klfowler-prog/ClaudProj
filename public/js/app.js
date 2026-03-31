@@ -710,6 +710,13 @@ function renderMarkdown(str) {
   html = html.replace(/\n/g, '<br>');
   // Clean up br inside pre
   html = html.replace(/<pre><code>([\s\S]*?)<\/code><\/pre>/g, (m, code) => '<pre><code>' + code.replace(/<br>/g, '\n') + '</code></pre>');
+  // App link tags (tasks, notes, files)
+  html = html.replace(/\[tasklink:([^\]:]+):([^\]]+)\]/g, (_, id, title) =>
+    `<a href="#" class="ai-link ai-link-task" data-task-id="${id}" onclick="event.preventDefault();showTaskDetail('${id}')">${title}</a>`);
+  html = html.replace(/\[notelink:([^\]:]+):([^\]]+)\]/g, (_, id, title) =>
+    `<a href="#" class="ai-link ai-link-note" data-note-id="${id}" onclick="event.preventDefault();openNote('${id}');closeModal('modal-detail')">${title}</a>`);
+  html = html.replace(/\[filelink:([^\]:]+):([^\]]+)\]/g, (_, path, name) =>
+    `<a href="#" class="ai-link ai-link-file" onclick="event.preventDefault();downloadFile('${path.replace(/'/g, "\\'")}')">${name}</a>`);
   // Links
   html = html.replace(/(https?:\/\/[^\s<>"']+)/g, (url) => {
     const cleanUrl = url.replace(/&amp;/g, '&');
