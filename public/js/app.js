@@ -2330,7 +2330,10 @@ async function init() {
   render();
 
   // Workspace listeners
-  document.getElementById('btn-toggle-workspaces').addEventListener('click', () => toggleSidebarSection('workspaces-subnav', 'workspaces-caret'));
+  document.getElementById('btn-toggle-workspaces').addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleSidebarSection('workspaces-subnav', 'workspaces-caret');
+  });
   document.getElementById('btn-add-workspace').addEventListener('click', () => showCreateWorkspaceModal());
   document.getElementById('btn-close-workspace').addEventListener('click', closeWorkspace);
   document.getElementById('btn-edit-workspace').addEventListener('click', () => showCreateWorkspaceModal(activeWorkspaceId));
@@ -3184,9 +3187,14 @@ async function openWorkspace(id) {
   if (!ws) return;
   activeWorkspaceId = id;
   activeWorkspaceName = ws.name;
+  // Reset task scope to show all workspace tasks (not filtered by "My Tasks")
+  showMyTasksOnly = false;
+  showMyTeam = false;
+  document.getElementById('btn-my-tasks').classList.remove('active');
+  document.getElementById('btn-my-team').classList.remove('active');
+  document.getElementById('btn-all-tasks').classList.add('active');
   document.getElementById('workspace-header').style.display = 'flex';
   document.getElementById('workspace-header-name').textContent = ws.name;
-  // Show edit button only for owner or CMO
   document.getElementById('btn-edit-workspace').style.display =
     (myProfile && (myProfile.role === 'cmo' || myProfile.userId === ws.ownerId)) ? '' : 'none';
   switchView('tasks');
@@ -3200,6 +3208,12 @@ async function closeWorkspace() {
   activeWorkspaceId = null;
   activeWorkspaceName = '';
   document.getElementById('workspace-header').style.display = 'none';
+  // Restore default "My Tasks" scope
+  showMyTasksOnly = true;
+  showMyTeam = false;
+  document.getElementById('btn-my-tasks').classList.add('active');
+  document.getElementById('btn-my-team').classList.remove('active');
+  document.getElementById('btn-all-tasks').classList.remove('active');
   await loadTasks();
   render();
   renderSidebarWorkspaces();
