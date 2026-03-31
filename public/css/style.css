@@ -78,7 +78,6 @@ body {
   flex: 1;
   min-width: 0;
   padding: 1rem 1.5rem 2rem;
-  max-width: 1000px;
 }
 
 /* === Sidebar === */
