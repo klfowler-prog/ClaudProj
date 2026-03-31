@@ -951,8 +951,9 @@ async function addComment(taskId) {
 // Enter key to post comment
 document.addEventListener('keydown', (e) => {
   if (e.target.id === 'comment-input' && e.key === 'Enter') {
-    const taskId = e.target.closest('#detail-comments') ? document.querySelector('[onclick*="addComment"]').getAttribute('onclick').match(/'([^']+)'/)[1] : null;
-    if (taskId) addComment(taskId);
+    const commentBtn = document.querySelector('[onclick*="addComment"]');
+    const match = commentBtn ? commentBtn.getAttribute('onclick').match(/'([^']+)'/) : null;
+    if (match && match[1]) addComment(match[1]);
   }
 });
 
@@ -1058,8 +1059,8 @@ async function toggleSubtask(subtaskId, currentStatus) {
     if (parentDetail) {
       const parentBtn = parentDetail.querySelector('[onclick*="addSubtask"]');
       if (parentBtn) {
-        const parentId = parentBtn.getAttribute('onclick').match(/'([^']+)'/)[1];
-        loadSubtasks(parentId);
+        const parentMatch = parentBtn.getAttribute('onclick').match(/'([^']+)'/);
+        if (parentMatch && parentMatch[1]) loadSubtasks(parentMatch[1]);
       }
     }
     // Refresh main task list for updated counts
@@ -1401,7 +1402,7 @@ function autoLinkUrls(element) {
 
   while (walker.nextNode()) {
     const node = walker.currentNode;
-    if (node.parentElement.tagName === 'A') continue;
+    if (!node.parentElement || node.parentElement.tagName === 'A') continue;
     if (urlRegex.test(node.textContent)) {
       nodesToProcess.push(node);
     }

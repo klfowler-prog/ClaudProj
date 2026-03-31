@@ -1765,6 +1765,10 @@ app.get('/api/notifications', auth, async (req, res) => {
 // POST /api/notifications/:id/read — Mark notification as read
 app.post('/api/notifications/:id/read', auth, async (req, res) => {
   try {
+    const doc = await orgCol(req, 'notifications').doc(req.params.id).get();
+    if (!doc.exists || doc.data().toUserId !== req.userId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
     await orgCol(req, 'notifications').doc(req.params.id).update({ read: true });
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: 'Failed to mark notification' }); }
@@ -1828,7 +1832,7 @@ app.post('/api/team/invite', auth, async (req, res) => {
       if (invalidDepts.length > 0) return res.status(403).json({ error: `You can only invite into your departments: ${req.memberDepts.join(', ')}` });
     }
 
-    const tempPassword = Math.random().toString(36).slice(-12) + 'A1!';
+    const tempPassword = require('crypto').randomBytes(16).toString('hex') + 'A1!';
     const userRecord = await admin.auth().createUser({
       email,
       password: tempPassword,
@@ -1977,7 +1981,12 @@ app.post('/api/team/:id/reset-password', auth, async (req, res) => {
   try {
     const memberDoc = await orgCol(req, 'members').doc(req.params.id).get();
     if (!memberDoc.exists) return res.status(404).json({ error: 'Member not found' });
-    const email = memberDoc.data().email;
+    const member = memberDoc.data();
+    // Leads can only reset passwords for their direct reports
+    if (req.memberRole === 'lead' && member.reportsTo !== req.userId) {
+      return res.status(403).json({ error: 'You can only reset passwords for your direct reports' });
+    }
+    const email = member.email;
     if (!email) return res.status(400).json({ error: 'Member has no email address' });
 
     const link = await admin.auth().generatePasswordResetLink(email);
