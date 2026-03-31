@@ -3289,13 +3289,17 @@ async function showTeamView() {
       const roleLabel = m.role === 'cmo' ? 'CMO' : m.role === 'lead' ? 'Dept Lead' : m.role === 'viewer' ? 'Viewer' : 'Member';
       const indent = reportsToMember ? 'padding-left:1.25rem;' : '';
 
+      const slackMapped = m.slackUserId ? true : false;
+      const showSlackMap = canManage(m) && m.role !== 'cmo' && !slackMapped;
+
       html += `<div class="team-member-card" style="${indent}">
         <div class="team-member-info">
-          <div class="team-member-name">${escapeHtml(m.displayName)} <span style="font-size:0.7rem;color:var(--color-text-muted);font-weight:400;">${roleLabel}</span></div>
+          <div class="team-member-name">${escapeHtml(m.displayName)} <span style="font-size:0.7rem;color:var(--color-text-muted);font-weight:400;">${roleLabel}</span>${slackMapped ? ' <span style="font-size:0.6rem;color:var(--follett-sage);" title="Slack connected">&#10003; Slack</span>' : ''}</div>
           <div class="team-member-meta">${escapeHtml(m.email)}${reportsLabel ? ` · ${reportsLabel}` : ''}</div>
         </div>
         <div class="team-member-actions">
           ${canManage(m) && m.role !== 'cmo' ? `<button class="btn btn-ghost btn-sm" onclick="showPrepOneOnOne('${m.userId}')">Prep 1:1</button>` : ''}
+          ${showSlackMap ? `<button class="btn btn-ghost btn-sm" onclick="mapSlackUser('${m.id}', '${escapeHtml(m.displayName)}')">Map Slack</button>` : ''}
           ${canManage(m) && m.role !== 'cmo' ? `<button class="btn btn-ghost btn-sm" onclick="resetPassword('${m.id}', '${escapeHtml(m.displayName)}')">Reset PW</button>` : ''}
           ${canManage(m) ? `<button class="btn btn-ghost btn-sm" onclick="editMember('${m.id}')">Edit</button>
           <button class="btn btn-ghost btn-sm" style="color:var(--follett-coral);" onclick="deleteMember('${m.id}', '${escapeHtml(m.displayName)}')">Remove</button>` : ''}
@@ -3602,6 +3606,67 @@ async function resetPassword(id, name) {
     await navigator.clipboard.writeText(message);
     alert(`Message for ${name} copied to clipboard! Just paste it into Slack or email.`);
   } catch (err) { alert('Failed to generate reset link: ' + err.message); }
+}
+
+async function mapSlackUser(memberId, memberName) {
+  try {
+    const slackUsers = await api('GET', '/api/slack/users');
+    if (!slackUsers || slackUsers.length === 0) {
+      alert('Slack is not connected or no users found.');
+      return;
+    }
+
+    // Build a simple prompt with a searchable dropdown
+    const container = document.createElement('div');
+    container.innerHTML = `
+      <div style="margin-bottom:0.75rem;">Map <strong>${escapeHtml(memberName)}</strong> to their Slack account:</div>
+      <input type="text" id="slack-map-search" placeholder="Type to search Slack users..." style="width:100%;padding:0.4rem 0.6rem;border:1px solid var(--color-border);border-radius:var(--radius);font-size:0.85rem;margin-bottom:0.5rem;box-sizing:border-box;">
+      <div id="slack-map-results" style="max-height:200px;overflow-y:auto;border:1px solid var(--color-border);border-radius:var(--radius);"></div>`;
+
+    // Use a modal-like overlay
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.style.display = 'flex';
+    overlay.innerHTML = '<div class="modal" style="max-width:400px;"></div>';
+    const modal = overlay.querySelector('.modal');
+    modal.innerHTML = '<div class="modal-header"><h2>Map Slack User</h2><button class="modal-close" id="btn-close-slack-map">&times;</button></div>';
+    modal.appendChild(container);
+    document.body.appendChild(overlay);
+
+    const searchInput = document.getElementById('slack-map-search');
+    const resultsDiv = document.getElementById('slack-map-results');
+
+    function renderResults(q) {
+      const filtered = q
+        ? slackUsers.filter(su => su.name.toLowerCase().includes(q) || (su.email || '').toLowerCase().includes(q))
+        : slackUsers;
+      resultsDiv.innerHTML = filtered.slice(0, 20).map(su =>
+        `<div class="slack-dropdown-item" data-id="${su.id}" style="padding:0.5rem 0.625rem;font-size:0.85rem;cursor:pointer;border-bottom:1px solid var(--color-border);">
+          <strong>${escapeHtml(su.name)}</strong>${su.email ? '<br><span style="font-size:0.75rem;color:var(--color-text-muted);">' + escapeHtml(su.email) + '</span>' : ''}
+        </div>`
+      ).join('') || '<div style="padding:0.5rem;font-size:0.85rem;color:var(--color-text-muted);">No matches</div>';
+    }
+
+    renderResults('');
+    searchInput.focus();
+    searchInput.addEventListener('input', () => renderResults(searchInput.value.toLowerCase()));
+
+    resultsDiv.addEventListener('click', async (e) => {
+      const item = e.target.closest('.slack-dropdown-item');
+      if (!item) return;
+      const slackUserId = item.dataset.id;
+      try {
+        await api('POST', '/api/slack/map-users', { mappings: [{ memberId, slackUserId }] });
+        await loadTeam();
+        overlay.remove();
+        showTeamView();
+        alert(`${memberName} mapped to Slack!`);
+      } catch (err) { alert('Failed to map: ' + err.message); }
+    });
+
+    document.getElementById('btn-close-slack-map').addEventListener('click', () => overlay.remove());
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  } catch (err) { alert('Failed to load Slack users: ' + err.message); }
 }
 
 // === Feature Requests ===

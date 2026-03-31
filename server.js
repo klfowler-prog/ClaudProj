@@ -1912,6 +1912,18 @@ app.post('/api/team/invite', auth, async (req, res) => {
       });
     }
 
+    // Auto-map Slack user by email
+    try {
+      const slackSettings = await db.collection('orgs').doc(req.orgId).collection('settings').doc('slack').get();
+      if (slackSettings.exists && slackSettings.data().botToken) {
+        const slackUsers = await fetchAllSlackUsers(slackSettings.data().botToken);
+        const match = slackUsers.find(u => u.profile && u.profile.email && u.profile.email.toLowerCase() === email.toLowerCase());
+        if (match) {
+          await orgCol(req, 'members').doc(userRecord.uid).update({ slackUserId: match.id });
+        }
+      }
+    } catch (slackErr) { console.error('Slack auto-map on invite failed:', slackErr); }
+
     // Send password reset email so they can set their own password
     const resetLink = await admin.auth().generatePasswordResetLink(email);
 
@@ -2438,9 +2450,9 @@ app.put('/api/slack/notification-channels', auth, async (req, res) => {
   }
 });
 
-// GET /api/slack/users — List Slack workspace users for mapping
+// GET /api/slack/users — List Slack workspace users for mapping (CMO or lead)
 app.get('/api/slack/users', auth, async (req, res) => {
-  if (req.memberRole !== 'cmo') return res.status(403).json({ error: 'CMO only' });
+  if (req.memberRole !== 'cmo' && req.memberRole !== 'lead') return res.status(403).json({ error: 'Only CMO and leads can view Slack users' });
   try {
     const doc = await db.collection('orgs').doc(req.orgId).collection('settings').doc('slack').get();
     if (!doc.exists || !doc.data().botToken) return res.status(400).json({ error: 'Slack not connected' });
@@ -2458,12 +2470,22 @@ app.get('/api/slack/users', auth, async (req, res) => {
   }
 });
 
-// POST /api/slack/map-users — Map app team members to Slack users
+// POST /api/slack/map-users — Map app team members to Slack users (CMO or lead for their reports)
 app.post('/api/slack/map-users', auth, async (req, res) => {
-  if (req.memberRole !== 'cmo') return res.status(403).json({ error: 'CMO only' });
+  if (req.memberRole !== 'cmo' && req.memberRole !== 'lead') return res.status(403).json({ error: 'Only CMO and leads can map users' });
   try {
     const { mappings } = req.body; // Array of { memberId, slackUserId }
     if (!Array.isArray(mappings)) return res.status(400).json({ error: 'Invalid mappings' });
+
+    // Leads can only map their direct reports
+    if (req.memberRole === 'lead') {
+      for (const { memberId } of mappings) {
+        const memberDoc = await db.collection('orgs').doc(req.orgId).collection('members').doc(memberId).get();
+        if (!memberDoc.exists || memberDoc.data().reportsTo !== req.userId) {
+          return res.status(403).json({ error: 'You can only map your direct reports' });
+        }
+      }
+    }
 
     const batch = db.batch();
     for (const { memberId, slackUserId } of mappings) {
