@@ -1085,12 +1085,20 @@ body {
   }
   .editor-body {
     flex-direction: column;
+    position: relative;
   }
   .note-ai-panel {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
     width: 100% !important;
+    max-height: none;
     border-left: none !important;
-    border-top: 1px solid var(--color-border);
-    max-height: 300px;
+    border-top: none;
+    z-index: 10;
+    border-radius: 0;
   }
 }
 
