@@ -3,6 +3,7 @@ const admin = require('firebase-admin');
 const cors = require('cors');
 const path = require('path');
 const { google } = require('googleapis');
+const rateLimit = require('express-rate-limit');
 
 // Initialize Firebase Admin with default credentials (auto-detected on Cloud Run)
 admin.initializeApp({
@@ -29,6 +30,12 @@ const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
   : ['https://cmo-task-manager-951932541878.us-central1.run.app', 'http://localhost:8080'];
 app.use(cors({ origin: ALLOWED_ORIGINS, credentials: true }));
 app.use(express.json({ limit: '5mb' }));
+
+// Rate limiting
+const apiLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 300, message: { error: 'Too many requests. Please try again later.' } });
+const aiLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 30, message: { error: 'AI request limit reached. Please wait a few minutes.' } });
+const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 15, message: { error: 'Too many attempts. Please wait a few minutes.' } });
+app.use('/api/', apiLimiter);
 
 // Validation constants
 const VALID_STATUSES = ['Not Started', 'In Progress', 'Blocked', 'Approved', 'Delegated', 'Completed'];
@@ -778,7 +785,7 @@ app.post('/api/upload', auth, upload.single('file'), async (req, res) => {
       type: req.file.mimetype
     });
   } catch (err) {
-    res.status(500).json({ error: 'Upload failed: ' + err.message });
+    console.error('Upload failed:', err); res.status(500).json({ error: 'Upload failed. Please try again.' });
   }
 });
 
@@ -800,7 +807,7 @@ app.get('/api/file-url', auth, async (req, res) => {
     });
     res.json({ url });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to generate download URL: ' + err.message });
+    console.error('Download URL failed:', err); res.status(500).json({ error: 'Failed to generate download link.' });
   }
 });
 
@@ -872,7 +879,7 @@ app.post('/api/migrate-files', auth, async (req, res) => {
 
     res.json({ migrated: migratedCount, message: `Migrated ${migratedCount} files to Cloud Storage` });
   } catch (err) {
-    res.status(500).json({ error: 'Migration failed: ' + err.message });
+    console.error('Migration failed:', err); res.status(500).json({ error: 'Migration failed. Please try again.' });
   }
 });
 
@@ -894,7 +901,7 @@ app.post('/api/folders/seed-subdepts', auth, async (req, res) => {
     });
     if (created > 0) await batch.commit();
     res.json({ created, message: `Created ${created} new folders` });
-  } catch (err) { res.status(500).json({ error: 'Failed: ' + err.message }); }
+  } catch (err) { console.error('Seed subdepts failed:', err); res.status(500).json({ error: 'Operation failed. Please try again.' }); }
 });
 
 // === Folder Endpoints ===
@@ -1031,8 +1038,8 @@ app.get('/api/notes', auth, async (req, res) => {
     });
     res.json(notes);
   } catch (err) {
-    console.error('Failed to fetch notes:', err.message);
-    res.status(500).json({ error: 'Failed to fetch notes: ' + err.message });
+    console.error('Failed to fetch notes:', err);
+    res.status(500).json({ error: 'Failed to fetch notes.' });
   }
 });
 
@@ -1214,7 +1221,7 @@ app.get('/api/search', auth, async (req, res) => {
       notes: noteResults.slice(0, 20)
     });
   } catch (err) {
-    res.status(500).json({ error: 'Search failed: ' + err.message });
+    console.error('Search failed:', err); res.status(500).json({ error: 'Search failed. Please try again.' });
   }
 });
 
@@ -1234,7 +1241,7 @@ function stripHtml(html) {
 }
 
 // POST /api/notes/:id/summarize
-app.post('/api/notes/:id/summarize', auth, async (req, res) => {
+app.post('/api/notes/:id/summarize', aiLimiter, auth, async (req, res) => {
   try {
     const doc = await orgCol(req, 'notes').doc(req.params.id).get();
     if (!doc.exists) return res.status(404).json({ error: 'Note not found' });
@@ -1256,12 +1263,12 @@ app.post('/api/notes/:id/summarize', auth, async (req, res) => {
 
     res.json({ summary });
   } catch (err) {
-    res.status(500).json({ error: 'Summarize failed: ' + err.message });
+    console.error('Summarize failed:', err); res.status(500).json({ error: 'Summarize failed. Please try again.' });
   }
 });
 
 // POST /api/notes/:id/ask
-app.post('/api/notes/:id/ask', auth, async (req, res) => {
+app.post('/api/notes/:id/ask', aiLimiter, auth, async (req, res) => {
   try {
     const { question, history } = req.body;
     if (!question) return res.status(400).json({ error: 'Question is required' });
@@ -1296,12 +1303,12 @@ ${text}`;
 
     res.json({ answer: result.response.text() });
   } catch (err) {
-    res.status(500).json({ error: 'Ask failed: ' + err.message });
+    console.error('Ask failed:', err); res.status(500).json({ error: 'AI question failed. Please try again.' });
   }
 });
 
 // POST /api/notes/:id/generate-tasks
-app.post('/api/notes/:id/generate-tasks', auth, async (req, res) => {
+app.post('/api/notes/:id/generate-tasks', aiLimiter, auth, async (req, res) => {
   try {
     const doc = await orgCol(req, 'notes').doc(req.params.id).get();
     if (!doc.exists) return res.status(404).json({ error: 'Note not found' });
@@ -1373,12 +1380,12 @@ ${text}` }] }]
 
     res.json(parsed);
   } catch (err) {
-    res.status(500).json({ error: 'Generate tasks failed: ' + err.message });
+    console.error('Generate tasks failed:', err); res.status(500).json({ error: 'Task generation failed. Please try again.' });
   }
 });
 
 // POST /api/ai/quick-add — Parse natural language into task fields
-app.post('/api/ai/quick-add', auth, async (req, res) => {
+app.post('/api/ai/quick-add', aiLimiter, auth, async (req, res) => {
   try {
     const { text } = req.body;
     if (!text) return res.status(400).json({ error: 'Text is required' });
@@ -1417,12 +1424,12 @@ Input: "${text}"` }] }]
       res.status(400).json({ error: 'AI returned invalid format. Try again.' });
     }
   } catch (err) {
-    res.status(500).json({ error: 'Quick add failed: ' + err.message });
+    console.error('Quick add failed:', err); res.status(500).json({ error: 'Quick add failed. Please try again.' });
   }
 });
 
 // === Global AI Chat ===
-app.post('/api/ai/chat', auth, async (req, res) => {
+app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
   try {
     const { message, history } = req.body;
     if (!message) return res.status(400).json({ error: 'Message is required' });
@@ -1551,7 +1558,7 @@ ${allNotes.join('\n---\n')}`;
 
     res.json({ reply: result.response.text() });
   } catch (err) {
-    res.status(500).json({ error: 'AI chat failed: ' + err.message });
+    console.error('AI chat failed:', err); res.status(500).json({ error: 'AI chat failed. Please try again.' });
   }
 });
 
@@ -1915,7 +1922,7 @@ app.post('/api/team/invite', auth, async (req, res) => {
       message: `Account created. Send this link to ${email} so they can set their password: ${resetLink}`
     });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to invite: ' + err.message });
+    console.error('Invite failed:', err); res.status(500).json({ error: 'Failed to invite member. Please try again.' });
   }
 });
 
@@ -1964,7 +1971,7 @@ app.delete('/api/team/:id', auth, async (req, res) => {
     // Remove their user doc (orgId mapping)
     await db.collection('users').doc(req.params.id).delete().catch(() => {});
     res.json({ deleted: true });
-  } catch (err) { res.status(500).json({ error: 'Failed to delete member: ' + err.message }); }
+  } catch (err) { console.error('Delete member failed:', err); res.status(500).json({ error: 'Failed to delete member.' }); }
 });
 app.post('/api/team/:id/enable', auth, async (req, res) => {
   if (req.memberRole !== 'cmo') return res.status(403).json({ error: 'CMO only' });
@@ -1976,7 +1983,7 @@ app.post('/api/team/:id/enable', auth, async (req, res) => {
 });
 
 // POST /api/team/:id/reset-password — Generate a password reset link (CMO or lead for their reports)
-app.post('/api/team/:id/reset-password', auth, async (req, res) => {
+app.post('/api/team/:id/reset-password', authLimiter, auth, async (req, res) => {
   if (req.memberRole !== 'cmo' && req.memberRole !== 'lead') return res.status(403).json({ error: 'Only CMO and leads can reset passwords' });
   try {
     const memberDoc = await orgCol(req, 'members').doc(req.params.id).get();
@@ -1991,7 +1998,7 @@ app.post('/api/team/:id/reset-password', auth, async (req, res) => {
 
     const link = await admin.auth().generatePasswordResetLink(email);
     res.json({ link, email });
-  } catch (err) { res.status(500).json({ error: 'Failed to generate reset link: ' + err.message }); }
+  } catch (err) { console.error('Reset link failed:', err); res.status(500).json({ error: 'Failed to generate reset link.' }); }
 });
 
 // === Daily Briefing ===
@@ -2112,7 +2119,7 @@ app.get('/api/briefing', auth, async (req, res) => {
 
     res.json(briefing);
   } catch (err) {
-    res.status(500).json({ error: 'Failed to generate briefing: ' + err.message });
+    console.error('Briefing failed:', err); res.status(500).json({ error: 'Failed to generate briefing.' });
   }
 });
 
@@ -2189,7 +2196,7 @@ app.get('/api/prep/:userId', auth, async (req, res) => {
       totalTasks: theirTasks.filter(t => t.status !== 'Completed').length
     });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to generate 1:1 prep: ' + err.message });
+    console.error('1:1 prep failed:', err); res.status(500).json({ error: 'Failed to generate 1:1 prep.' });
   }
 });
 
@@ -2237,7 +2244,7 @@ app.post('/api/feature-request', auth, async (req, res) => {
 
     res.status(201).json({ id: ref.id, summary });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to submit request: ' + err.message });
+    console.error('Feature request failed:', err); res.status(500).json({ error: 'Failed to submit request.' });
   }
 });
 
@@ -2348,7 +2355,7 @@ app.get('/api/slack/callback', async (req, res) => {
     res.send('<html><body><h2>Slack connected successfully!</h2><p>You can close this tab and go back to the app.</p><script>window.close();</script></body></html>');
   } catch (err) {
     console.error('Slack OAuth error:', err);
-    res.status(500).send('Slack authorization failed: ' + err.message);
+    console.error('Slack OAuth failed:', err); res.status(500).send('Slack authorization failed. Please try again.');
   }
 });
 
@@ -2542,7 +2549,7 @@ app.post('/api/slack/test', auth, async (req, res) => {
     );
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: 'Test notification failed: ' + err.message });
+    console.error('Slack test failed:', err); res.status(500).json({ error: 'Test notification failed.' });
   }
 });
 
@@ -2582,7 +2589,7 @@ app.get('/api/gmail/callback', async (req, res) => {
 
     res.send('<html><body><h2>Gmail connected successfully!</h2><p>You can close this tab and go back to the app.</p><script>window.close();</script></body></html>');
   } catch (err) {
-    res.status(500).send('Gmail authorization failed: ' + err.message);
+    console.error('Gmail OAuth failed:', err); res.status(500).send('Gmail authorization failed. Please try again.');
   }
 });
 
@@ -2716,7 +2723,7 @@ app.post('/api/sync', auth, async (req, res) => {
     if (newCount > 0) await batch.commit();
     res.json({ synced: newCount });
   } catch (err) {
-    res.status(500).json({ error: 'Sync failed: ' + err.message });
+    console.error('Email sync failed:', err); res.status(500).json({ error: 'Email sync failed. Please try again.' });
   }
 });
 
