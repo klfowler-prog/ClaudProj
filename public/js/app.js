@@ -1279,11 +1279,12 @@ async function loadSubtasks(parentId) {
       const assignLabel = assignName ? ` &middot; ${escapeHtml(assignName.displayName)}` : '';
       const dueLabel = s.dueDate ? ` &middot; Due ${s.dueDate}` : '';
       return `<div style="display:flex;align-items:center;gap:0.5rem;padding:0.375rem 0;border-bottom:1px solid var(--color-border);">
-        <button class="task-check ${isComplete ? 'checked' : ''}" onclick="toggleSubtask('${s.id}', '${s.status}')" style="width:18px;height:18px;font-size:0.6rem;">${isComplete ? '&#10003;' : ''}</button>
-        <div style="flex:1;">
+        <button class="task-check ${isComplete ? 'checked' : ''}" onclick="event.stopPropagation();toggleSubtask('${s.id}', '${s.status}')" style="width:18px;height:18px;font-size:0.6rem;">${isComplete ? '&#10003;' : ''}</button>
+        <div style="flex:1;cursor:pointer;" onclick="showTaskDetail('${s.id}')">
           <span style="font-size:0.85rem;${isComplete ? 'text-decoration:line-through;opacity:0.5;' : ''}">${escapeHtml(s.title)}</span>
           <span style="font-size:0.7rem;color:var(--color-text-light);">${assignLabel}${dueLabel}</span>
         </div>
+        <button class="btn btn-ghost btn-sm" style="font-size:0.65rem;padding:0.15rem 0.375rem;" onclick="event.stopPropagation();editTask('${s.id}')">Edit</button>
       </div>`;
     }).join('');
   } catch (err) { document.getElementById('subtask-list').textContent = 'Failed to load'; }
