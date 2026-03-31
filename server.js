@@ -620,6 +620,15 @@ app.put('/api/tasks/:id', auth, async (req, res) => {
         const completedSubs = allSubs.docs.filter(d => d.data().status === 'Completed' || d.id === req.params.id).length;
         const allDone = completedSubs >= totalSubs;
 
+        // Auto-complete parent when all subtasks are done
+        if (allDone && parent.status !== 'Completed') {
+          await orgCol(req, 'tasks').doc(oldTask.parentTaskId).update({
+            status: 'Completed',
+            completed: true,
+            completedAt: new Date().toISOString()
+          });
+        }
+
         if (parent.createdBy && parent.createdBy !== req.userId) {
           const notifTitle = allDone
             ? `All sub-tasks completed for "${parent.title}" — ready to mark as complete?`
