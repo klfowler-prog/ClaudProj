@@ -123,7 +123,7 @@ async function migrateLocalStorage() {
 // === Rendering ===
 // === Calendar View ===
 let calendarDate = new Date();
-let taskViewMode = 'list'; // 'list' or 'calendar'
+let taskViewMode = 'kanban'; // 'list', 'kanban', or 'calendar'
 
 function setTaskViewMode(mode) {
   taskViewMode = mode;
@@ -2321,6 +2321,7 @@ async function init() {
   await loadTasks();
   await loadTeam();
   await migrateLocalStorage();
+  setTaskViewMode(taskViewMode);
   render();
 
   // Calendar view toggle
@@ -3102,15 +3103,16 @@ async function showNotifications() {
     </div>`;
   }).join('');
   container.querySelectorAll('.notif-item').forEach(item => {
-    item.addEventListener('click', async () => {
-      // Mark as read when clicked
+    item.addEventListener('click', () => {
+      // Open task detail immediately (don't wait for mark-as-read)
+      if (item.dataset.taskId) { showTaskDetail(item.dataset.taskId); }
+      // Mark as read in the background
       if (item.classList.contains('notif-unread')) {
-        await api('POST', `/api/notifications/${item.dataset.notifId}/read`).catch(() => {});
         item.classList.remove('notif-unread');
         item.classList.add('notif-read');
+        api('POST', `/api/notifications/${item.dataset.notifId}/read`).catch(() => {});
         loadNotifications(); // Update badge count
       }
-      if (item.dataset.taskId) { showTaskDetail(item.dataset.taskId); }
     });
   });
 }
