@@ -2062,16 +2062,28 @@ app.post('/api/team/invite', auth, async (req, res) => {
     } catch (slackErr) { console.error('Slack auto-map on invite failed:', slackErr); }
 
     // Send password reset email so they can set their own password
-    const resetLink = await admin.auth().generatePasswordResetLink(email);
+    let resetLink = '';
+    try {
+      resetLink = await admin.auth().generatePasswordResetLink(email);
+    } catch (resetErr) { console.error('Reset link generation failed:', resetErr); }
 
     res.status(201).json({
       userId: userRecord.uid,
       email,
       resetLink,
-      message: `Account created. Send this link to ${email} so they can set their password: ${resetLink}`
+      message: resetLink
+        ? `Account created. Send this link to ${email} so they can set their password: ${resetLink}`
+        : `Account created for ${email}. Use "Reset PW" from Team Management to generate a login link.`
     });
   } catch (err) {
-    console.error('Invite failed:', err); res.status(500).json({ error: 'Failed to invite member. Please try again.' });
+    console.error('Invite failed:', err);
+    if (err.code === 'auth/email-already-exists') {
+      return res.status(400).json({ error: 'A user with this email already exists.' });
+    }
+    if (err.code === 'auth/invalid-email') {
+      return res.status(400).json({ error: 'Invalid email address.' });
+    }
+    res.status(500).json({ error: 'Failed to invite member. Please try again.' });
   }
 });
 
