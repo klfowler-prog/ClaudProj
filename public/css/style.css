@@ -2166,6 +2166,16 @@ body {
 .team-member-name { font-weight: 500; font-size: 0.9rem; }
 .team-member-meta { font-size: 0.75rem; color: var(--color-text-muted); }
 .team-member-actions { display: flex; gap: 0.375rem; }
+.team-role-badge {
+  font-size: 0.6rem;
+  font-weight: 600;
+  color: white;
+  padding: 0.1rem 0.375rem;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  vertical-align: 1px;
+}
 
 /* View toggle (list/calendar) */
 .view-toggle {

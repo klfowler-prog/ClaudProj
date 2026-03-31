@@ -3267,47 +3267,43 @@ async function showTeamView() {
     </div>`;
   }
 
-  for (const dept of DEPARTMENTS) {
-    const members = deptGroups[dept];
-    if (!members || members.length === 0) continue;
+  // Flat alphabetical list, deduplicated
+  const seen = new Set();
+  const allMembers = teamMembers
+    .filter(m => {
+      if (seen.has(m.id)) return false;
+      seen.add(m.id);
+      return m.status === 'active' || !m.status;
+    })
+    .sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
 
-    // Sort: leads first, then by name
-    members.sort((a, b) => {
-      if (a.role === 'cmo') return -1;
-      if (b.role === 'cmo') return 1;
-      if (a.role === 'lead' && b.role !== 'lead') return -1;
-      if (b.role === 'lead' && a.role !== 'lead') return 1;
-      return (a.displayName || '').localeCompare(b.displayName || '');
-    });
+  const roleColors = { cmo: 'var(--follett-dark-blue)', lead: 'var(--follett-medium-blue)', member: 'var(--follett-sage)', viewer: 'var(--color-text-muted)' };
+  const roleLabels = { cmo: 'CMO', lead: 'Lead', member: 'Member', viewer: 'Viewer' };
 
-    html += `<div style="margin-bottom:1rem;">
-      <div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--follett-dark-blue);margin-bottom:0.375rem;padding-bottom:0.25rem;border-bottom:1px solid var(--color-border);">${dept} <span style="font-weight:400;color:var(--color-text-muted);">(${members.length})</span></div>`;
+  allMembers.forEach(m => {
+    const reportsToMember = m.reportsTo ? teamMembers.find(t => t.userId === m.reportsTo) : null;
+    const reportsLabel = reportsToMember ? `Reports to: ${escapeHtml(reportsToMember.displayName)}` : '';
+    const depts = (m.departments || [m.department] || []).filter(Boolean).join(', ');
+    const roleColor = roleColors[m.role] || roleColors.member;
+    const roleLabel = roleLabels[m.role] || 'Member';
 
-    members.forEach(m => {
-      const reportsToMember = m.reportsTo ? teamMembers.find(t => t.userId === m.reportsTo) : null;
-      const reportsLabel = reportsToMember ? `Reports to: ${escapeHtml(reportsToMember.displayName)}` : '';
-      const roleLabel = m.role === 'cmo' ? 'CMO' : m.role === 'lead' ? 'Dept Lead' : m.role === 'viewer' ? 'Viewer' : 'Member';
-      const indent = reportsToMember ? 'padding-left:1.25rem;' : '';
+    const slackMapped = m.slackUserId ? true : false;
+    const showSlackMap = canManage(m) && m.role !== 'cmo' && !slackMapped;
 
-      const slackMapped = m.slackUserId ? true : false;
-      const showSlackMap = canManage(m) && m.role !== 'cmo' && !slackMapped;
-
-      html += `<div class="team-member-card" style="${indent}">
-        <div class="team-member-info">
-          <div class="team-member-name">${escapeHtml(m.displayName)} <span style="font-size:0.7rem;color:var(--color-text-muted);font-weight:400;">${roleLabel}</span>${slackMapped ? ' <span style="font-size:0.6rem;color:var(--follett-sage);" title="Slack connected">&#10003; Slack</span>' : ''}</div>
-          <div class="team-member-meta">${escapeHtml(m.email)}${reportsLabel ? ` · ${reportsLabel}` : ''}</div>
-        </div>
-        <div class="team-member-actions">
-          ${canManage(m) && m.role !== 'cmo' ? `<button class="btn btn-ghost btn-sm" onclick="showPrepOneOnOne('${m.userId}')">Prep 1:1</button>` : ''}
-          ${showSlackMap ? `<button class="btn btn-ghost btn-sm" onclick="mapSlackUser('${m.id}', '${escapeHtml(m.displayName)}')">Map Slack</button>` : ''}
-          ${canManage(m) && m.role !== 'cmo' ? `<button class="btn btn-ghost btn-sm" onclick="resetPassword('${m.id}', '${escapeHtml(m.displayName)}')">Reset PW</button>` : ''}
-          ${canManage(m) ? `<button class="btn btn-ghost btn-sm" onclick="editMember('${m.id}')">Edit</button>
-          <button class="btn btn-ghost btn-sm" style="color:var(--follett-coral);" onclick="deleteMember('${m.id}', '${escapeHtml(m.displayName)}')">Remove</button>` : ''}
-        </div>
-      </div>`;
-    });
-    html += '</div>';
-  }
+    html += `<div class="team-member-card" style="border-left:3px solid ${roleColor};">
+      <div class="team-member-info">
+        <div class="team-member-name">${escapeHtml(m.displayName)} <span class="team-role-badge" style="background:${roleColor};">${roleLabel}</span>${slackMapped ? ' <span style="font-size:0.6rem;color:var(--follett-sage);" title="Slack connected">&#10003; Slack</span>' : ''}</div>
+        <div class="team-member-meta">${escapeHtml(m.email)}${depts ? ` · ${depts}` : ''}${reportsLabel ? ` · ${reportsLabel}` : ''}</div>
+      </div>
+      <div class="team-member-actions">
+        ${canManage(m) && m.role !== 'cmo' ? `<button class="btn btn-ghost btn-sm" onclick="showPrepOneOnOne('${m.userId}')">Prep 1:1</button>` : ''}
+        ${showSlackMap ? `<button class="btn btn-ghost btn-sm" onclick="mapSlackUser('${m.id}', '${escapeHtml(m.displayName)}')">Map Slack</button>` : ''}
+        ${canManage(m) && m.role !== 'cmo' ? `<button class="btn btn-ghost btn-sm" onclick="resetPassword('${m.id}', '${escapeHtml(m.displayName)}')">Reset PW</button>` : ''}
+        ${canManage(m) ? `<button class="btn btn-ghost btn-sm" onclick="editMember('${m.id}')">Edit</button>
+        <button class="btn btn-ghost btn-sm" style="color:var(--follett-coral);" onclick="deleteMember('${m.id}', '${escapeHtml(m.displayName)}')">Remove</button>` : ''}
+      </div>
+    </div>`;
+  });
 
   container.innerHTML = html;
 }
