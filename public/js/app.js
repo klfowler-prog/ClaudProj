@@ -1103,11 +1103,11 @@ function showTaskDetail(id) {
         <div class="detail-section-title">Priority</div>
         <span class="badge badge-${prioKey}">${task.priority}</span>
       </div>
-      <div>
+      ${!activeWorkspaceId ? `<div>
         <div class="detail-section-title">Department</div>
         <span class="badge badge-${deptKey}">${escapeHtml(task.department)}</span>
         ${task.subDepartment ? `<span style="font-size:0.8rem;color:var(--color-text-muted);margin-left:0.25rem;">${escapeHtml(task.subDepartment)}</span>` : ''}
-      </div>
+      </div>` : ''}
       <div>
         <div class="detail-section-title">Due Date</div>
         ${task.dueDate ? `<span>${formatDueDate(task.dueDate, task.status === 'Completed')} ${new Date(task.dueDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>` : '<span style="color:var(--color-text-light);font-size:0.85rem;">Not set</span>'}
@@ -1126,7 +1126,7 @@ function showTaskDetail(id) {
 
     ${myProfile && task.createdBy === myProfile.userId ? `<div style="margin-bottom:0.75rem;"><label style="font-size:0.8rem;cursor:pointer;display:inline-flex;align-items:center;gap:0.375rem;color:var(--color-text-muted);"><input type="checkbox" ${task.private ? 'checked' : ''} onchange="toggleTaskPrivate('${task.id}', this.checked)" style="accent-color:var(--follett-dark-blue);"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Private — only visible to you</label></div>` : (task.private ? '<div style="font-size:0.75rem;color:var(--color-text-muted);margin-bottom:0.75rem;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Private</div>' : '')}
 
-    ${task.workspaceId ? `<div style="margin-bottom:0.75rem;"><label style="font-size:0.8rem;cursor:pointer;display:inline-flex;align-items:center;gap:0.375rem;color:var(--color-text-muted);"><input type="checkbox" ${task.showOnMaster ? 'checked' : ''} onchange="toggleShowOnMaster('${task.id}', ${!!task.showOnMaster})" style="accent-color:var(--follett-medium-blue);">Show on Master List</label></div>` : ''}
+    ${(task.workspaceId || activeWorkspaceId) ? `<div style="margin-bottom:0.75rem;"><label style="font-size:0.8rem;cursor:pointer;display:inline-flex;align-items:center;gap:0.375rem;color:var(--follett-medium-blue);font-weight:500;"><input type="checkbox" ${task.showOnMaster ? 'checked' : ''} onchange="toggleShowOnMaster('${task.id}', ${!!task.showOnMaster})" style="accent-color:var(--follett-medium-blue);"> Show on Master List</label></div>` : ''}
     ${task.blockedReason ? `<div style="background:var(--color-medium-light);border-radius:var(--radius);padding:0.625rem 0.875rem;margin-bottom:0.75rem;font-size:0.85rem;"><strong style="color:#a17508;">Blocked:</strong> ${escapeHtml(task.blockedReason)}</div>` : ''}
     ${task.notes ? `<div class="detail-section"><div class="detail-section-title">Notes</div><div class="detail-notes">${escapeHtmlWithLinks(task.notes)}</div></div>` : ''}
     ${attachmentsHtml}
