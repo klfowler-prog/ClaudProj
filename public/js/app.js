@@ -3522,18 +3522,25 @@ async function submitInvite(e) {
 
   try {
     const result = await api('POST', '/api/team/invite', { email, displayName: name, departments, subDepartments, role, reportsTo });
-    // Show success with the reset link
-    document.getElementById('form-invite').style.display = 'none';
-    document.getElementById('invite-result').style.display = 'block';
-    document.getElementById('invite-result-text').textContent = `Send this link to ${name} so they can set their password and log in:`;
 
-    document.getElementById('btn-copy-invite-link').onclick = () => {
-      navigator.clipboard.writeText(result.resetLink).then(() => {
-        document.getElementById('btn-copy-invite-link').textContent = 'Copied!';
-        setTimeout(() => { document.getElementById('btn-copy-invite-link').textContent = 'Copy Link'; }, 2000);
-      });
-    };
+    // Build the rich onboarding message (same as Reset PW)
+    const firstName = name.split(' ')[0];
+    if (result.resetLink) {
+      const message = `Hey ${firstName}! Here's your login info for our marketing task manager:\n\n` +
+        `1. First, set your password using this link:\n${result.resetLink}\n\n` +
+        `2. Once that's done, go to the app:\nhttps://cmo-task-manager-951932541878.us-central1.run.app\n\n` +
+        `3. Sign in with your email (${email}) and the password you just created.\n\n` +
+        `You'll see a Getting Started task with a few steps to walk you through it. Let me know if you have any questions!`;
+      await navigator.clipboard.writeText(message);
+      alert(`${name} added! Onboarding message copied to clipboard — paste it into Slack or email.`);
+    } else {
+      alert(`${name} added! Use the "Reset PW" button on their card to generate a login link.`);
+    }
 
+    closeModal('modal-invite');
+    document.getElementById('form-invite').reset();
+    document.getElementById('form-invite').style.display = '';
+    document.getElementById('invite-result').style.display = 'none';
     showTeamView();
   } catch (err) { alert('Failed to add member: ' + err.message); }
 }
