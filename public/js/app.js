@@ -71,6 +71,7 @@ async function loadTasks() {
     if (showMyTasksOnly) url += '?mine=true';
     else if (showMyTeam) url += '?team=true';
     if (activeSubDept) url += (url.includes('?') ? '&' : '?') + `subDept=${encodeURIComponent(activeSubDept)}`;
+    if (activeWorkspaceId) url += (url.includes('?') ? '&' : '?') + `workspaceId=${encodeURIComponent(activeWorkspaceId)}`;
     tasks = await api('GET', url);
   } catch (err) {
     console.error('Failed to load tasks:', err);
@@ -535,6 +536,7 @@ function renderTaskItem(task) {
           ${isSubtask ? `<span class="task-parent-label">Part of: ${escapeHtml(task.parentTaskTitle || '...')}</span>` : ''}
           <span class="badge badge-${deptKey}">${escapeHtml(task.department)}</span>
           ${task.subDepartment ? `<span style="font-size:0.65rem;color:var(--color-text-muted);">${escapeHtml(task.subDepartment)}</span>` : ''}
+          ${task.workspaceId && !activeWorkspaceId ? `<span class="ws-badge" onclick="event.stopPropagation();openWorkspace('${task.workspaceId}')">${escapeHtml(workspaces.find(w => w.id === task.workspaceId)?.name || 'Workspace')}</span>` : ''}
           ${prioDot}
           ${dueDateHtml}
           ${isRecurring ? `<span class="task-recurring" title="${recurringLabel}">&#8635; ${recurringLabel}</span>` : ''}
@@ -806,7 +808,8 @@ async function addTask(title, department, priority, notes, source, attachments, 
     source: source || 'manual',
     attachments: attachments || [],
     dueDate: dueDate || '',
-    recurring: recurring || 'none'
+    recurring: recurring || 'none',
+    workspaceId: activeWorkspaceId || ''
   };
   if (assignedTo && myProfile && assignedTo !== myProfile.userId) {
     taskData.assignedTo = assignedTo;
@@ -1115,6 +1118,7 @@ function showTaskDetail(id) {
 
     ${myProfile && task.createdBy === myProfile.userId ? `<div style="margin-bottom:0.75rem;"><label style="font-size:0.8rem;cursor:pointer;display:inline-flex;align-items:center;gap:0.375rem;color:var(--color-text-muted);"><input type="checkbox" ${task.private ? 'checked' : ''} onchange="toggleTaskPrivate('${task.id}', this.checked)" style="accent-color:var(--follett-dark-blue);"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Private — only visible to you</label></div>` : (task.private ? '<div style="font-size:0.75rem;color:var(--color-text-muted);margin-bottom:0.75rem;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Private</div>' : '')}
 
+    ${task.workspaceId ? `<div style="margin-bottom:0.75rem;"><label style="font-size:0.8rem;cursor:pointer;display:inline-flex;align-items:center;gap:0.375rem;color:var(--color-text-muted);"><input type="checkbox" ${task.showOnMaster ? 'checked' : ''} onchange="toggleShowOnMaster('${task.id}', ${!!task.showOnMaster})" style="accent-color:var(--follett-medium-blue);">Show on Master List</label></div>` : ''}
     ${task.blockedReason ? `<div style="background:var(--color-medium-light);border-radius:var(--radius);padding:0.625rem 0.875rem;margin-bottom:0.75rem;font-size:0.85rem;"><strong style="color:#a17508;">Blocked:</strong> ${escapeHtml(task.blockedReason)}</div>` : ''}
     ${task.notes ? `<div class="detail-section"><div class="detail-section-title">Notes</div><div class="detail-notes">${escapeHtmlWithLinks(task.notes)}</div></div>` : ''}
     ${attachmentsHtml}
@@ -2320,9 +2324,17 @@ async function sendChatMessage(messageOverride) {
 async function init() {
   await loadTasks();
   await loadTeam();
+  await loadWorkspaces();
   await migrateLocalStorage();
   setTaskViewMode(taskViewMode);
   render();
+
+  // Workspace listeners
+  document.getElementById('btn-toggle-workspaces').addEventListener('click', () => toggleSidebarSection('workspaces-subnav', 'workspaces-caret'));
+  document.getElementById('btn-add-workspace').addEventListener('click', () => showCreateWorkspaceModal());
+  document.getElementById('btn-close-workspace').addEventListener('click', closeWorkspace);
+  document.getElementById('btn-edit-workspace').addEventListener('click', () => showCreateWorkspaceModal(activeWorkspaceId));
+  document.getElementById('form-workspace').addEventListener('submit', submitWorkspace);
 
   // Calendar view toggle
   document.getElementById('btn-view-list').addEventListener('click', () => setTaskViewMode('list'));
@@ -3139,6 +3151,110 @@ function populateAssignToDropdown() {
     teamMembers.filter(m => m.status === 'active' || !m.status).map(m =>
       `<option value="${m.userId}">${escapeHtml(m.displayName)} (${(m.departments || [m.department]).join(', ')})</option>`
     ).join('');
+}
+
+// === Workspaces ===
+let workspaces = [];
+let activeWorkspaceId = null;
+let activeWorkspaceName = '';
+
+async function loadWorkspaces() {
+  try { workspaces = await api('GET', '/api/workspaces'); } catch { workspaces = []; }
+  renderSidebarWorkspaces();
+}
+
+function renderSidebarWorkspaces() {
+  const container = document.getElementById('sidebar-workspaces');
+  if (!container) return;
+  // Show section if user has any workspaces or is CMO/lead
+  const show = workspaces.length > 0 || (myProfile && (myProfile.role === 'cmo' || myProfile.role === 'lead'));
+  document.getElementById('sidebar-workspaces-section').style.display = show ? 'block' : 'none';
+  container.innerHTML = workspaces.map(w =>
+    `<button class="sidebar-dept-item ${activeWorkspaceId === w.id ? 'active' : ''}" data-workspace-id="${w.id}">
+      ${w.color ? `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${w.color};margin-right:0.375rem;vertical-align:0;"></span>` : ''}${escapeHtml(w.name)}
+    </button>`
+  ).join('');
+  container.querySelectorAll('[data-workspace-id]').forEach(btn => {
+    btn.addEventListener('click', () => { openWorkspace(btn.dataset.workspaceId); closeSidebar(); });
+  });
+}
+
+async function openWorkspace(id) {
+  const ws = workspaces.find(w => w.id === id);
+  if (!ws) return;
+  activeWorkspaceId = id;
+  activeWorkspaceName = ws.name;
+  document.getElementById('workspace-header').style.display = 'flex';
+  document.getElementById('workspace-header-name').textContent = ws.name;
+  // Show edit button only for owner or CMO
+  document.getElementById('btn-edit-workspace').style.display =
+    (myProfile && (myProfile.role === 'cmo' || myProfile.userId === ws.ownerId)) ? '' : 'none';
+  switchView('tasks');
+  await loadTasks();
+  setTaskViewMode(taskViewMode);
+  render();
+  renderSidebarWorkspaces();
+}
+
+async function closeWorkspace() {
+  activeWorkspaceId = null;
+  activeWorkspaceName = '';
+  document.getElementById('workspace-header').style.display = 'none';
+  await loadTasks();
+  render();
+  renderSidebarWorkspaces();
+}
+
+function showCreateWorkspaceModal(editId) {
+  const ws = editId ? workspaces.find(w => w.id === editId) : null;
+  document.getElementById('modal-workspace-title').textContent = ws ? 'Edit Workspace' : 'New Workspace';
+  document.getElementById('workspace-name').value = ws ? ws.name : '';
+  document.getElementById('workspace-desc').value = ws ? (ws.description || '') : '';
+  document.getElementById('btn-save-workspace').textContent = ws ? 'Save' : 'Create Workspace';
+  document.getElementById('form-workspace').dataset.editId = editId || '';
+
+  // Populate member checkboxes
+  const membersDiv = document.getElementById('workspace-members');
+  const currentMembers = ws ? (ws.members || []) : [myProfile ? myProfile.userId : ''];
+  membersDiv.innerHTML = teamMembers.filter(m => m.status === 'active' || !m.status).map(m =>
+    `<label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;padding:0.2rem 0;">
+      <input type="checkbox" class="ws-member-cb" value="${m.userId}" ${currentMembers.includes(m.userId) ? 'checked' : ''}> ${escapeHtml(m.displayName)}
+    </label>`
+  ).join('');
+  openModal('modal-workspace');
+}
+
+async function submitWorkspace(e) {
+  e.preventDefault();
+  const editId = document.getElementById('form-workspace').dataset.editId;
+  const name = document.getElementById('workspace-name').value.trim();
+  const description = document.getElementById('workspace-desc').value.trim();
+  if (!name) return;
+  const members = [];
+  document.querySelectorAll('.ws-member-cb:checked').forEach(cb => members.push(cb.value));
+
+  try {
+    if (editId) {
+      await api('PUT', `/api/workspaces/${editId}`, { name, description, members });
+    } else {
+      await api('POST', '/api/workspaces', { name, description, members });
+    }
+    closeModal('modal-workspace');
+    await loadWorkspaces();
+    if (editId && activeWorkspaceId === editId) {
+      activeWorkspaceName = name;
+      document.getElementById('workspace-header-name').textContent = name;
+    }
+  } catch (err) { alert('Failed: ' + err.message); }
+}
+
+async function toggleShowOnMaster(taskId, current) {
+  try {
+    await api('PUT', `/api/tasks/${taskId}`, { showOnMaster: !current });
+    const task = tasks.find(t => t.id === taskId);
+    if (task) task.showOnMaster = !current;
+    render();
+  } catch (err) { alert('Failed to update: ' + err.message); }
 }
 
 // === AI Context Settings ===

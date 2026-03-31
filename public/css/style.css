@@ -2176,6 +2176,37 @@ body {
   vertical-align: 1px;
 }
 
+/* Workspace header */
+.workspace-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  margin-bottom: 0.25rem;
+  border-bottom: 1px solid var(--color-border);
+}
+.workspace-header-name {
+  font-family: 'IBM Plex Serif', Georgia, serif;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--follett-dark-blue);
+  flex: 1;
+}
+/* Workspace badge on tasks promoted to master */
+.ws-badge {
+  display: inline-block;
+  font-size: 0.6rem;
+  font-weight: 600;
+  background: var(--color-b2b-light);
+  color: var(--follett-medium-blue);
+  padding: 0.1rem 0.375rem;
+  border-radius: 999px;
+  margin-left: 0.375rem;
+  cursor: pointer;
+  vertical-align: 1px;
+}
+.ws-badge:hover { background: var(--follett-medium-blue); color: white; }
+
 /* Kanban board */
 .kanban-board {
   display: flex;

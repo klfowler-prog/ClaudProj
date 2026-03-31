@@ -94,6 +94,19 @@
         </div>
       </div>
 
+      <!-- Workspaces section -->
+      <div class="sidebar-section" id="sidebar-workspaces-section" style="display:none;">
+        <button class="sidebar-nav-item" id="btn-toggle-workspaces">
+          <span class="sidebar-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span>
+          <span>Workspaces</span>
+          <span class="sidebar-caret" id="workspaces-caret">&#9656;</span>
+        </button>
+        <div class="sidebar-subnav collapsed" id="workspaces-subnav">
+          <div id="sidebar-workspaces"></div>
+          <button class="sidebar-add-folder" id="btn-add-workspace">+ New Workspace</button>
+        </div>
+      </div>
+
       <!-- Middle section items -->
       <div class="sidebar-section">
         <button class="sidebar-nav-item" id="btn-open-chat">
@@ -133,6 +146,13 @@
 
     <!-- Tasks View -->
     <div id="view-tasks">
+      <!-- Workspace Header (shown when inside a workspace) -->
+      <div id="workspace-header" class="workspace-header" style="display:none;">
+        <button class="btn btn-ghost btn-sm" id="btn-close-workspace">&larr; Back to Tasks</button>
+        <span class="workspace-header-name" id="workspace-header-name"></span>
+        <button class="btn btn-ghost btn-sm" id="btn-edit-workspace" style="font-size:0.7rem;">Edit</button>
+      </div>
+
       <!-- Stats Bar -->
       <div class="stats-bar">
         <div class="stats-bar-left">
@@ -480,6 +500,34 @@
             <button class="btn btn-primary" id="btn-ai-context-save">Save</button>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- Create/Edit Workspace Modal -->
+    <div class="modal-overlay" id="modal-workspace" style="display: none;">
+      <div class="modal">
+        <div class="modal-header">
+          <h2 id="modal-workspace-title">New Workspace</h2>
+          <button class="modal-close" data-close="modal-workspace">&times;</button>
+        </div>
+        <form id="form-workspace" style="padding: 0 1.5rem 1.5rem;">
+          <div class="form-group">
+            <label for="workspace-name">Name <span class="required">*</span></label>
+            <input type="text" id="workspace-name" required placeholder="e.g., Social Media & PR, Conferences">
+          </div>
+          <div class="form-group">
+            <label for="workspace-desc">Description</label>
+            <input type="text" id="workspace-desc" placeholder="Brief description (optional)">
+          </div>
+          <div class="form-group">
+            <label>Members</label>
+            <div id="workspace-members" style="max-height:150px;overflow-y:auto;border:1px solid var(--color-border);border-radius:var(--radius);padding:0.5rem;"></div>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn btn-ghost" data-close="modal-workspace">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="btn-save-workspace">Create Workspace</button>
+          </div>
+        </form>
       </div>
     </div>
 

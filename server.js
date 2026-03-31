@@ -328,6 +328,14 @@ app.get('/api/tasks', auth, async (req, res) => {
       );
     }
 
+    // Workspace filtering: scope to workspace or main view
+    if (req.query.workspaceId) {
+      tasks = tasks.filter(t => t.workspaceId === req.query.workspaceId);
+    } else {
+      // Main view: show non-workspace tasks + workspace tasks promoted to master
+      tasks = tasks.filter(t => !t.workspaceId || t.workspaceId === '' || t.showOnMaster === true);
+    }
+
     // Optional: filter to "my tasks" only
     if (req.query.mine === 'true') {
       tasks = tasks.filter(t => t.assignedTo === req.userId || t.createdBy === req.userId);
@@ -422,7 +430,9 @@ app.post('/api/tasks', authWrite, async (req, res) => {
       assignedTo: req.body.assignedTo || req.userId,
       sharedWith: req.body.sharedWith || [],
       parentTaskId: req.body.parentTaskId || '',
-      private: req.body.private || false
+      private: req.body.private || false,
+      workspaceId: req.body.workspaceId || '',
+      showOnMaster: req.body.showOnMaster || false
     };
 
     const docRef = await orgCol(req, 'tasks').add(task);
@@ -510,7 +520,8 @@ app.put('/api/tasks/:id', auth, async (req, res) => {
     const updates = {};
     const allowedFields = ['title', 'department', 'priority', 'notes', 'status',
       'completed', 'completedAt', 'dueDate', 'attachments', 'emailMessageId', 'recurring',
-      'assignedTo', 'sharedWith', 'parentTaskId', 'subDepartment', 'blockedReason', 'private'];
+      'assignedTo', 'sharedWith', 'parentTaskId', 'subDepartment', 'blockedReason', 'private',
+      'workspaceId', 'showOnMaster'];
 
     for (const field of allowedFields) {
       if (req.body[field] !== undefined) updates[field] = req.body[field];
@@ -986,6 +997,103 @@ async function getOrgAiContext(orgId) {
     return doc.exists ? (doc.data().context || '') : '';
   } catch { return ''; }
 }
+
+// === Workspace Endpoints ===
+
+// GET /api/workspaces — List workspaces visible to current user
+app.get('/api/workspaces', auth, async (req, res) => {
+  try {
+    const snap = await orgCol(req, 'workspaces').get();
+    const all = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(w => !w.archived);
+    // CMO sees all; others see workspaces they're a member or owner of
+    const visible = req.memberRole === 'cmo' ? all :
+      all.filter(w => w.ownerId === req.userId || (w.members || []).includes(req.userId));
+    res.json(visible);
+  } catch (err) { res.status(500).json({ error: 'Failed to fetch workspaces' }); }
+});
+
+// POST /api/workspaces — Create a workspace (CMO or lead)
+app.post('/api/workspaces', authWrite, async (req, res) => {
+  if (req.memberRole !== 'cmo' && req.memberRole !== 'lead') return res.status(403).json({ error: 'Only CMO and leads can create workspaces' });
+  try {
+    const { name, description, members, color } = req.body;
+    if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' });
+    const memberList = Array.isArray(members) ? members : [];
+    if (!memberList.includes(req.userId)) memberList.push(req.userId);
+    const workspace = {
+      name: name.trim(),
+      description: (description || '').trim(),
+      ownerId: req.userId,
+      members: memberList,
+      color: color || '',
+      archived: false,
+      createdBy: req.userId,
+      createdAt: new Date().toISOString()
+    };
+    const ref = await orgCol(req, 'workspaces').add(workspace);
+
+    // Notify added members (except creator)
+    for (const memberId of memberList) {
+      if (memberId !== req.userId) {
+        await createNotification(req.orgId, memberId, {
+          type: 'workspace_added',
+          title: `${req.memberName} added you to workspace: ${name.trim()}`,
+          taskId: '',
+          fromUserId: req.userId,
+          fromName: req.memberName
+        });
+      }
+    }
+
+    res.status(201).json({ id: ref.id, ...workspace });
+  } catch (err) { console.error('Create workspace failed:', err); res.status(500).json({ error: 'Failed to create workspace' }); }
+});
+
+// PUT /api/workspaces/:id — Update a workspace (owner or CMO)
+app.put('/api/workspaces/:id', authWrite, async (req, res) => {
+  try {
+    const doc = await orgCol(req, 'workspaces').doc(req.params.id).get();
+    if (!doc.exists) return res.status(404).json({ error: 'Workspace not found' });
+    if (req.memberRole !== 'cmo' && doc.data().ownerId !== req.userId) {
+      return res.status(403).json({ error: 'Only the workspace owner or CMO can edit' });
+    }
+    const updates = {};
+    if (req.body.name !== undefined) updates.name = req.body.name.trim();
+    if (req.body.description !== undefined) updates.description = req.body.description.trim();
+    if (req.body.color !== undefined) updates.color = req.body.color;
+    if (req.body.archived !== undefined) updates.archived = req.body.archived;
+    if (req.body.members !== undefined) {
+      updates.members = req.body.members;
+      // Notify newly added members
+      const oldMembers = doc.data().members || [];
+      const newMembers = (req.body.members || []).filter(m => !oldMembers.includes(m));
+      for (const memberId of newMembers) {
+        await createNotification(req.orgId, memberId, {
+          type: 'workspace_added',
+          title: `${req.memberName} added you to workspace: ${doc.data().name}`,
+          taskId: '',
+          fromUserId: req.userId,
+          fromName: req.memberName
+        });
+      }
+    }
+    await orgCol(req, 'workspaces').doc(req.params.id).update(updates);
+    res.json({ id: req.params.id, ...doc.data(), ...updates });
+  } catch (err) { res.status(500).json({ error: 'Failed to update workspace' }); }
+});
+
+// DELETE /api/workspaces/:id — Archive a workspace (owner or CMO)
+app.delete('/api/workspaces/:id', authWrite, async (req, res) => {
+  try {
+    const doc = await orgCol(req, 'workspaces').doc(req.params.id).get();
+    if (!doc.exists) return res.status(404).json({ error: 'Workspace not found' });
+    if (req.memberRole !== 'cmo' && doc.data().ownerId !== req.userId) {
+      return res.status(403).json({ error: 'Only the workspace owner or CMO can archive' });
+    }
+    await orgCol(req, 'workspaces').doc(req.params.id).update({ archived: true });
+    res.json({ archived: true });
+  } catch (err) { res.status(500).json({ error: 'Failed to archive workspace' }); }
+});
 
 // === Folder Endpoints ===
 
@@ -1576,11 +1684,17 @@ app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
     const memberNames = {};
     membersSnap.docs.forEach(d => { memberNames[d.data().userId] = d.data().displayName; });
 
+    // Build workspace name lookup for AI context
+    const workspacesSnap = await orgCol(req, 'workspaces').get();
+    const workspaceNames = {};
+    workspacesSnap.docs.forEach(d => { workspaceNames[d.id] = d.data().name; });
+
     const allTasks = taskDocs.map(t => {
       const assignee = memberNames[t.assignedTo] || 'Unassigned';
       const creator = memberNames[t.createdBy] || 'Unknown';
       const attachments = (t.attachments || []).filter(a => a.type === 'file').map(a => `[filelink:${a.gcsPath}:${a.name}]`).join(' ');
-      return `[tasklink:${t.id}:${t.title}] [${t.status}] | Assigned: ${assignee} | Created by: ${creator} | Dept: ${t.department}${t.subDepartment ? '/' + t.subDepartment : ''} | Priority: ${t.priority}${t.createdAt ? ' | Created: ' + t.createdAt.split('T')[0] : ''}${t.dueDate ? ' | Due: ' + t.dueDate : ''}${t.completedAt ? ' | Completed: ' + t.completedAt.split('T')[0] : ''}${t.blockedReason ? ' | Blocked: ' + t.blockedReason : ''}${attachments ? ' | Files: ' + attachments : ''}${t.notes ? ' | Notes: ' + t.notes.substring(0, 200) : ''}`;
+      const wsLabel = t.workspaceId && workspaceNames[t.workspaceId] ? ` | Workspace: ${workspaceNames[t.workspaceId]}` : '';
+      return `[tasklink:${t.id}:${t.title}] [${t.status}] | Assigned: ${assignee} | Created by: ${creator} | Dept: ${t.department}${t.subDepartment ? '/' + t.subDepartment : ''} | Priority: ${t.priority}${t.createdAt ? ' | Created: ' + t.createdAt.split('T')[0] : ''}${t.dueDate ? ' | Due: ' + t.dueDate : ''}${t.completedAt ? ' | Completed: ' + t.completedAt.split('T')[0] : ''}${t.blockedReason ? ' | Blocked: ' + t.blockedReason : ''}${wsLabel}${attachments ? ' | Files: ' + attachments : ''}${t.notes ? ' | Notes: ' + t.notes.substring(0, 200) : ''}`;
     });
 
     // Gather notes — apply same access filtering as notes list
