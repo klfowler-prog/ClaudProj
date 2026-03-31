@@ -132,7 +132,7 @@ function setTaskViewMode(mode) {
   document.getElementById('btn-view-kanban').classList.toggle('active', mode === 'kanban');
   document.getElementById('btn-view-calendar').classList.toggle('active', mode === 'calendar');
   document.getElementById('task-list-container').style.display = mode === 'list' ? '' : 'none';
-  document.getElementById('task-actions-bar').style.display = mode === 'list' ? '' : 'none';
+  document.getElementById('task-actions-bar').style.display = '';
   document.getElementById('kanban-view').style.display = mode === 'kanban' ? 'block' : 'none';
   document.getElementById('calendar-view').style.display = mode === 'calendar' ? 'block' : 'none';
   document.getElementById('filter-sort').style.display = mode === 'list' ? '' : 'none';
