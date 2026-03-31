@@ -904,6 +904,80 @@ app.post('/api/folders/seed-subdepts', auth, async (req, res) => {
   } catch (err) { console.error('Seed subdepts failed:', err); res.status(500).json({ error: 'Operation failed. Please try again.' }); }
 });
 
+// === AI Context Settings ===
+
+// GET /api/settings/ai-context — Get org AI context
+app.get('/api/settings/ai-context', auth, async (req, res) => {
+  try {
+    const doc = await db.collection('orgs').doc(req.orgId).collection('settings').doc('aiContext').get();
+    res.json({ context: doc.exists ? (doc.data().context || '') : '' });
+  } catch (err) { res.status(500).json({ error: 'Failed to fetch AI context' }); }
+});
+
+// PUT /api/settings/ai-context — Save org AI context (CMO only)
+app.put('/api/settings/ai-context', auth, async (req, res) => {
+  if (req.memberRole !== 'cmo') return res.status(403).json({ error: 'CMO only' });
+  try {
+    const context = (req.body.context || '').substring(0, 3000);
+    await db.collection('orgs').doc(req.orgId).collection('settings').doc('aiContext').set({ context, updatedAt: new Date().toISOString() });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: 'Failed to save AI context' }); }
+});
+
+// POST /api/settings/ai-context/generate — Auto-generate org context draft (CMO only)
+app.post('/api/settings/ai-context/generate', aiLimiter, auth, async (req, res) => {
+  if (req.memberRole !== 'cmo') return res.status(403).json({ error: 'CMO only' });
+  try {
+    // Gather org signals: team roster, departments, note titles, task department counts
+    const membersSnap = await orgCol(req, 'members').get();
+    const team = membersSnap.docs
+      .filter(d => d.data().status === 'active' || !d.data().status)
+      .map(d => { const m = d.data(); return `${m.displayName} (${m.role}, ${(m.departments || []).join(', ')})`; });
+
+    const notesSnap = await orgCol(req, 'notes').get();
+    const noteTitles = notesSnap.docs.map(d => d.data().title).filter(Boolean).slice(0, 30);
+
+    const tasksSnap = await orgCol(req, 'tasks').get();
+    const deptCounts = {};
+    tasksSnap.docs.forEach(d => {
+      const dept = d.data().department || 'Unknown';
+      deptCounts[dept] = (deptCounts[dept] || 0) + 1;
+    });
+
+    const foldersSnap = await orgCol(req, 'folders').get();
+    const folderNames = foldersSnap.docs.map(d => d.data().name).filter(Boolean);
+
+    const model = getGeminiModel();
+    const result = await model.generateContent({
+      contents: [{ role: 'user', parts: [{ text: `Based on the following data from a marketing team's task management app, write a concise organizational context description (200-400 words). This will be used as AI context so the AI assistant can give better, more relevant answers. Include: what the organization does, team structure, key focus areas, and how the departments relate.
+
+Team members (${team.length}):
+${team.join('\n')}
+
+Note folders: ${folderNames.join(', ')}
+
+Recent note titles: ${noteTitles.join(', ')}
+
+Task counts by department: ${Object.entries(deptCounts).map(([k, v]) => `${k}: ${v} tasks`).join(', ')}
+
+Write the context in second person ("Your team...") as if briefing an AI assistant about this organization. Be specific based on the data, don't make up details that aren't evidenced.` }] }]
+    });
+
+    res.json({ draft: result.response.text().trim() });
+  } catch (err) {
+    console.error('AI context generation failed:', err);
+    res.status(500).json({ error: 'Failed to generate context.' });
+  }
+});
+
+// Helper: fetch org AI context string
+async function getOrgAiContext(orgId) {
+  try {
+    const doc = await db.collection('orgs').doc(orgId).collection('settings').doc('aiContext').get();
+    return doc.exists ? (doc.data().context || '') : '';
+  } catch { return ''; }
+}
+
 // === Folder Endpoints ===
 
 app.get('/api/folders', auth, async (req, res) => {
@@ -1251,9 +1325,10 @@ app.post('/api/notes/:id/summarize', aiLimiter, auth, async (req, res) => {
     const text = stripHtml(note.content || '');
     if (!text || text.length < 10) return res.status(400).json({ error: 'Note is too short to summarize' });
 
+    const orgContext = await getOrgAiContext(req.orgId);
     const model = getGeminiModel();
     const result = await model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: `You are a marketing strategy assistant for a CMO at Follett Higher Education. Summarize the following note concisely. Highlight key decisions, action items, and strategic implications.\n\nNote title: ${note.title}\n\nContent:\n${text}` }] }]
+      contents: [{ role: 'user', parts: [{ text: `You are a marketing strategy assistant for a team at Follett Higher Education.${orgContext ? ' ' + orgContext : ''}\n\nSummarize the following note concisely. Highlight key decisions, action items, and strategic implications.\n\nNote title: ${note.title}\nCreated: ${note.createdAt ? note.createdAt.split('T')[0] : 'unknown'} | Updated: ${note.updatedAt ? note.updatedAt.split('T')[0] : 'unknown'}\n\nContent:\n${text}` }] }]
     });
 
     const summary = result.response.text();
@@ -1280,12 +1355,48 @@ app.post('/api/notes/:id/ask', aiLimiter, auth, async (req, res) => {
     if (!(await checkNoteAccess(req, note))) return res.status(403).json({ error: 'Access denied' });
     const text = stripHtml(note.content || '');
 
+    // Fetch cross-context: org context, team, related tasks
+    const orgContext = await getOrgAiContext(req.orgId);
+
+    const membersSnap = await orgCol(req, 'members').get();
+    const teamContext = membersSnap.docs
+      .filter(d => d.data().status === 'active' || !d.data().status)
+      .map(d => { const m = d.data(); return `${m.displayName} (${m.role}, ${(m.departments || []).join(', ')})`; });
+    const memberNames = {};
+    membersSnap.docs.forEach(d => { memberNames[d.data().userId] = d.data().displayName; });
+
+    // Find related tasks by keyword matching note title
+    const stopWords = new Set(['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'has', 'have', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'this', 'that', 'these', 'those', 'it', 'its', 'from', 'as', 'not', 'no', 'so', 'if', 'then', 'than', 'we', 'our', 'my', 'your']);
+    const titleWords = (note.title || '').toLowerCase().split(/\W+/).filter(w => w.length > 2 && !stopWords.has(w));
+    let relatedTasks = '';
+    if (titleWords.length > 0) {
+      const tasksSnap = await orgCol(req, 'tasks').get();
+      let taskDocs = tasksSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      taskDocs = taskDocs.filter(t => !t.private || t.createdBy === req.userId);
+      const scored = taskDocs.map(t => {
+        const tTitle = (t.title || '').toLowerCase();
+        const matches = titleWords.filter(w => tTitle.includes(w)).length;
+        return { t, matches };
+      }).filter(s => s.matches > 0).sort((a, b) => b.matches - a.matches).slice(0, 15);
+      if (scored.length > 0) {
+        relatedTasks = scored.map(s => {
+          const t = s.t;
+          const assignee = memberNames[t.assignedTo] || 'Unassigned';
+          return `[${t.status}] ${t.title} | Assigned: ${assignee}${t.dueDate ? ' | Due: ' + t.dueDate : ''}${t.createdAt ? ' | Created: ' + t.createdAt.split('T')[0] : ''}`;
+        }).join('\n');
+      }
+    }
+
     const model = getGeminiModel();
-    const systemPrompt = `You are an AI assistant for a marketing team at Follett Higher Education. You are helping with a specific note/document. Be concise, use markdown formatting (bold, bullets, headers) for readability. You can summarize, answer questions, extract action items, identify decisions, or anything else asked about this document.
+    const systemPrompt = `You are an AI assistant for a marketing team at Follett Higher Education. You are helping with a specific note/document. You also have awareness of the team roster and potentially related tasks. Be concise, use markdown formatting (bold, bullets, headers) for readability. You can summarize, answer questions, extract action items, identify decisions, suggest who should own work items, or connect this note's content to existing tasks and team members.
+${orgContext ? `\nORGANIZATION CONTEXT:\n${orgContext}\n` : ''}
+TEAM (${teamContext.length} active members):
+${teamContext.join('\n')}
+${relatedTasks ? `\nPOTENTIALLY RELATED TASKS:\n${relatedTasks}\n` : ''}
+Document: "${note.title}"
+Created: ${note.createdAt ? note.createdAt.split('T')[0] : 'unknown'} | Last updated: ${note.updatedAt ? note.updatedAt.split('T')[0] : 'unknown'}
 
-Document title: ${note.title}
-
-Document content:
+Content:
 ${text}`;
 
     const contents = [];
@@ -1459,7 +1570,7 @@ app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
     const allTasks = taskDocs.map(t => {
       const assignee = memberNames[t.assignedTo] || 'Unassigned';
       const creator = memberNames[t.createdBy] || 'Unknown';
-      return `[${t.status}] ${t.title} | Assigned: ${assignee} | Created by: ${creator} | Dept: ${t.department}${t.subDepartment ? '/' + t.subDepartment : ''} | Priority: ${t.priority}${t.dueDate ? ' | Due: ' + t.dueDate : ''}${t.completedAt ? ' | Completed: ' + t.completedAt.split('T')[0] : ''}${t.blockedReason ? ' | Blocked: ' + t.blockedReason : ''}${t.notes ? ' | Notes: ' + t.notes.substring(0, 200) : ''}`;
+      return `[${t.status}] ${t.title} | Assigned: ${assignee} | Created by: ${creator} | Dept: ${t.department}${t.subDepartment ? '/' + t.subDepartment : ''} | Priority: ${t.priority}${t.createdAt ? ' | Created: ' + t.createdAt.split('T')[0] : ''}${t.dueDate ? ' | Due: ' + t.dueDate : ''}${t.completedAt ? ' | Completed: ' + t.completedAt.split('T')[0] : ''}${t.blockedReason ? ' | Blocked: ' + t.blockedReason : ''}${t.notes ? ' | Notes: ' + t.notes.substring(0, 200) : ''}`;
     });
 
     // Gather notes — apply same access filtering as notes list
@@ -1494,14 +1605,14 @@ app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
       const folder = folderMap[n.folderId] || 'Unfiled';
       const author = memberNames[n.createdBy] || 'Unknown';
       const content = stripHtml(n.content || '').substring(0, 3000);
-      return `Note #${i + 1}: "${n.title}" [Folder: ${folder}] (by ${author}, updated ${n.updatedAt ? n.updatedAt.split('T')[0] : 'unknown'})\n${content}`;
+      return `Note #${i + 1}: "${n.title}" [Folder: ${folder}] (by ${author}, created ${n.createdAt ? n.createdAt.split('T')[0] : 'unknown'}, updated ${n.updatedAt ? n.updatedAt.split('T')[0] : 'unknown'})\n${content}`;
     });
 
     // Gather recent comments for context
     const commentsSnap = await orgCol(req, 'comments').get();
     const recentComments = commentsSnap.docs
       .map(d => ({ id: d.id, ...d.data() }))
-      .filter(c => c.createdAt && c.createdAt >= new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString())
+      .filter(c => c.createdAt && c.createdAt >= new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString())
       .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
       .slice(0, 30);
     const commentContext = recentComments.map(c => {
@@ -1511,8 +1622,27 @@ app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
     });
 
     const today = new Date().toISOString().split('T')[0];
+    const now = new Date();
     const isCmo = req.memberRole === 'cmo';
     const roleName = isCmo ? 'CMO' : req.memberRole === 'lead' ? 'Department Lead' : 'team member';
+
+    // Compute temporal summary
+    const weekStart = new Date(now);
+    const dow = weekStart.getDay();
+    weekStart.setDate(now.getDate() - (dow === 0 ? 6 : dow - 1));
+    weekStart.setHours(0, 0, 0, 0);
+    const weekStartStr = weekStart.toISOString();
+    const lastWeekStart = new Date(weekStart.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    const completedThisWeek = taskDocs.filter(t => t.completedAt && t.completedAt >= weekStartStr).length;
+    const createdThisWeek = taskDocs.filter(t => t.createdAt && t.createdAt >= weekStartStr).length;
+    const completedLastWeek = taskDocs.filter(t => t.completedAt && t.completedAt >= lastWeekStart && t.completedAt < weekStartStr).length;
+    const createdLastWeek = taskDocs.filter(t => t.createdAt && t.createdAt >= lastWeekStart && t.createdAt < weekStartStr).length;
+    const currentlyBlocked = taskDocs.filter(t => t.status === 'Blocked').length;
+    const overdueCount = taskDocs.filter(t => t.status !== 'Completed' && t.status !== 'Delegated' && t.dueDate && t.dueDate < today).length;
+
+    // Fetch org AI context
+    const orgContext = await getOrgAiContext(req.orgId);
 
     // Team member list for context
     const teamList = membersSnap.docs
@@ -1526,7 +1656,14 @@ app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
 
     const systemPrompt = `You are an AI assistant for ${req.memberName}, a ${roleName} at Follett Higher Education. You have access to their task list, notes, team roster, and recent comments. Be concise, actionable, and strategic. Today's date is ${today}.
 
+When discussing tasks or notes, consider their creation and update dates to identify trends, progress, and stale items. Reference specific timeframes in your answers (e.g., "created 3 weeks ago", "completed last week", "no updates in 2 weeks").
+
 When the user asks about a specific note, search the NOTES section below by title or content and reference it by name. Quote relevant content directly from the note when answering.
+${orgContext ? `\nORGANIZATION CONTEXT:\n${orgContext}\n` : ''}
+ACTIVITY SUMMARY:
+This week: ${completedThisWeek} tasks completed, ${createdThisWeek} new tasks created, ${currentlyBlocked} currently blocked
+Last week: ${completedLastWeek} tasks completed, ${createdLastWeek} new tasks created
+Overdue: ${overdueCount} tasks past their due date
 
 TEAM MEMBERS (${teamList.length}):
 ${teamList.join('\n')}
@@ -1534,7 +1671,7 @@ ${teamList.join('\n')}
 TASKS (${allTasks.length} total):
 ${allTasks.join('\n')}
 
-RECENT COMMENTS (last 7 days):
+RECENT COMMENTS (last 14 days):
 ${commentContext.length > 0 ? commentContext.join('\n') : 'No recent comments'}
 
 NOTES (${allNotes.length} total — each note starts with its title in quotes):

@@ -254,13 +254,21 @@ function toggleSection(listId, caretId) {
 function renderStats() {
   const filtered = getFilteredTasks();
   const today = new Date().toISOString().split('T')[0];
+  const now = new Date();
+  const dayOfWeek = now.getDay(); // 0=Sun
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+  monday.setHours(0, 0, 0, 0);
+  const mondayStr = monday.toISOString().split('T')[0];
+  const twoWeeksAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
   const notStarted = filtered.filter(t => t.status === 'Not Started').length;
   const inProgress = filtered.filter(t => t.status === 'In Progress').length;
   const blocked = filtered.filter(t => t.status === 'Blocked').length;
-  const approved = filtered.filter(t => t.status === 'Approved').length;
+  const approved = filtered.filter(t => t.status === 'Approved' && t.createdAt && t.createdAt.split('T')[0] >= twoWeeksAgo).length;
   const delegated = filtered.filter(t => t.status === 'Delegated').length;
   const overdue = filtered.filter(t => t.status !== 'Completed' && t.status !== 'Delegated' && t.dueDate && t.dueDate < today).length;
-  const completed = filtered.filter(t => t.status === 'Completed').length;
+  const completed = filtered.filter(t => t.status === 'Completed' && t.completedAt && t.completedAt.split('T')[0] >= mondayStr).length;
   document.getElementById('stat-not-started').textContent = notStarted;
   document.getElementById('stat-in-progress').textContent = inProgress;
   document.getElementById('stat-blocked').textContent = blocked;
@@ -2511,6 +2519,9 @@ async function init() {
   document.getElementById('btn-invite-member') && document.getElementById('btn-invite-member').addEventListener('click', inviteMember);
   document.getElementById('form-invite') && document.getElementById('form-invite').addEventListener('submit', submitInvite);
   document.getElementById('btn-slack-settings') && document.getElementById('btn-slack-settings').addEventListener('click', openSlackSettings);
+  document.getElementById('btn-ai-context') && document.getElementById('btn-ai-context').addEventListener('click', openAiContext);
+  document.getElementById('btn-ai-context-save').addEventListener('click', saveAiContext);
+  document.getElementById('btn-ai-context-generate').addEventListener('click', generateAiContext);
   document.querySelectorAll('[data-view="team"]').forEach(btn => {
     btn.addEventListener('click', () => { showTeamView(); closeSidebar(); });
   });
@@ -2751,6 +2762,7 @@ function applyRoleUI() {
   document.getElementById('sidebar-team-section').style.display = (r === 'cmo' || r === 'lead') ? 'block' : 'none';
   document.getElementById('btn-sync-email').style.display = r === 'cmo' ? '' : 'none';
   document.getElementById('btn-slack-settings').style.display = r === 'cmo' ? '' : 'none';
+  document.getElementById('btn-ai-context').style.display = r === 'cmo' ? '' : 'none';
   document.getElementById('btn-add-task').style.display = r === 'viewer' ? 'none' : '';
   document.getElementById('btn-quick-import').style.display = r === 'viewer' ? 'none' : '';
   document.getElementById('btn-new-note').style.display = r === 'viewer' ? 'none' : '';
@@ -2996,6 +3008,35 @@ function populateAssignToDropdown() {
     teamMembers.filter(m => m.status === 'active' || !m.status).map(m =>
       `<option value="${m.userId}">${escapeHtml(m.displayName)} (${(m.departments || [m.department]).join(', ')})</option>`
     ).join('');
+}
+
+// === AI Context Settings ===
+async function openAiContext() {
+  openModal('modal-ai-context');
+  try {
+    const { context } = await api('GET', '/api/settings/ai-context');
+    document.getElementById('ai-context-textarea').value = context || '';
+  } catch (err) { console.error('Failed to load AI context:', err); }
+}
+
+async function saveAiContext() {
+  try {
+    await api('PUT', '/api/settings/ai-context', { context: document.getElementById('ai-context-textarea').value });
+    closeModal('modal-ai-context');
+    alert('AI context saved! The AI will now use this across the app.');
+  } catch (err) { alert('Failed to save: ' + err.message); }
+}
+
+async function generateAiContext() {
+  const btn = document.getElementById('btn-ai-context-generate');
+  btn.disabled = true;
+  btn.textContent = 'Generating...';
+  try {
+    const { draft } = await api('POST', '/api/settings/ai-context/generate');
+    document.getElementById('ai-context-textarea').value = draft;
+  } catch (err) { alert('Failed to generate: ' + err.message); }
+  btn.disabled = false;
+  btn.textContent = 'Auto-Generate Draft';
 }
 
 // === Slack Settings ===

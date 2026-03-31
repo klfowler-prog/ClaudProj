@@ -145,7 +145,7 @@
           <button class="stat-pill stat-pill-approved stat-pill-clickable" id="pill-approved" data-stat-filter="approved"><strong id="stat-approved">0</strong> Approved</button>
           <button class="stat-pill stat-pill-clickable" id="pill-delegated" data-stat-filter="delegated"><strong id="stat-delegated">0</strong> Delegated</button>
           <button class="stat-pill stat-pill-overdue stat-pill-clickable" id="pill-overdue" data-stat-filter="overdue"><strong id="stat-overdue">0</strong> Overdue</button>
-          <button class="stat-pill stat-pill-clickable" id="pill-completed" data-stat-filter="completed"><strong id="stat-completed">0</strong> Done</button>
+          <button class="stat-pill stat-pill-clickable" id="pill-completed" data-stat-filter="completed"><strong id="stat-completed">0</strong> Done this wk</button>
         </div>
         <div class="stats-bar-right">
           <div class="view-toggle" id="view-toggle">
@@ -375,6 +375,7 @@
       <div class="stats-bar" style="margin-bottom: 1rem;">
         <h2 style="font-family: 'IBM Plex Serif', Georgia, serif; font-size: 1.25rem; color: var(--follett-dark-blue);">Team Management</h2>
         <button class="btn btn-secondary btn-sm" id="btn-slack-settings" style="display:none;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;"><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5V7h2.5A2.5 2.5 0 0 0 14.5 2z"/><path d="M2 14.5A2.5 2.5 0 0 0 4.5 17H7v-2.5A2.5 2.5 0 0 0 2 14.5z"/><path d="M22 9.5A2.5 2.5 0 0 0 19.5 7H17v2.5A2.5 2.5 0 0 0 22 9.5z"/><path d="M9.5 22a2.5 2.5 0 0 0 2.5-2.5V17H9.5A2.5 2.5 0 0 0 9.5 22z"/><path d="M7 9.5A2.5 2.5 0 0 0 4.5 7 2.5 2.5 0 0 0 2 9.5 2.5 2.5 0 0 0 4.5 12H7V9.5z"/><path d="M17 14.5a2.5 2.5 0 0 0 2.5 2.5 2.5 2.5 0 0 0 2.5-2.5 2.5 2.5 0 0 0-2.5-2.5H17v2.5z"/><path d="M9.5 2A2.5 2.5 0 0 0 7 4.5V7h2.5A2.5 2.5 0 0 0 9.5 2z"/><path d="M14.5 22a2.5 2.5 0 0 0 2.5-2.5V17h-2.5a2.5 2.5 0 0 0 0 5z"/></svg> Slack</button>
+        <button class="btn btn-secondary btn-sm" id="btn-ai-context" style="display:none;"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="vertical-align:-2px;"><path d="M12 0l1.8 7.6L22 8l-6.4 4.2L18 20l-6-4.8L6 20l2.4-7.8L2 8l8.2-.4z"/></svg> AI Context</button>
         <button class="btn btn-primary btn-sm" id="btn-invite-member">+ Add Team Member</button>
       </div>
       <div id="team-roster"></div>
@@ -451,6 +452,27 @@
         </div>
         <div id="slack-settings-content" style="padding: 0 1.5rem 1.5rem;">
           <div id="slack-loading" style="text-align:center;padding:2rem;color:var(--color-text-muted);">Loading...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- AI Context Modal -->
+    <div class="modal-overlay" id="modal-ai-context" style="display: none;">
+      <div class="modal modal-wide">
+        <div class="modal-header">
+          <h2>AI Context</h2>
+          <button class="modal-close" data-close="modal-ai-context">&times;</button>
+        </div>
+        <div style="padding: 0 1.5rem 1.5rem;">
+          <p style="font-size:0.8rem;color:var(--color-text-muted);margin-bottom:0.75rem;">Describe your organization, marketing goals, and priorities. The AI uses this across the app to give better, more relevant answers.</p>
+          <div style="display:flex;justify-content:flex-end;margin-bottom:0.5rem;">
+            <button class="btn btn-secondary btn-sm" id="btn-ai-context-generate">Auto-Generate Draft</button>
+          </div>
+          <textarea id="ai-context-textarea" style="width:100%;min-height:200px;padding:0.75rem;border:1px solid var(--color-border);border-radius:var(--radius);font-family:'Roboto',sans-serif;font-size:0.85rem;line-height:1.6;resize:vertical;box-sizing:border-box;" placeholder="Example: Our marketing team at Follett Higher Education focuses on B2B and B2C channels for the higher education market. The B2B team handles business development, growth & brand, rev ops, and internal comms. Our Q2 priorities are..."></textarea>
+          <div class="modal-actions">
+            <button class="btn btn-ghost" data-close="modal-ai-context">Cancel</button>
+            <button class="btn btn-primary" id="btn-ai-context-save">Save</button>
+          </div>
         </div>
       </div>
     </div>
