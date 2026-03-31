@@ -1483,11 +1483,11 @@ app.post('/api/ai/chat', auth, async (req, res) => {
         return false;
       });
     }
-    const allNotes = noteDocs.map(n => {
+    const allNotes = noteDocs.map((n, i) => {
       const folder = folderMap[n.folderId] || 'Unfiled';
       const author = memberNames[n.createdBy] || 'Unknown';
-      const content = stripHtml(n.content || '').substring(0, 1500);
-      return `[${folder}] ${n.title} (by ${author}, updated ${n.updatedAt ? n.updatedAt.split('T')[0] : 'unknown'})\n${content}`;
+      const content = stripHtml(n.content || '').substring(0, 3000);
+      return `Note #${i + 1}: "${n.title}" [Folder: ${folder}] (by ${author}, updated ${n.updatedAt ? n.updatedAt.split('T')[0] : 'unknown'})\n${content}`;
     });
 
     // Gather recent comments for context
@@ -1519,6 +1519,8 @@ app.post('/api/ai/chat', auth, async (req, res) => {
 
     const systemPrompt = `You are an AI assistant for ${req.memberName}, a ${roleName} at Follett Higher Education. You have access to their task list, notes, team roster, and recent comments. Be concise, actionable, and strategic. Today's date is ${today}.
 
+When the user asks about a specific note, search the NOTES section below by title or content and reference it by name. Quote relevant content directly from the note when answering.
+
 TEAM MEMBERS (${teamList.length}):
 ${teamList.join('\n')}
 
@@ -1528,7 +1530,7 @@ ${allTasks.join('\n')}
 RECENT COMMENTS (last 7 days):
 ${commentContext.length > 0 ? commentContext.join('\n') : 'No recent comments'}
 
-NOTES (${allNotes.length} total):
+NOTES (${allNotes.length} total — each note starts with its title in quotes):
 ${allNotes.join('\n---\n')}`;
 
     const model = getGeminiModel();

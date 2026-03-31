@@ -928,6 +928,7 @@ body {
   height: calc(100vh - 2rem);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .ai-chat-container {
@@ -937,6 +938,8 @@ body {
   max-width: 720px;
   width: 100%;
   margin: 0 auto;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .ai-welcome {
@@ -1052,6 +1055,7 @@ body {
   display: flex;
   gap: 0.5rem;
   border-top: 1px solid var(--color-border);
+  flex-shrink: 0;
 }
 
 .ai-input {
