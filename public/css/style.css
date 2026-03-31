@@ -2177,6 +2177,111 @@ body {
   vertical-align: 1px;
 }
 
+/* Kanban board */
+.kanban-board {
+  display: flex;
+  gap: 0.75rem;
+  overflow-x: auto;
+  padding-bottom: 1rem;
+  min-height: 400px;
+}
+.kb-column {
+  flex: 1;
+  min-width: 200px;
+  max-width: 280px;
+  display: flex;
+  flex-direction: column;
+}
+.kb-column-header {
+  border-top: 3px solid var(--color-text-muted);
+  background: var(--follett-light-gray);
+  padding: 0.5rem 0.625rem;
+  border-radius: 0 0 var(--radius) var(--radius);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+.kb-column-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--follett-dark-blue);
+}
+.kb-column-count {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  background: white;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+}
+.kb-column-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  min-height: 60px;
+  padding: 0.25rem;
+  border-radius: var(--radius);
+  transition: background 0.15s;
+}
+.kb-column-body.kb-drag-over {
+  background: var(--color-b2b-light);
+  outline: 2px dashed var(--follett-medium-blue);
+  outline-offset: -2px;
+}
+.kb-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.625rem;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  transition: box-shadow 0.15s, opacity 0.15s;
+  border-left: 3px solid var(--follett-medium-blue);
+}
+.kb-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+.kb-card.kb-dragging { opacity: 0.4; }
+.kb-card.kb-prio-high { border-left-color: var(--follett-coral); }
+.kb-card.kb-prio-low { border-left-color: var(--follett-sage); }
+.kb-card-title {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--color-text);
+  line-height: 1.3;
+  margin-bottom: 0.25rem;
+}
+.kb-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.65rem;
+  color: var(--color-text-muted);
+}
+.kb-overdue { color: var(--follett-coral); font-weight: 600; }
+.kb-prio-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.kb-prio-dot-high { background: var(--follett-coral); }
+.kb-prio-dot-medium { background: var(--follett-medium-blue); }
+.kb-prio-dot-low { background: var(--follett-sage); }
+.kb-empty {
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--color-text-light);
+  padding: 1rem 0;
+}
+
+@media (max-width: 768px) {
+  .kanban-board { flex-direction: column; }
+  .kb-column { max-width: none; min-width: 0; }
+}
+
 /* View toggle (list/calendar) */
 .view-toggle {
   display: flex;

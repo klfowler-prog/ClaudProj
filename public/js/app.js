@@ -128,13 +128,125 @@ let taskViewMode = 'list'; // 'list' or 'calendar'
 function setTaskViewMode(mode) {
   taskViewMode = mode;
   document.getElementById('btn-view-list').classList.toggle('active', mode === 'list');
+  document.getElementById('btn-view-kanban').classList.toggle('active', mode === 'kanban');
   document.getElementById('btn-view-calendar').classList.toggle('active', mode === 'calendar');
-  const isCal = mode === 'calendar';
-  document.getElementById('task-list-container').style.display = isCal ? 'none' : '';
-  document.getElementById('task-actions-bar').style.display = isCal ? 'none' : '';
-  document.getElementById('calendar-view').style.display = isCal ? 'block' : 'none';
-  document.getElementById('filter-sort').style.display = isCal ? 'none' : '';
+  document.getElementById('task-list-container').style.display = mode === 'list' ? '' : 'none';
+  document.getElementById('task-actions-bar').style.display = mode === 'list' ? '' : 'none';
+  document.getElementById('kanban-view').style.display = mode === 'kanban' ? 'block' : 'none';
+  document.getElementById('calendar-view').style.display = mode === 'calendar' ? 'block' : 'none';
+  document.getElementById('filter-sort').style.display = mode === 'list' ? '' : 'none';
   if (mode === 'calendar') renderCalendar();
+  if (mode === 'kanban') renderKanban();
+}
+
+// === Kanban View ===
+const KANBAN_COLUMNS = [
+  { status: 'Not Started', label: 'Not Started', color: 'var(--color-text-muted)' },
+  { status: 'In Progress', label: 'In Progress', color: 'var(--follett-medium-blue)' },
+  { status: 'Blocked', label: 'Blocked', color: 'var(--follett-coral)' },
+  { status: 'Approved', label: 'Approved', color: 'var(--follett-sage)' },
+  { status: 'Completed', label: 'Completed', color: 'var(--color-text-light)' }
+];
+
+function renderKanban() {
+  const filtered = getFilteredTasks().filter(t => t.status !== 'Delegated' || t.assignedTo === (myProfile && myProfile.userId));
+  const today = new Date().toISOString().split('T')[0];
+  const board = document.getElementById('kanban-board');
+
+  board.innerHTML = KANBAN_COLUMNS.map(col => {
+    const colTasks = filtered.filter(t => {
+      if (col.status === 'Not Started') return t.status === 'Not Started' || (t.status === 'Delegated' && t.assignedTo === (myProfile && myProfile.userId));
+      return t.status === col.status;
+    });
+    // Sort: high priority first, then by due date
+    colTasks.sort((a, b) => {
+      const prio = { High: 0, Medium: 1, Low: 2 };
+      const pd = (prio[a.priority] || 1) - (prio[b.priority] || 1);
+      if (pd !== 0) return pd;
+      return (a.dueDate || '9999').localeCompare(b.dueDate || '9999');
+    });
+
+    const cardsHtml = colTasks.map(t => {
+      const overdue = t.status !== 'Completed' && t.dueDate && t.dueDate < today;
+      const prioClass = t.priority === 'High' ? 'kb-prio-high' : t.priority === 'Low' ? 'kb-prio-low' : '';
+      const assignee = teamMembers.find(m => m.userId === t.assignedTo);
+      const assigneeName = assignee ? assignee.displayName.split(' ')[0] : '';
+      return `<div class="kb-card ${prioClass}" draggable="true" data-task-id="${t.id}">
+        <div class="kb-card-title">${escapeHtml(t.title)}</div>
+        <div class="kb-card-meta">
+          ${assigneeName ? `<span>${escapeHtml(assigneeName)}</span>` : ''}
+          ${t.dueDate ? `<span class="${overdue ? 'kb-overdue' : ''}">${t.dueDate.substring(5)}</span>` : ''}
+          <span class="kb-prio-dot kb-prio-dot-${t.priority.toLowerCase()}"></span>
+        </div>
+      </div>`;
+    }).join('');
+
+    return `<div class="kb-column" data-status="${col.status}">
+      <div class="kb-column-header" style="border-top-color:${col.color};">
+        <span class="kb-column-title">${col.label}</span>
+        <span class="kb-column-count">${colTasks.length}</span>
+      </div>
+      <div class="kb-column-body" data-status="${col.status}">
+        ${cardsHtml || '<div class="kb-empty">No tasks</div>'}
+      </div>
+    </div>`;
+  }).join('');
+
+  // Click to open detail
+  board.querySelectorAll('.kb-card').forEach(card => {
+    card.addEventListener('click', () => showTaskDetail(card.dataset.taskId));
+  });
+
+  // Drag and drop
+  let draggedId = null;
+
+  board.querySelectorAll('.kb-card').forEach(card => {
+    card.addEventListener('dragstart', (e) => {
+      draggedId = card.dataset.taskId;
+      card.classList.add('kb-dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    card.addEventListener('dragend', () => {
+      card.classList.remove('kb-dragging');
+      draggedId = null;
+      board.querySelectorAll('.kb-column-body').forEach(col => col.classList.remove('kb-drag-over'));
+    });
+  });
+
+  board.querySelectorAll('.kb-column-body').forEach(col => {
+    col.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      col.classList.add('kb-drag-over');
+    });
+    col.addEventListener('dragleave', () => col.classList.remove('kb-drag-over'));
+    col.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      col.classList.remove('kb-drag-over');
+      if (!draggedId) return;
+      const newStatus = col.dataset.status;
+      const task = tasks.find(t => t.id === draggedId);
+      if (!task || task.status === newStatus) return;
+
+      try {
+        const updates = { status: newStatus };
+        if (newStatus === 'Completed') {
+          updates.completed = true;
+          updates.completedAt = new Date().toISOString();
+        } else {
+          updates.completed = false;
+          updates.completedAt = '';
+        }
+        if (newStatus === 'Blocked') {
+          const reason = prompt('Why is this blocked? (optional)');
+          if (reason) updates.blockedReason = reason;
+        }
+        await api('PUT', `/api/tasks/${draggedId}`, updates);
+        Object.assign(task, updates);
+        render();
+      } catch (err) { alert('Failed to update status'); }
+    });
+  });
 }
 
 function renderCalendar() {
@@ -240,6 +352,7 @@ function render() {
   renderSidebarCounts();
   renderTaskList();
   if (taskViewMode === 'calendar') renderCalendar();
+  if (taskViewMode === 'kanban') renderKanban();
 }
 
 function toggleSection(listId, caretId) {
@@ -2204,6 +2317,7 @@ async function init() {
 
   // Calendar view toggle
   document.getElementById('btn-view-list').addEventListener('click', () => setTaskViewMode('list'));
+  document.getElementById('btn-view-kanban').addEventListener('click', () => setTaskViewMode('kanban'));
   document.getElementById('btn-view-calendar').addEventListener('click', () => setTaskViewMode('calendar'));
   document.getElementById('btn-cal-prev').addEventListener('click', () => {
     calendarDate.setMonth(calendarDate.getMonth() - 1);
