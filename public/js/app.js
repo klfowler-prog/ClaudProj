@@ -3172,6 +3172,11 @@ function renderSidebarWorkspaces() {
   // Show section if user has any workspaces or is CMO/lead
   const show = workspaces.length > 0 || (myProfile && (myProfile.role === 'cmo' || myProfile.role === 'lead'));
   document.getElementById('sidebar-workspaces-section').style.display = show ? 'block' : 'none';
+  // Auto-expand if user has workspaces
+  if (workspaces.length > 0) {
+    document.getElementById('workspaces-subnav').classList.remove('collapsed');
+    document.getElementById('workspaces-caret').innerHTML = '&#9662;';
+  }
   container.innerHTML = workspaces.map(w =>
     `<button class="sidebar-dept-item ${activeWorkspaceId === w.id ? 'active' : ''}" data-workspace-id="${w.id}">
       ${w.color ? `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${w.color};margin-right:0.375rem;vertical-align:0;"></span>` : ''}${escapeHtml(w.name)}
