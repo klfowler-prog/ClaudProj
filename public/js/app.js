@@ -196,10 +196,21 @@ function renderKanban() {
   const today = new Date().toISOString().split('T')[0];
   const board = document.getElementById('kanban-board');
 
-  // Add Delegated column when that filter is active
+  // When a stat filter is active, only show the relevant column(s)
   let columns = KANBAN_COLUMNS;
-  if (filters.statFilter === 'delegated') {
+  const sf = filters.statFilter;
+  if (sf === 'delegated') {
     columns = [{ status: 'Delegated', label: 'Delegated', color: '#d4960a' }];
+  } else if (sf === 'not-started') {
+    columns = KANBAN_COLUMNS.filter(c => c.status === 'Not Started');
+  } else if (sf === 'in-progress') {
+    columns = KANBAN_COLUMNS.filter(c => c.status === 'In Progress');
+  } else if (sf === 'blocked') {
+    columns = KANBAN_COLUMNS.filter(c => c.status === 'Blocked');
+  } else if (sf === 'approved') {
+    columns = KANBAN_COLUMNS.filter(c => c.status === 'Approved');
+  } else if (sf === 'completed' || sf === 'overdue') {
+    columns = KANBAN_COLUMNS; // Show all columns, filtered tasks will land in correct ones
   }
 
   board.innerHTML = columns.map(col => {
@@ -507,7 +518,7 @@ function renderSidebarCounts() {
       document.querySelectorAll('.stat-pill-clickable').forEach(p => p.classList.remove('active'));
       activeTaskTagFilter = '';
       document.getElementById('filter-department').value = dept;
-      applyFilters(false);
+      applyFilters(true); // Reload from server to get full data
       switchView('tasks');
       closeSidebar();
     });
