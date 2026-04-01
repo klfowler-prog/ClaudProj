@@ -2562,7 +2562,9 @@ async function init() {
   });
 
   // Quick Add (AI-powered)
+  let lastParsedResult = null;
   document.getElementById('btn-quick-import').addEventListener('click', () => {
+    lastParsedResult = null;
     document.getElementById('import-paste').value = '';
     document.getElementById('ai-parsed-task').style.display = 'none';
     // Populate assign-to dropdown
@@ -2583,6 +2585,7 @@ async function init() {
     btn.disabled = true;
     try {
       const parsed = await api('POST', '/api/ai/quick-add', { text });
+      lastParsedResult = parsed;
       document.getElementById('parsed-title').value = parsed.title || text;
       document.getElementById('parsed-dept').value = parsed.department || 'Personal';
       // Populate sub-dept dropdown based on parsed department
@@ -2622,7 +2625,7 @@ async function init() {
     const assignedTo = document.getElementById('parsed-assign').value || undefined;
     const notes = document.getElementById('parsed-notes').value.trim();
 
-    const parsedTags = parsed && parsed.tags ? parsed.tags : [];
+    const parsedTags = lastParsedResult && lastParsedResult.tags ? lastParsedResult.tags : [];
     await addTask(title, dept, priority, notes, 'manual', [], dueDate, recurring, assignedTo, parsedTags);
     closeModal('modal-import');
   });
