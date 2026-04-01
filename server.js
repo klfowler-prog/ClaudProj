@@ -307,7 +307,8 @@ const authWrite = [authenticate, resolveOrg, applyViewAs, requireEditor];
 app.get('/api/tasks', auth, async (req, res) => {
   try {
     const snapshot = await orgCol(req, 'tasks').orderBy('createdAt', 'desc').get();
-    let tasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const allTasksUnfiltered = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    let tasks = [...allTasksUnfiltered];
 
     // Hide private tasks from anyone except the creator or subtask assignees
     const privateTaskIds = new Set(tasks.filter(t => t.private).map(t => t.id));
@@ -372,7 +373,8 @@ app.get('/api/tasks', auth, async (req, res) => {
     // Sub-tasks you created yourself are visible in the parent task detail, not the main list
     const mySubtasks = subTasks.filter(s => s.assignedTo === req.userId && s.createdBy !== req.userId);
     mySubtasks.forEach(s => {
-      const parent = tasks.find(t => t.id === s.parentTaskId);
+      // Look up parent from unfiltered list so assignees always see parent context
+      const parent = allTasksUnfiltered.find(t => t.id === s.parentTaskId);
       s.parentTaskTitle = parent ? parent.title : '';
       s.parentTaskNotes = parent ? (parent.notes || '') : '';
       s.parentTaskAttachments = parent ? (parent.attachments || []) : [];
