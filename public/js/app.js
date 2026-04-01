@@ -3304,16 +3304,18 @@ let allNotifications = [];
 async function loadNotifications() {
   try {
     allNotifications = await api('GET', '/api/notifications');
-    const unread = allNotifications.filter(n => !n.read);
-    const badge = document.getElementById('notif-badge');
-    if (unread.length > 0) {
-      badge.textContent = unread.length;
-      badge.style.display = 'inline';
-    } else {
-      badge.style.display = 'none';
-    }
-    return allNotifications;
-  } catch { return []; }
+  } catch {
+    allNotifications = [];
+  }
+  const unread = allNotifications.filter(n => !n.read);
+  const badge = document.getElementById('notif-badge');
+  if (unread.length > 0) {
+    badge.textContent = unread.length;
+    badge.style.display = 'inline';
+  } else {
+    badge.style.display = 'none';
+  }
+  return allNotifications;
 }
 
 async function showNotifications() {
@@ -4340,7 +4342,11 @@ document.addEventListener('DOMContentLoaded', () => {
       if (savedWorkspaceId && workspaces.find(w => w.id === savedWorkspaceId)) {
         await openWorkspace(savedWorkspaceId);
       } else if (savedView && savedView !== 'tasks') {
-        switchView(savedView);
+        if (savedView === 'notifications') {
+          showNotifications();
+        } else {
+          switchView(savedView);
+        }
         if (savedView === 'notes' && savedFolderId) {
           activeFolderId = savedFolderId;
           loadNotesList(activeFolderId);
