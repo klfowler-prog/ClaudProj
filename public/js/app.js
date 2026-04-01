@@ -963,7 +963,9 @@ async function setTaskStatus(id, newStatus) {
         'manual',
         task.attachments || [],
         nextDue,
-        task.recurring
+        task.recurring,
+        task.assignedTo || undefined,
+        task.tags || []
       );
     }
   } catch (err) {
@@ -3330,15 +3332,26 @@ async function showNotifications() {
     </div>`;
   }).join('');
   container.querySelectorAll('.notif-item').forEach(item => {
-    item.addEventListener('click', () => {
-      // Open task detail immediately (don't wait for mark-as-read)
-      if (item.dataset.taskId) { showTaskDetail(item.dataset.taskId); }
-      // Mark as read in the background
+    item.addEventListener('click', async () => {
+      // Mark as read visually and in background
       if (item.classList.contains('notif-unread')) {
         item.classList.remove('notif-unread');
         item.classList.add('notif-read');
         api('POST', `/api/notifications/${item.dataset.notifId}/read`).catch(() => {});
-        loadNotifications(); // Update badge count
+        loadNotifications();
+      }
+      // Open task detail - fetch from server if not in local array
+      const taskId = item.dataset.taskId;
+      if (taskId) {
+        let task = tasks.find(t => t.id === taskId);
+        if (!task) {
+          try { task = await api('GET', `/api/tasks/${taskId}`); } catch { return; }
+        }
+        if (task) {
+          // Temporarily add to tasks array so showTaskDetail can find it
+          if (!tasks.find(t => t.id === taskId)) tasks.push(task);
+          showTaskDetail(taskId);
+        }
       }
     });
   });
