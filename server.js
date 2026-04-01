@@ -353,9 +353,18 @@ app.get('/api/tasks', auth, async (req, res) => {
       tasks = tasks.filter(t => myReportIds.has(t.assignedTo) || myReportIds.has(t.createdBy));
     }
 
-    // Optional: filter by sub-department
-    if (req.query.subDept) {
-      tasks = tasks.filter(t => t.subDepartment === req.query.subDept);
+    // Auto-migrate subDepartment to tags (in-memory for response)
+    tasks.forEach(t => {
+      if (t.subDepartment && (!t.tags || t.tags.length === 0)) {
+        t.tags = [t.subDepartment];
+        t.subDepartment = '';
+      }
+      if (!t.tags) t.tags = [];
+    });
+
+    // Optional: filter by tag
+    if (req.query.tag) {
+      tasks = tasks.filter(t => (t.tags || []).includes(req.query.tag));
     }
 
     // Separate sub-tasks from parent tasks
@@ -436,8 +445,14 @@ app.post('/api/tasks', authWrite, async (req, res) => {
       parentTaskId: req.body.parentTaskId || '',
       private: req.body.private || false,
       workspaceId: req.body.workspaceId || '',
-      showOnMaster: req.body.showOnMaster || false
+      showOnMaster: req.body.showOnMaster || false,
+      tags: req.body.tags || []
     };
+    // Auto-migrate: if subDepartment set but no tags, copy to tags
+    if (task.subDepartment && task.tags.length === 0) {
+      task.tags = [task.subDepartment];
+      task.subDepartment = '';
+    }
 
     const docRef = await orgCol(req, 'tasks').add(task);
     const created = { id: docRef.id, ...task };
@@ -525,7 +540,7 @@ app.put('/api/tasks/:id', auth, async (req, res) => {
     const allowedFields = ['title', 'department', 'priority', 'notes', 'status',
       'completed', 'completedAt', 'dueDate', 'attachments', 'emailMessageId', 'recurring',
       'assignedTo', 'sharedWith', 'parentTaskId', 'subDepartment', 'blockedReason', 'private',
-      'workspaceId', 'showOnMaster'];
+      'workspaceId', 'showOnMaster', 'tags'];
 
     for (const field of allowedFields) {
       if (req.body[field] !== undefined) updates[field] = req.body[field];
@@ -1651,7 +1666,7 @@ Return ONLY a JSON object (no markdown, no code fences) with this structure:
       "parent": {
         "title": "Main project or initiative name",
         "department": "B2B Marketing" | "B2C Marketing" | "Personal",
-        "subDepartment": "Biz Dev" | "Growth & Brand" | "Rev Ops" | "Internal Comms" | "" (only for B2B Marketing),
+        "tags": ["Biz Dev", "Growth & Brand", "Rev Ops", "Internal Comms", "Social Media", "PR", "Conferences"] (use relevant ones, can be empty array),
         "priority": "High" | "Medium" | "Low",
         "notes": "Brief context",
         "assignedTo": "userId if a team member name is mentioned, otherwise empty string"
@@ -1719,7 +1734,7 @@ app.post('/api/ai/quick-add', aiLimiter, auth, async (req, res) => {
 Return ONLY a JSON object (no markdown, no code fences) with these fields:
 - "title": string (clear, concise task title)
 - "department": one of "B2B Marketing", "B2C Marketing", "Personal" (infer from context, default to "Personal" if unclear)
-- "subDepartment": if department is "B2B Marketing", one of "Biz Dev", "Growth & Brand", "Rev Ops", "Internal Comms" or "" if unclear. If department is "B2C Marketing" or "Personal", use ""
+- "tags": array of strings. Use relevant tags from: "Biz Dev", "Growth & Brand", "Rev Ops", "Internal Comms", "Social Media", "PR", "Conferences". Can be empty array [] if unclear. Can include multiple tags.
 - "priority": one of "High", "Medium", "Low" (infer from urgency words, default to "Medium")
 - "dueDate": string in YYYY-MM-DD format (calculate from relative dates like "next Tuesday", "end of week", "tomorrow". If no date mentioned, use "")
 - "assignedTo": string (match to a team member userId if a name is mentioned. Available team members: ${memberList}. If no name mentioned or no match, use "")
@@ -1780,7 +1795,8 @@ app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
       const creator = memberNames[t.createdBy] || 'Unknown';
       const attachments = (t.attachments || []).filter(a => a.type === 'file').map(a => `[filelink:${a.gcsPath}:${a.name}]`).join(' ');
       const wsLabel = t.workspaceId && workspaceNames[t.workspaceId] ? ` | Workspace: ${workspaceNames[t.workspaceId]}` : '';
-      return `[tasklink:${t.id}:${t.title}] [${t.status}] | Assigned: ${assignee} | Created by: ${creator} | Dept: ${t.department}${t.subDepartment ? '/' + t.subDepartment : ''} | Priority: ${t.priority}${t.createdAt ? ' | Created: ' + t.createdAt.split('T')[0] : ''}${t.dueDate ? ' | Due: ' + t.dueDate : ''}${t.completedAt ? ' | Completed: ' + t.completedAt.split('T')[0] : ''}${t.blockedReason ? ' | Blocked: ' + t.blockedReason : ''}${wsLabel}${attachments ? ' | Files: ' + attachments : ''}${t.notes ? ' | Notes: ' + t.notes.substring(0, 200) : ''}`;
+      const tagsLabel = (t.tags && t.tags.length > 0) ? ` | Tags: ${t.tags.join(', ')}` : '';
+      return `[tasklink:${t.id}:${t.title}] [${t.status}] | Assigned: ${assignee} | Created by: ${creator} | Dept: ${t.department} | Priority: ${t.priority}${tagsLabel}${t.createdAt ? ' | Created: ' + t.createdAt.split('T')[0] : ''}${t.dueDate ? ' | Due: ' + t.dueDate : ''}${t.completedAt ? ' | Completed: ' + t.completedAt.split('T')[0] : ''}${t.blockedReason ? ' | Blocked: ' + t.blockedReason : ''}${wsLabel}${attachments ? ' | Files: ' + attachments : ''}${t.notes ? ' | Notes: ' + t.notes.substring(0, 200) : ''}`;
     });
 
     // Gather notes — apply same access filtering as notes list

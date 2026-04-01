@@ -197,6 +197,9 @@
       </select>
 
       <!-- Task Actions -->
+      <!-- Task Tag Filter -->
+      <div id="task-tag-filter" style="display:none;padding:0.25rem 0;display:flex;gap:0.25rem;flex-wrap:wrap;align-items:center;"></div>
+
       <div class="task-actions-bar" id="task-actions-bar">
         <button class="btn btn-primary" id="btn-quick-import"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="vertical-align:-1px;"><path d="M12 0l1.8 7.6L22 8l-6.4 4.2L18 20l-6-4.8L6 20l2.4-7.8L2 8l8.2-.4z"/></svg> Quick Add</button>
         <button class="btn btn-secondary" id="btn-add-task">+ Manual Task</button>
@@ -450,16 +453,6 @@
             </div>
           </div>
           <div class="form-group">
-            <label>Sub-Department</label>
-            <div id="invite-subdepts" style="display: flex; flex-direction: column; gap: 0.25rem;">
-              <div style="font-size:0.7rem;color:var(--color-text-muted);margin-bottom:0.125rem;">B2B Marketing:</div>
-              <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;text-transform:none;font-weight:400;color:var(--color-text);padding-left:0.5rem;"><input type="checkbox" class="invite-subdept-cb" value="Biz Dev"> Biz Dev</label>
-              <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;text-transform:none;font-weight:400;color:var(--color-text);padding-left:0.5rem;"><input type="checkbox" class="invite-subdept-cb" value="Growth & Brand"> Growth & Brand</label>
-              <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;text-transform:none;font-weight:400;color:var(--color-text);padding-left:0.5rem;"><input type="checkbox" class="invite-subdept-cb" value="Rev Ops"> Rev Ops</label>
-              <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;text-transform:none;font-weight:400;color:var(--color-text);padding-left:0.5rem;"><input type="checkbox" class="invite-subdept-cb" value="Internal Comms"> Internal Comms</label>
-            </div>
-          </div>
-          <div class="form-group">
             <label for="invite-reports-to">Reports To</label>
             <select id="invite-reports-to" style="width:100%;">
               <option value="">None</option>
@@ -674,12 +667,6 @@
             </select>
           </div>
           <div class="form-group">
-            <label for="input-sub-department">Area</label>
-            <select id="input-sub-department">
-              <option value="">General</option>
-            </select>
-          </div>
-          <div class="form-group">
             <label for="input-priority">Priority</label>
             <select id="input-priority">
               <option value="Medium">Medium</option>
@@ -702,6 +689,22 @@
               <option value="biweekly">Every 2 Weeks</option>
               <option value="monthly">Monthly</option>
             </select>
+          </div>
+        </div>
+        <div class="form-group" id="form-group-tags">
+          <label>Tags</label>
+          <div class="note-tags-bar" style="padding:0.25rem 0;border:none;background:none;">
+            <div id="task-tags-list" class="note-tags-list"></div>
+            <input type="text" id="task-tag-input" class="note-tag-input" placeholder="Add tag..." list="task-tag-suggestions" style="width:100px;">
+            <datalist id="task-tag-suggestions">
+              <option value="Biz Dev">
+              <option value="Growth & Brand">
+              <option value="Rev Ops">
+              <option value="Internal Comms">
+              <option value="Social Media">
+              <option value="PR">
+              <option value="Conferences">
+            </datalist>
           </div>
         </div>
         <div class="form-group">

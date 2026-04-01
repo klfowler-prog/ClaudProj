@@ -2,12 +2,47 @@
 const DEPARTMENTS = ['B2B Marketing', 'B2C Marketing', 'Personal'];
 const SUB_DEPARTMENTS = {
   'B2B Marketing': ['Biz Dev', 'Growth & Brand', 'Rev Ops', 'Internal Comms'],
-  'B2C Marketing': [] // Robert will define later
+  'B2C Marketing': []
 };
 const ALL_SUB_DEPTS = Object.values(SUB_DEPARTMENTS).flat();
 const PRIORITIES = ['High', 'Medium', 'Low'];
 const STATUSES = ['Not Started', 'In Progress', 'Blocked', 'Approved', 'Delegated', 'Completed'];
 const STORAGE_KEY = 'cmo_tasks';
+
+// === Unified Tag Color System ===
+const TAG_COLORS = {
+  'Biz Dev': { bg: '#e8f0fe', text: '#1a73e8', border: '#1a73e8' },
+  'Growth & Brand': { bg: '#e0f2f1', text: '#00897b', border: '#00897b' },
+  'Rev Ops': { bg: '#fde8e7', text: '#DC6B67', border: '#DC6B67' },
+  'Internal Comms': { bg: '#eef5ea', text: '#6a9b59', border: '#ABC39B' },
+  'Social Media': { bg: '#fce4ec', text: '#d81b60', border: '#d81b60' },
+  'PR': { bg: '#fff8e1', text: '#f57f17', border: '#f57f17' },
+  'Conferences': { bg: '#ede9fe', text: '#7c3aed', border: '#7c3aed' }
+};
+const TAG_PALETTE = [
+  { bg: '#e3f2fd', text: '#1565c0', border: '#1565c0' },
+  { bg: '#fce4ec', text: '#c62828', border: '#c62828' },
+  { bg: '#e8f5e9', text: '#2e7d32', border: '#2e7d32' },
+  { bg: '#fff3e0', text: '#e65100', border: '#e65100' },
+  { bg: '#f3e5f5', text: '#7b1fa2', border: '#7b1fa2' },
+  { bg: '#e0f7fa', text: '#00838f', border: '#00838f' },
+  { bg: '#fbe9e7', text: '#bf360c', border: '#bf360c' },
+  { bg: '#f1f8e9', text: '#558b2f', border: '#558b2f' }
+];
+const TAG_PRESETS = ['Biz Dev', 'Growth & Brand', 'Rev Ops', 'Internal Comms', 'Social Media', 'PR', 'Conferences'];
+
+function getTagColor(tag) {
+  if (TAG_COLORS[tag]) return TAG_COLORS[tag];
+  const hash = tag.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+  return TAG_PALETTE[hash % TAG_PALETTE.length];
+}
+
+function renderTagChip(tag, opts = {}) {
+  const c = getTagColor(tag);
+  const removeHtml = opts.removable ? `<span class="note-tag-remove" data-remove-tag="${escapeHtml(tag)}" style="cursor:pointer;opacity:0.6;margin-left:0.2rem;">&times;</span>` : '';
+  const size = opts.small ? 'font-size:0.55rem;padding:0.1rem 0.35rem;' : 'font-size:0.65rem;padding:0.15rem 0.5rem;';
+  return `<span class="tag-chip" style="${size}background:${c.bg};color:${c.text};border-radius:999px;display:inline-flex;align-items:center;gap:0.15rem;font-weight:500;white-space:nowrap;">${escapeHtml(tag)}${removeHtml}</span>`;
+}
 const MIGRATION_KEY = 'cmo_migrated_to_cloud';
 
 // === Auth State ===
@@ -59,6 +94,7 @@ const DEPT_KEYWORDS = {
 // === State ===
 let tasks = [];
 let filters = { department: 'all', priority: 'all', search: '', sort: 'due-date', statFilter: 'none' };
+let activeTaskTagFilter = '';
 let pendingAttachments = []; // temp attachments for the add-task form
 let pendingLinks = [];       // temp links for the add-task form
 let editingTaskId = null;    // null = adding, string = editing
@@ -70,7 +106,7 @@ async function loadTasks() {
     let url = '/api/tasks';
     if (showMyTasksOnly) url += '?mine=true';
     else if (showMyTeam) url += '?team=true';
-    if (activeSubDept) url += (url.includes('?') ? '&' : '?') + `subDept=${encodeURIComponent(activeSubDept)}`;
+    if (activeTaskTagFilter) url += (url.includes('?') ? '&' : '?') + `tag=${encodeURIComponent(activeTaskTagFilter)}`;
     if (activeWorkspaceId) url += (url.includes('?') ? '&' : '?') + `workspaceId=${encodeURIComponent(activeWorkspaceId)}`;
     tasks = await api('GET', url);
   } catch (err) {
@@ -186,6 +222,7 @@ function renderKanban() {
       const assigneeName = assignee ? assignee.displayName.split(' ')[0] : '';
       return `<div class="kb-card ${prioClass}" draggable="true" data-task-id="${t.id}">
         <div class="kb-card-title">${escapeHtml(t.title)}</div>
+        ${(t.tags || []).length > 0 ? `<div style="display:flex;gap:0.2rem;flex-wrap:wrap;margin-bottom:0.2rem;">${(t.tags || []).slice(0, 2).map(tg => renderTagChip(tg, { small: true })).join('')}</div>` : ''}
         <div class="kb-card-meta">
           ${assigneeName ? `<span>${escapeHtml(assigneeName)}</span>` : ''}
           ${t.dueDate ? `<span class="${overdue ? 'kb-overdue' : ''}">${t.dueDate.substring(5)}</span>` : ''}
@@ -332,8 +369,10 @@ function renderCalendar() {
 
     const maxShow = 3;
     const taskHtml = dayTasks.slice(0, maxShow).map(t => {
-      const cls = t.status === 'Completed' ? 'cal-task-completed' : `cal-task-${t.priority.toLowerCase()}`;
-      return `<div class="cal-task ${cls}" onclick="event.stopPropagation();showTaskDetail('${t.id}')" title="${escapeHtml(t.title)}">${escapeHtml(t.title)}</div>`;
+      let cls = t.status === 'Completed' ? 'cal-task-completed' : `cal-task-${t.priority.toLowerCase()}`;
+      const firstTag = (t.tags || [])[0];
+      const tagStyle = firstTag ? (() => { const c = getTagColor(firstTag); return `background:${c.bg};color:${c.text};border-left:2px solid ${c.border};`; })() : '';
+      return `<div class="cal-task ${tagStyle ? '' : cls}" style="${tagStyle}" onclick="event.stopPropagation();showTaskDetail('${t.id}')" title="${escapeHtml(t.title)}">${escapeHtml(t.title)}</div>`;
     }).join('');
     const moreHtml = dayTasks.length > maxShow ? `<div class="cal-more">+${dayTasks.length - maxShow} more</div>` : '';
 
@@ -363,9 +402,33 @@ function renderCalendar() {
 function render() {
   renderStats();
   renderSidebarCounts();
+  renderTaskTagFilter();
   renderTaskList();
   if (taskViewMode === 'calendar') renderCalendar();
   if (taskViewMode === 'kanban') renderKanban();
+}
+
+function renderTaskTagFilter() {
+  const container = document.getElementById('task-tag-filter');
+  if (!container) return;
+  const allTags = new Set();
+  tasks.forEach(t => (t.tags || []).forEach(tag => allTags.add(tag)));
+  if (allTags.size === 0) { container.style.display = 'none'; return; }
+  container.style.display = 'flex';
+  let html = `<span style="font-size:0.65rem;color:var(--color-text-muted);margin-right:0.25rem;">Tags:</span>`;
+  html += `<button class="note-tag-filter-btn ${!activeTaskTagFilter ? 'active' : ''}" data-task-tag="">All</button>`;
+  [...allTags].sort().forEach(tag => {
+    const c = getTagColor(tag);
+    const isActive = activeTaskTagFilter === tag;
+    html += `<button class="note-tag-filter-btn ${isActive ? 'active' : ''}" data-task-tag="${escapeHtml(tag)}" style="${isActive ? `background:${c.text};color:white;border-color:${c.text};` : `background:${c.bg};color:${c.text};border-color:${c.border};`}">${escapeHtml(tag)}</button>`;
+  });
+  container.innerHTML = html;
+  container.querySelectorAll('.note-tag-filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      activeTaskTagFilter = btn.dataset.taskTag;
+      render();
+    });
+  });
 }
 
 function toggleSection(listId, caretId) {
@@ -418,53 +481,33 @@ function renderSidebarCounts() {
     visibleDepts = DEPARTMENTS.filter(d => myDepts.includes(d) || deptsWithTasks.has(d));
   }
 
-  let html = '<button class="sidebar-dept-item ' + (filters.department === 'all' && !activeSubDept ? 'active' : '') + '" data-dept="all">All Tasks</button>';
+  let html = '<button class="sidebar-dept-item ' + (filters.department === 'all' ? 'active' : '') + '" data-dept="all">All Tasks</button>';
   for (const dept of visibleDepts) {
     const key = DEPT_KEYS[dept];
     const count = tasks.filter(t => t.department === dept && t.status !== 'Completed').length;
-    const isActive = filters.department === dept && !activeSubDept;
-    const subDepts = SUB_DEPARTMENTS[dept] || [];
-    const hasSubs = subDepts.length > 0;
-    const deptExpanded = expandedDepts.has(dept);
+    const isActive = filters.department === dept;
     html += `<button class="sidebar-dept-item ${isActive ? 'active' : ''}" data-dept="${dept}">
       <span class="dept-dot dept-${key}"></span> ${dept} <span class="sidebar-count">${count}</span>
-      ${hasSubs ? `<span class="sidebar-caret-small" data-toggle-dept="${dept}">${deptExpanded ? '&#9662;' : '&#9656;'}</span>` : ''}
     </button>`;
-    if (hasSubs && deptExpanded) {
-      for (const sub of subDepts) {
-        const subCount = tasks.filter(t => t.department === dept && t.subDepartment === sub && t.status !== 'Completed').length;
-        const subActive = activeSubDept === sub;
-        html += `<button class="sidebar-dept-item sidebar-subdept ${subActive ? 'active' : ''}" data-dept="${dept}" data-subdept="${sub}">
-          ${sub} <span class="sidebar-count">${subCount}</span>
-        </button>`;
-      }
-    }
   }
   container.innerHTML = html;
 
-  // Caret toggle handlers
-  container.querySelectorAll('[data-toggle-dept]').forEach(caret => {
-    caret.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const dept = caret.dataset.toggleDept;
-      if (expandedDepts.has(dept)) expandedDepts.delete(dept);
-      else expandedDepts.add(dept);
-      renderSidebarCounts();
-    });
-  });
-
-  // Department/sub-department click handlers
+  // Department click handlers
   container.querySelectorAll('.sidebar-dept-item').forEach(item => {
-    item.addEventListener('click', (e) => {
-      if (e.target.closest('[data-toggle-dept]')) return;
+    item.addEventListener('click', () => {
       const dept = item.dataset.dept;
-      activeSubDept = item.dataset.subdept || null;
-      // Auto-expand when clicking a parent dept
-      if (!activeSubDept && SUB_DEPARTMENTS[dept] && SUB_DEPARTMENTS[dept].length > 0) {
-        expandedDepts.add(dept);
+      // Clear workspace and stat filter when switching departments
+      if (activeWorkspaceId) {
+        activeWorkspaceId = null;
+        activeWorkspaceName = '';
+        document.getElementById('workspace-header').style.display = 'none';
+        renderSidebarWorkspaces();
       }
+      filters.statFilter = 'none';
+      document.querySelectorAll('.stat-pill-clickable').forEach(p => p.classList.remove('active'));
+      activeTaskTagFilter = '';
       document.getElementById('filter-department').value = dept;
-      applyFilters(!!activeSubDept);
+      applyFilters(false);
       switchView('tasks');
       closeSidebar();
     });
@@ -548,7 +591,7 @@ function renderTaskItem(task) {
         <div class="task-meta">
           ${isSubtask ? `<span class="task-parent-label">Part of: ${escapeHtml(task.parentTaskTitle || '...')}</span>` : ''}
           ${!activeWorkspaceId ? `<span class="badge badge-${deptKey}">${escapeHtml(task.department)}</span>` : ''}
-          ${!activeWorkspaceId && task.subDepartment ? `<span style="font-size:0.65rem;color:var(--color-text-muted);">${escapeHtml(task.subDepartment)}</span>` : ''}
+          ${(task.tags || []).map(t => renderTagChip(t, { small: true })).join('')}
           ${task.workspaceId && !activeWorkspaceId ? `<span class="ws-badge" onclick="event.stopPropagation();openWorkspace('${task.workspaceId}')">${escapeHtml(workspaces.find(w => w.id === task.workspaceId)?.name || 'Workspace')}</span>` : ''}
           ${prioDot}
           ${dueDateHtml}
@@ -792,6 +835,10 @@ function getFilteredTasks() {
       const q = filters.search.toLowerCase();
       if (!t.title.toLowerCase().includes(q) && !(t.notes || '').toLowerCase().includes(q)) return false;
     }
+    // Tag filter
+    if (activeTaskTagFilter) {
+      if (!(t.tags || []).includes(activeTaskTagFilter)) return false;
+    }
     // Status pill filter
     const sf = filters.statFilter;
     if (sf && sf !== 'none') {
@@ -820,11 +867,13 @@ function applyFilters(reload) {
 }
 
 // === Task Operations (API-backed) ===
-async function addTask(title, department, priority, notes, source, attachments, dueDate, recurring, assignedTo, subDepartment) {
+let currentTaskTags = [];
+
+async function addTask(title, department, priority, notes, source, attachments, dueDate, recurring, assignedTo, tags) {
   const taskData = {
     title: title.trim(),
-    subDepartment: subDepartment || '',
     department,
+    tags: tags || [],
     priority: priority || 'Medium',
     notes: notes || '',
     status: 'Not Started',
@@ -945,8 +994,8 @@ async function editTask(id) {
   document.getElementById('input-due-date').value = task.dueDate || '';
   document.getElementById('input-notes').value = task.notes || '';
   document.getElementById('input-recurring').value = task.recurring || 'none';
-  updateSubDeptDropdown();
-  document.getElementById('input-sub-department').value = task.subDepartment || '';
+  currentTaskTags = task.tags || (task.subDepartment ? [task.subDepartment] : []);
+  renderTaskFormTags();
   document.getElementById('input-assign-to').value = task.assignedTo || '';
 
   // Load existing attachments into pending lists
@@ -1017,20 +1066,36 @@ function resetAddForm() {
       deptSelect.value = myProfile.departments[0];
     }
   }
-  updateSubDeptDropdown();
-
-  // Pre-fill sub-department if user only has one
-  if (myProfile && myProfile.subDepartments && myProfile.subDepartments.length === 1) {
-    document.getElementById('input-sub-department').value = myProfile.subDepartments[0];
-  }
+  // Reset task tags
+  currentTaskTags = [];
+  renderTaskFormTags();
 }
 
-function updateSubDeptDropdown() {
-  const dept = document.getElementById('input-department').value;
-  const subSelect = document.getElementById('input-sub-department');
-  const subs = SUB_DEPARTMENTS[dept] || [];
-  subSelect.innerHTML = '<option value="">General</option>' +
-    subs.map(s => `<option value="${s}">${s}</option>`).join('');
+function renderTaskFormTags() {
+  const container = document.getElementById('task-tags-list');
+  if (!container) return;
+  container.innerHTML = currentTaskTags.map(tag => renderTagChip(tag, { removable: true })).join('');
+  container.querySelectorAll('.note-tag-remove').forEach(btn => {
+    btn.addEventListener('click', () => {
+      currentTaskTags = currentTaskTags.filter(t => t !== btn.dataset.removeTag);
+      renderTaskFormTags();
+    });
+  });
+}
+
+function initTaskTagInput() {
+  const input = document.getElementById('task-tag-input');
+  if (!input) return;
+  const addTag = () => {
+    const tag = input.value.trim().replace(/,/g, '');
+    if (tag && !currentTaskTags.includes(tag)) {
+      currentTaskTags.push(tag);
+      renderTaskFormTags();
+    }
+    input.value = '';
+  };
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(); } });
+  input.addEventListener('change', addTag);
 }
 
 // === Attachment Handling ===
@@ -1174,6 +1239,14 @@ function showTaskDetail(id) {
     ${myProfile && task.createdBy === myProfile.userId ? `<div style="margin-bottom:0.75rem;"><label style="font-size:0.8rem;cursor:pointer;display:inline-flex;align-items:center;gap:0.375rem;color:var(--color-text-muted);"><input type="checkbox" ${task.private ? 'checked' : ''} onchange="toggleTaskPrivate('${task.id}', this.checked)" style="accent-color:var(--follett-dark-blue);"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Private — only visible to you</label></div>` : (task.private ? '<div style="font-size:0.75rem;color:var(--color-text-muted);margin-bottom:0.75rem;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Private</div>' : '')}
 
     ${(task.workspaceId || activeWorkspaceId) ? `<div style="margin-bottom:0.75rem;"><label style="font-size:0.8rem;cursor:pointer;display:inline-flex;align-items:center;gap:0.375rem;color:var(--follett-medium-blue);font-weight:500;"><input type="checkbox" ${task.showOnMaster ? 'checked' : ''} onchange="toggleShowOnMaster('${task.id}', ${!!task.showOnMaster})" style="accent-color:var(--follett-medium-blue);"> Show on Master List</label></div>` : ''}
+    <div style="margin-bottom:0.75rem;">
+      <div class="detail-section-title">Tags</div>
+      <div style="display:flex;gap:0.25rem;flex-wrap:wrap;align-items:center;" id="detail-tags">
+        ${(task.tags || []).map(t => renderTagChip(t, { removable: true })).join('')}
+        <input type="text" class="note-tag-input" id="detail-tag-input" placeholder="Add tag..." list="detail-tag-suggestions" style="width:80px;">
+        <datalist id="detail-tag-suggestions">${TAG_PRESETS.map(t => `<option value="${t}">`).join('')}</datalist>
+      </div>
+    </div>
     ${task.blockedReason ? `<div style="background:var(--color-medium-light);border-radius:var(--radius);padding:0.625rem 0.875rem;margin-bottom:0.75rem;font-size:0.85rem;"><strong style="color:#a17508;">Blocked:</strong> ${escapeHtml(task.blockedReason)}</div>` : ''}
     ${task.notes ? `<div class="detail-section"><div class="detail-section-title">Notes</div><div class="detail-notes">${escapeHtmlWithLinks(task.notes)}</div></div>` : ''}
     ${attachmentsHtml}
@@ -1215,6 +1288,27 @@ function showTaskDetail(id) {
   openModal('modal-detail');
   loadSubtasks(task.id);
   loadComments(task.id);
+
+  // Detail tag handlers
+  document.querySelectorAll('#detail-tags .note-tag-remove').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const newTags = (task.tags || []).filter(t => t !== btn.dataset.removeTag);
+      try { await api('PUT', `/api/tasks/${task.id}`, { tags: newTags }); task.tags = newTags; showTaskDetail(task.id); } catch {}
+    });
+  });
+  const detailTagInput = document.getElementById('detail-tag-input');
+  if (detailTagInput) {
+    const addDetailTag = async () => {
+      const tag = detailTagInput.value.trim();
+      if (tag && !(task.tags || []).includes(tag)) {
+        const newTags = [...(task.tags || []), tag];
+        try { await api('PUT', `/api/tasks/${task.id}`, { tags: newTags }); task.tags = newTags; showTaskDetail(task.id); } catch {}
+      }
+      detailTagInput.value = '';
+    };
+    detailTagInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addDetailTag(); } });
+    detailTagInput.addEventListener('change', addDetailTag);
+  }
 }
 
 async function loadComments(taskId) {
@@ -1541,9 +1635,7 @@ let currentNoteTags = [];
 function renderNoteTags(tags, canEdit) {
   currentNoteTags = tags || [];
   const container = document.getElementById('note-tags-list');
-  container.innerHTML = currentNoteTags.map(tag =>
-    `<span class="note-tag">${escapeHtml(tag)}${canEdit ? `<span class="note-tag-remove" data-remove-tag="${escapeHtml(tag)}">&times;</span>` : ''}</span>`
-  ).join('');
+  container.innerHTML = currentNoteTags.map(tag => renderTagChip(tag, { removable: canEdit })).join('');
   document.getElementById('note-tag-input').style.display = canEdit ? '' : 'none';
 
   // Remove tag handlers
@@ -1601,7 +1693,9 @@ function renderNoteTagFilters() {
   let html = `<span style="font-size:0.65rem;color:var(--color-text-muted);margin-right:0.25rem;">Filter:</span>`;
   html += `<button class="note-tag-filter-btn ${!activeTagFilter ? 'active' : ''}" data-tag-filter="">All</button>`;
   [...allTags].sort().forEach(tag => {
-    html += `<button class="note-tag-filter-btn ${activeTagFilter === tag ? 'active' : ''}" data-tag-filter="${escapeHtml(tag)}">${escapeHtml(tag)}</button>`;
+    const c = getTagColor(tag);
+    const isActive = activeTagFilter === tag;
+    html += `<button class="note-tag-filter-btn ${isActive ? 'active' : ''}" data-tag-filter="${escapeHtml(tag)}" style="${isActive ? `background:${c.text};color:white;border-color:${c.text};` : `background:${c.bg};color:${c.text};border-color:${c.border};`}">${escapeHtml(tag)}</button>`;
   });
   container.innerHTML = html;
   container.querySelectorAll('.note-tag-filter-btn').forEach(btn => {
@@ -1635,7 +1729,7 @@ function renderNotesList() {
     const authorLabel = isOwn ? '' : ` &middot; ${escapeHtml(n.authorName || 'Unknown')}`;
     const pinSvg = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 2h6l-1 7h-4L9 2z"/><path d="M5 14h14l-2-5H7l-2 5z"/></svg>';
     const pinBtn = `<span class="note-pin-btn ${n.pinned ? 'pinned' : ''}" data-pin-id="${n.id}" title="${n.pinned ? 'Unpin' : 'Pin to top'}">${pinSvg}</span>`;
-    const tagChips = (n.tags || []).map(t => `<span class="note-tag" style="font-size:0.55rem;padding:0.1rem 0.35rem;">${escapeHtml(t)}</span>`).join('');
+    const tagChips = (n.tags || []).map(t => renderTagChip(t, { small: true })).join('');
     return `<button class="note-list-item ${activeNoteId === n.id ? 'active' : ''} ${n.pinned ? 'note-pinned' : ''}" data-note-id="${n.id}">
       <div class="note-list-item-title">${escapeHtml(n.title || 'Untitled')}</div>
       <div class="note-list-item-date">${date}${authorLabel} ${pinBtn}</div>
@@ -2511,14 +2605,14 @@ async function init() {
     const title = document.getElementById('parsed-title').value.trim();
     if (!title) return;
     const dept = document.getElementById('parsed-dept').value;
-    const subDept = document.getElementById('parsed-subdept').value || '';
     const priority = document.getElementById('parsed-priority').value;
     const dueDate = document.getElementById('parsed-due').value;
     const recurring = document.getElementById('parsed-recurring').value;
     const assignedTo = document.getElementById('parsed-assign').value || undefined;
     const notes = document.getElementById('parsed-notes').value.trim();
 
-    await addTask(title, dept, priority, notes, 'manual', [], dueDate, recurring, assignedTo, subDept);
+    const parsedTags = parsed && parsed.tags ? parsed.tags : [];
+    await addTask(title, dept, priority, notes, 'manual', [], dueDate, recurring, assignedTo, parsedTags);
     closeModal('modal-import');
   });
 
@@ -2537,7 +2631,6 @@ async function init() {
     const notes = document.getElementById('input-notes').value.trim();
     const dueDate = document.getElementById('input-due-date').value;
     const recurring = document.getElementById('input-recurring').value;
-    const subDepartment = document.getElementById('input-sub-department').value || '';
     const assignTo = document.getElementById('input-assign-to').value || undefined;
 
     if (!title || !department) return;
@@ -2545,7 +2638,7 @@ async function init() {
     const allAttachments = [...pendingAttachments, ...pendingLinks];
 
     if (editingTaskId) {
-      const updates = { title, department, subDepartment, priority, notes, dueDate, recurring, attachments: allAttachments };
+      const updates = { title, department, priority, notes, dueDate, recurring, attachments: allAttachments, tags: currentTaskTags };
       if (assignTo) {
         const existingTask = tasks.find(t => t.id === editingTaskId);
         const assigneeChanged = existingTask && assignTo !== existingTask.assignedTo;
@@ -2564,7 +2657,7 @@ async function init() {
         alert('Failed to update task: ' + err.message);
       }
     } else {
-      await addTask(title, department, priority, notes, 'manual', allAttachments, dueDate, recurring, assignTo, subDepartment);
+      await addTask(title, department, priority, notes, 'manual', allAttachments, dueDate, recurring, assignTo, currentTaskTags);
     }
 
     closeModal('modal-add');
@@ -2643,6 +2736,7 @@ async function init() {
   // Notes event listeners
   document.getElementById('btn-new-note').addEventListener('click', createNote);
   initNoteTagInput();
+  initTaskTagInput();
 
   // My Notes / All Notes toggle
   document.getElementById('btn-my-notes').addEventListener('click', () => {
@@ -2770,6 +2864,16 @@ async function init() {
   function setTaskToggle(mode) {
     showMyTasksOnly = mode === 'mine';
     showMyTeam = mode === 'team';
+    // Clear stale state that could cause empty views
+    if (activeWorkspaceId) {
+      activeWorkspaceId = null;
+      activeWorkspaceName = '';
+      document.getElementById('workspace-header').style.display = 'none';
+      renderSidebarWorkspaces();
+    }
+    filters.statFilter = 'none';
+    activeTaskTagFilter = '';
+    document.querySelectorAll('.stat-pill-clickable').forEach(p => p.classList.remove('active'));
     document.getElementById('btn-my-tasks').classList.toggle('active', mode === 'mine');
     document.getElementById('btn-my-team').classList.toggle('active', mode === 'team');
     document.getElementById('btn-all-tasks').classList.toggle('active', mode === 'all');
@@ -2780,7 +2884,7 @@ async function init() {
   document.getElementById('btn-all-tasks').addEventListener('click', () => setTaskToggle('all'));
 
   // Department change updates sub-department dropdown
-  document.getElementById('input-department').addEventListener('change', updateSubDeptDropdown);
+  // (Sub-department dropdown removed - replaced by tags)
 
   // Stat pill filters
   document.querySelectorAll('.stat-pill-clickable').forEach(pill => {
@@ -2992,8 +3096,7 @@ async function init() {
 let myProfile = null;
 let showMyTasksOnly = true;
 let showMyTeam = false;
-let activeSubDept = null;
-let expandedDepts = new Set();
+// (activeSubDept and expandedDepts removed - replaced by tag filter)
 let teamMembers = [];
 
 function applyRoleUI() {
@@ -3275,7 +3378,7 @@ function renderSidebarWorkspaces() {
   }
   container.innerHTML = workspaces.map(w =>
     `<button class="sidebar-dept-item ${activeWorkspaceId === w.id ? 'active' : ''}" data-workspace-id="${w.id}">
-      ${w.color ? `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${w.color};margin-right:0.375rem;vertical-align:0;"></span>` : ''}${escapeHtml(w.name)}
+      <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${w.color || getTagColor(w.name).text};margin-right:0.375rem;vertical-align:0;"></span>${escapeHtml(w.name)}
     </button>`
   ).join('');
   container.querySelectorAll('[data-workspace-id]').forEach(btn => {
