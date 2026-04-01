@@ -773,12 +773,24 @@ function sortTasks(taskList) {
 
 // === Filtering ===
 function getFilteredTasks() {
+  const today = new Date().toISOString().split('T')[0];
   return tasks.filter(t => {
     if (filters.department !== 'all' && t.department !== filters.department) return false;
     if (filters.priority !== 'all' && t.priority !== filters.priority) return false;
     if (filters.search) {
       const q = filters.search.toLowerCase();
       if (!t.title.toLowerCase().includes(q) && !(t.notes || '').toLowerCase().includes(q)) return false;
+    }
+    // Status pill filter
+    const sf = filters.statFilter;
+    if (sf && sf !== 'none') {
+      if (sf === 'not-started' && t.status !== 'Not Started') return false;
+      if (sf === 'in-progress' && t.status !== 'In Progress') return false;
+      if (sf === 'blocked' && t.status !== 'Blocked') return false;
+      if (sf === 'approved' && t.status !== 'Approved') return false;
+      if (sf === 'delegated' && t.status !== 'Delegated') return false;
+      if (sf === 'overdue' && !(t.status !== 'Completed' && t.status !== 'Delegated' && t.dueDate && t.dueDate < today)) return false;
+      if (sf === 'completed' && t.status !== 'Completed') return false;
     }
     return true;
   });

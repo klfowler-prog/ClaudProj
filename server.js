@@ -1225,13 +1225,12 @@ app.delete('/api/folders/:id', authWrite, async (req, res) => {
 
 app.get('/api/notes', auth, async (req, res) => {
   try {
-    let query;
-    if (req.query.folderId) {
-      query = orgCol(req, 'notes').where('folderId', '==', req.query.folderId);
-    } else {
-      query = orgCol(req, 'notes');
-    }
-    const snapshot = await query.get();
+    // Always load all notes, then filter (handles orphaned folder IDs)
+    const snapshot = await orgCol(req, 'notes').get();
+
+    // Build valid folder ID set
+    const foldersSnap = await orgCol(req, 'folders').get();
+    const validFolderIds = new Set(foldersSnap.docs.map(d => d.id));
 
     // Build author name lookup from members
     const membersSnap = await orgCol(req, 'members').get();
@@ -1240,8 +1239,10 @@ app.get('/api/notes', auth, async (req, res) => {
 
     let notes = snapshot.docs.map(doc => {
       const d = doc.data();
+      // Fix orphaned notes: if folderId points to a deleted folder, clear it
+      const folderId = (d.folderId && validFolderIds.has(d.folderId)) ? d.folderId : '';
       return {
-        id: doc.id, title: d.title, folderId: d.folderId, source: d.source,
+        id: doc.id, title: d.title, folderId, source: d.source,
         updatedAt: d.updatedAt, createdAt: d.createdAt, createdBy: d.createdBy,
         sharedWith: d.sharedWith || [],
         authorName: memberNames[d.createdBy] || 'Unknown',
@@ -1253,14 +1254,18 @@ app.get('/api/notes', auth, async (req, res) => {
       };
     });
 
-    // Build folder visibility maps
-    const foldersSnap = await orgCol(req, 'folders').get();
+    // Build folder visibility maps (reuse foldersSnap from above)
     const sharedFolderIds = new Set();
     const leadersFolderIds = new Set();
     foldersSnap.docs.forEach(d => {
       if (d.data().shared) sharedFolderIds.add(d.id);
       if (d.data().leadersOnly) leadersFolderIds.add(d.id);
     });
+
+    // Filter by folder if requested
+    if (req.query.folderId) {
+      notes = notes.filter(n => n.folderId === req.query.folderId);
+    }
 
     // Hide private notes from anyone except the creator
     notes = notes.filter(n => !n.private || n.createdBy === req.userId);
