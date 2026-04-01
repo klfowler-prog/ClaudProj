@@ -679,6 +679,15 @@ app.delete('/api/tasks/:id', authWrite, async (req, res) => {
   }
 });
 
+// GET /api/tasks/:id — Get a single task by ID
+app.get('/api/tasks/:id', auth, async (req, res) => {
+  try {
+    const doc = await orgCol(req, 'tasks').doc(req.params.id).get();
+    if (!doc.exists) return res.status(404).json({ error: 'Task not found' });
+    res.json({ id: doc.id, ...doc.data() });
+  } catch (err) { res.status(500).json({ error: 'Failed to fetch task' }); }
+});
+
 // GET /api/tasks/:id/subtasks — List sub-tasks for a parent task
 app.get('/api/tasks/:id/subtasks', auth, async (req, res) => {
   try {

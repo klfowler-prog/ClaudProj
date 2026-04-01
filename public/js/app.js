@@ -928,8 +928,12 @@ async function deleteTask(id) {
 }
 
 // === Edit Task ===
-function editTask(id) {
-  const task = tasks.find(t => t.id === id);
+async function editTask(id) {
+  let task = tasks.find(t => t.id === id);
+  // Subtasks aren't in the main tasks array — fetch from API
+  if (!task) {
+    try { task = await api('GET', `/api/tasks/${id}`); } catch { return; }
+  }
   if (!task) return;
 
   closeModal('modal-detail');
