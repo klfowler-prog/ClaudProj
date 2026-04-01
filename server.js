@@ -1145,8 +1145,13 @@ app.get('/api/folders', auth, async (req, res) => {
 
     // Deduplicate folders by name (delete extras, keep first)
     // Also migrate: mark Personal folder with personal flag if missing
+    // Also migrate: move sub-department folder notes to parent B2B folder with tags
     const seen = new Set();
     const unique = [];
+    const subDeptNames = ['Biz Dev', 'Growth & Brand', 'Rev Ops', 'Internal Comms'];
+    const subFoldersToMigrate = [];
+    let b2bFolder = null;
+
     for (const f of all) {
       if (seen.has(f.name)) {
         await orgCol(req, 'folders').doc(f.id).delete();
@@ -1156,8 +1161,28 @@ app.get('/api/folders', auth, async (req, res) => {
           await orgCol(req, 'folders').doc(f.id).update({ personal: true });
           f.personal = true;
         }
-        unique.push(f);
+        if (f.name === 'B2B Marketing') b2bFolder = f;
+        if (subDeptNames.includes(f.name)) {
+          subFoldersToMigrate.push(f);
+        } else {
+          unique.push(f);
+        }
       }
+    }
+
+    // Auto-migrate sub-department folder notes to B2B parent
+    if (subFoldersToMigrate.length > 0 && b2bFolder) {
+      const batch = db.batch();
+      for (const sub of subFoldersToMigrate) {
+        const notesSnap = await orgCol(req, 'notes').where('folderId', '==', sub.id).get();
+        notesSnap.docs.forEach(d => {
+          const existingTags = d.data().tags || [];
+          if (!existingTags.includes(sub.name)) existingTags.push(sub.name);
+          batch.update(d.ref, { folderId: b2bFolder.id, tags: existingTags });
+        });
+        batch.delete(orgCol(req, 'folders').doc(sub.id));
+      }
+      await batch.commit();
     }
 
     res.json(unique);

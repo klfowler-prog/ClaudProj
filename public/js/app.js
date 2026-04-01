@@ -128,6 +128,7 @@ let taskViewMode = 'kanban'; // 'list', 'kanban', or 'calendar'
 
 function setTaskViewMode(mode) {
   taskViewMode = mode;
+  if (currentUser) localStorage.setItem('taskViewMode_' + currentUser.uid, mode);
   document.getElementById('btn-view-list').classList.toggle('active', mode === 'list');
   document.getElementById('btn-view-kanban').classList.toggle('active', mode === 'kanban');
   document.getElementById('btn-view-calendar').classList.toggle('active', mode === 'calendar');
@@ -464,6 +465,7 @@ let currentView = 'tasks';
 
 function switchView(view) {
   currentView = view;
+  if (currentUser) localStorage.setItem('appView_' + currentUser.uid, view);
   document.getElementById('view-tasks').style.display = view === 'tasks' ? 'block' : 'none';
   document.getElementById('view-notes').style.display = view === 'notes' ? 'flex' : 'none';
   document.getElementById('view-ai').style.display = view === 'ai' ? 'flex' : 'none';
@@ -716,7 +718,7 @@ function renderMarkdown(str) {
   html = html.replace(/\[tasklink:([^\]:]+):([^\]]+)\]/g, (_, id, title) =>
     `<a href="#" class="ai-link ai-link-task" data-task-id="${id}" onclick="event.preventDefault();showTaskDetail('${id}')">${title}</a>`);
   html = html.replace(/\[notelink:([^\]:]+):([^\]]+)\]/g, (_, id, title) =>
-    `<a href="#" class="ai-link ai-link-note" data-note-id="${id}" onclick="event.preventDefault();openNote('${id}');closeModal('modal-detail')">${title}</a>`);
+    `<a href="#" class="ai-link ai-link-note" data-note-id="${id}" onclick="event.preventDefault();switchView('notes');openNote('${id}')">${title}</a>`);
   html = html.replace(/\[filelink:([^\]:]+):([^\]]+)\]/g, (_, path, name) =>
     `<a href="#" class="ai-link ai-link-file" onclick="event.preventDefault();downloadFile('${path.replace(/'/g, "\\'")}')">${name}</a>`);
   // Links
@@ -1464,6 +1466,7 @@ function renderSidebarFolders() {
       document.getElementById('notes-editor-panel').style.display = 'none';
       document.getElementById('notes-no-selection').style.display = 'flex';
       activeFolderId = btn.dataset.folderId || null;
+      if (currentUser) localStorage.setItem('activeFolderId_' + currentUser.uid, activeFolderId || '');
       switchView('notes');
       const folder = activeFolderId ? folders.find(f => f.id === activeFolderId) : null;
       const isPersonal = folder && (folder.personal || folder.name === 'Personal');
@@ -3244,6 +3247,7 @@ async function openWorkspace(id) {
   if (!ws) return;
   activeWorkspaceId = id;
   activeWorkspaceName = ws.name;
+  if (currentUser) localStorage.setItem('activeWorkspaceId_' + currentUser.uid, id);
   // Reset task scope to show all workspace tasks (not filtered by "My Tasks")
   showMyTasksOnly = false;
   showMyTeam = false;
@@ -3264,6 +3268,7 @@ async function openWorkspace(id) {
 async function closeWorkspace() {
   activeWorkspaceId = null;
   activeWorkspaceName = '';
+  if (currentUser) localStorage.removeItem('activeWorkspaceId_' + currentUser.uid);
   document.getElementById('workspace-header').style.display = 'none';
   // Restore default "My Tasks" scope
   showMyTasksOnly = true;
@@ -4153,6 +4158,27 @@ document.addEventListener('DOMContentLoaded', () => {
       appContainer.style.display = 'flex';
       await loadProfile();
       await init();
+
+      // Restore saved view state
+      const savedView = localStorage.getItem('appView_' + user.uid);
+      const savedTaskMode = localStorage.getItem('taskViewMode_' + user.uid);
+      const savedWorkspaceId = localStorage.getItem('activeWorkspaceId_' + user.uid);
+      const savedFolderId = localStorage.getItem('activeFolderId_' + user.uid);
+
+      if (savedTaskMode) { taskViewMode = savedTaskMode; setTaskViewMode(taskViewMode); }
+      if (savedWorkspaceId && workspaces.find(w => w.id === savedWorkspaceId)) {
+        await openWorkspace(savedWorkspaceId);
+      } else if (savedView && savedView !== 'tasks') {
+        switchView(savedView);
+        if (savedView === 'notes' && savedFolderId) {
+          activeFolderId = savedFolderId;
+          loadNotesList(activeFolderId);
+          renderSidebarFolders();
+          const folder = folders.find(f => f.id === activeFolderId);
+          document.getElementById('notes-folder-title').textContent = folder ? folder.name : 'Notes';
+        }
+      }
+
       loadNotifications();
       try { await showBriefingIfNeeded(); } catch (e) { console.error('[Briefing] Error:', e); }
       // Poll notifications every 60 seconds
