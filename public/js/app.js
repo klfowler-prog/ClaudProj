@@ -4350,6 +4350,23 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       }
 
+      // Handle deep link: ?task=TASK_ID (from Slack notifications etc.)
+      const urlParams = new URLSearchParams(window.location.search);
+      const deepLinkTaskId = urlParams.get('task');
+      if (deepLinkTaskId) {
+        // Clear the URL param without reload
+        window.history.replaceState({}, '', window.location.pathname);
+        // Fetch and show the task (may not be in local array)
+        try {
+          let task = tasks.find(t => t.id === deepLinkTaskId);
+          if (!task) {
+            task = await api('GET', `/api/tasks/${deepLinkTaskId}`);
+            if (task) tasks.push(task);
+          }
+          if (task) showTaskDetail(deepLinkTaskId);
+        } catch (e) { console.error('Deep link task not found:', e); }
+      }
+
       loadNotifications();
       try { await showBriefingIfNeeded(); } catch (e) { console.error('[Briefing] Error:', e); }
       // Poll notifications every 60 seconds
