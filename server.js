@@ -2971,6 +2971,61 @@ app.post('/api/slack/test', auth, async (req, res) => {
   }
 });
 
+// POST /api/slack/announce — Send an announcement to all team members via Slack DM + in-app notification (CMO only)
+app.post('/api/slack/announce', auth, async (req, res) => {
+  if (req.memberRole !== 'cmo') return res.status(403).json({ error: 'CMO only' });
+  try {
+    const { message } = req.body;
+    if (!message || !message.trim()) return res.status(400).json({ error: 'Message is required' });
+
+    const settingsDoc = await db.collection('orgs').doc(req.orgId).collection('settings').doc('slack').get();
+    const botToken = settingsDoc.exists ? settingsDoc.data().botToken : null;
+
+    const membersSnap = await db.collection('orgs').doc(req.orgId).collection('members').get();
+    const activeMembers = membersSnap.docs.filter(d => {
+      const m = d.data();
+      return (m.status === 'active' || !m.status) && m.userId !== req.userId;
+    });
+
+    let slackSent = 0;
+    let notifSent = 0;
+
+    for (const doc of activeMembers) {
+      const m = doc.data();
+
+      // In-app notification
+      await createNotification(req.orgId, m.userId, {
+        type: 'announcement',
+        title: `Announcement from ${req.memberName}: ${message.trim().substring(0, 200)}`,
+        taskId: '',
+        fromUserId: req.userId,
+        fromName: req.memberName
+      });
+      notifSent++;
+
+      // Slack DM
+      if (botToken && m.slackUserId) {
+        try {
+          await slackApiCall(botToken, 'chat.postMessage', {
+            channel: m.slackUserId,
+            text: `*Announcement from ${req.memberName}:*\n${message.trim()}`,
+            blocks: [
+              { type: 'section', text: { type: 'mrkdwn', text: `:mega: *Announcement from ${req.memberName}*` } },
+              { type: 'section', text: { type: 'mrkdwn', text: message.trim() } }
+            ]
+          });
+          slackSent++;
+        } catch (slackErr) { console.error('Slack announce DM failed:', slackErr); }
+      }
+    }
+
+    res.json({ ok: true, slackSent, notifSent });
+  } catch (err) {
+    console.error('Announce failed:', err);
+    res.status(500).json({ error: 'Failed to send announcement.' });
+  }
+});
+
 // GET /api/gmail/auth — Start OAuth flow for CMOtaskinbox Gmail
 app.get('/api/gmail/auth', auth, async (req, res) => {
   const oauth2Client = createOAuth2Client();

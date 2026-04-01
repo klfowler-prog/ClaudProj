@@ -2870,6 +2870,7 @@ async function init() {
   document.getElementById('form-invite') && document.getElementById('form-invite').addEventListener('submit', submitInvite);
   document.getElementById('btn-slack-settings') && document.getElementById('btn-slack-settings').addEventListener('click', openSlackSettings);
   document.getElementById('btn-ai-context') && document.getElementById('btn-ai-context').addEventListener('click', openAiContext);
+  document.getElementById('btn-announce') && document.getElementById('btn-announce').addEventListener('click', sendAnnouncement);
   document.getElementById('btn-ai-context-save').addEventListener('click', saveAiContext);
   document.getElementById('btn-ai-context-generate').addEventListener('click', generateAiContext);
   document.querySelectorAll('[data-view="team"]').forEach(btn => {
@@ -3122,6 +3123,7 @@ function applyRoleUI() {
   document.getElementById('btn-sync-email').style.display = r === 'cmo' ? '' : 'none';
   document.getElementById('btn-slack-settings').style.display = r === 'cmo' ? '' : 'none';
   document.getElementById('btn-ai-context').style.display = r === 'cmo' ? '' : 'none';
+  document.getElementById('btn-announce').style.display = r === 'cmo' ? '' : 'none';
   document.getElementById('btn-add-task').style.display = r === 'viewer' ? 'none' : '';
   document.getElementById('btn-quick-import').style.display = r === 'viewer' ? 'none' : '';
   document.getElementById('btn-new-note').style.display = r === 'viewer' ? 'none' : '';
@@ -3533,6 +3535,16 @@ async function generateAiContext() {
   } catch (err) { alert('Failed to generate: ' + err.message); }
   btn.disabled = false;
   btn.textContent = 'Auto-Generate Draft';
+}
+
+// === Announcements ===
+async function sendAnnouncement() {
+  const message = prompt('Type your announcement message for the whole team:');
+  if (!message || !message.trim()) return;
+  try {
+    const result = await api('POST', '/api/slack/announce', { message: message.trim() });
+    alert(`Announcement sent! ${result.slackSent} Slack DMs + ${result.notifSent} in-app notifications delivered.`);
+  } catch (err) { alert('Failed to send: ' + err.message); }
 }
 
 // === Slack Settings ===
