@@ -375,6 +375,8 @@ app.get('/api/tasks', auth, async (req, res) => {
       const parent = tasks.find(t => t.id === s.parentTaskId);
       s.parentTaskTitle = parent ? parent.title : '';
       s.parentTaskNotes = parent ? (parent.notes || '') : '';
+      s.parentTaskAttachments = parent ? (parent.attachments || []) : [];
+      s.parentTaskDueDate = parent ? (parent.dueDate || '') : '';
     });
 
     // For assignees: "Delegated" tasks show as "Not Started" from their perspective

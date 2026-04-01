@@ -1112,12 +1112,29 @@ function showTaskDetail(id) {
 
   document.getElementById('detail-title').textContent = task.title;
   const isSubtask = !!task.parentTaskId;
-  const parentContext = isSubtask ? `
+  let parentContext = '';
+  if (isSubtask) {
+    let parentAttachHtml = '';
+    if (task.parentTaskAttachments && task.parentTaskAttachments.length > 0) {
+      const items = task.parentTaskAttachments.map(a => {
+        if (a.type === 'file' && a.gcsPath) {
+          return `<li><a href="#" onclick="event.preventDefault();downloadFile('${a.gcsPath.replace(/'/g, "\\'")}')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> ${escapeHtml(a.name)}</a></li>`;
+        } else if (a.url) {
+          return `<li><a href="${escapeHtml(a.url)}" target="_blank" rel="noopener">${escapeHtml(a.name || a.url)}</a></li>`;
+        }
+        return '';
+      }).filter(Boolean).join('');
+      if (items) parentAttachHtml = `<ul class="detail-attachments" style="margin-top:0.375rem;">${items}</ul>`;
+    }
+    parentContext = `
     <div style="background: var(--color-b2b-light); border-radius: var(--radius); padding: 0.625rem 0.875rem; margin-bottom: 1rem; font-size: 0.85rem;">
       <div style="font-size: 0.7rem; font-weight: 700; text-transform: uppercase; color: var(--follett-dark-blue); margin-bottom: 0.25rem;">Part of</div>
       <strong>${escapeHtml(task.parentTaskTitle || 'Parent Task')}</strong>
-      ${task.parentTaskNotes ? `<div style="margin-top: 0.375rem; font-size: 0.8rem; color: var(--color-text-muted); white-space: pre-wrap;">${escapeHtmlWithLinks(task.parentTaskNotes.substring(0, 500))}</div>` : ''}
-    </div>` : '';
+      ${task.parentTaskDueDate ? `<span style="font-size:0.75rem;color:var(--color-text-muted);margin-left:0.5rem;">Due: ${task.parentTaskDueDate}</span>` : ''}
+      ${task.parentTaskNotes ? `<div style="margin-top: 0.375rem; font-size: 0.8rem; color: var(--color-text-muted); white-space: pre-wrap;">${escapeHtmlWithLinks(task.parentTaskNotes)}</div>` : ''}
+      ${parentAttachHtml}
+    </div>`;
+  }
 
   document.getElementById('detail-content').innerHTML = `
     ${parentContext}
