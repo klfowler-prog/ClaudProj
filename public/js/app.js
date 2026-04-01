@@ -1317,7 +1317,7 @@ async function loadSubtasks(parentId) {
       const assignLabel = assignName ? ` &middot; ${escapeHtml(assignName.displayName)}` : '';
       const dueLabel = s.dueDate ? ` &middot; Due ${s.dueDate}` : '';
       return `<div style="display:flex;align-items:center;gap:0.5rem;padding:0.375rem 0;border-bottom:1px solid var(--color-border);">
-        <button class="task-check ${isComplete ? 'checked' : ''}" onclick="event.stopPropagation();toggleSubtask('${s.id}', '${s.status}')" style="width:18px;height:18px;font-size:0.6rem;">${isComplete ? '&#10003;' : ''}</button>
+        <button class="task-check ${isComplete ? 'checked' : ''}" onclick="event.stopPropagation();toggleSubtask('${s.id}', '${s.status}', '${parentId}')" style="width:18px;height:18px;font-size:0.6rem;">${isComplete ? '&#10003;' : ''}</button>
         <div style="flex:1;cursor:pointer;" onclick="showTaskDetail('${s.id}')">
           <span style="font-size:0.85rem;${isComplete ? 'text-decoration:line-through;opacity:0.5;' : ''}">${escapeHtml(s.title)}</span>
           <span style="font-size:0.7rem;color:var(--color-text-light);">${assignLabel}${dueLabel}</span>
@@ -1328,7 +1328,7 @@ async function loadSubtasks(parentId) {
   } catch (err) { document.getElementById('subtask-list').textContent = 'Failed to load'; }
 }
 
-async function toggleSubtask(subtaskId, currentStatus) {
+async function toggleSubtask(subtaskId, currentStatus, parentId) {
   const newStatus = currentStatus === 'Completed' ? 'Not Started' : 'Completed';
   try {
     await api('PUT', `/api/tasks/${subtaskId}`, {
@@ -1336,15 +1336,8 @@ async function toggleSubtask(subtaskId, currentStatus) {
       completed: newStatus === 'Completed',
       completedAt: newStatus === 'Completed' ? new Date().toISOString() : ''
     });
-    // Reload the detail view to refresh counts
-    const parentDetail = document.getElementById('detail-subtasks');
-    if (parentDetail) {
-      const parentBtn = parentDetail.querySelector('[onclick*="addSubtask"]');
-      if (parentBtn) {
-        const parentMatch = parentBtn.getAttribute('onclick').match(/'([^']+)'/);
-        if (parentMatch && parentMatch[1]) loadSubtasks(parentMatch[1]);
-      }
-    }
+    // Reload subtasks directly using the parent ID
+    if (parentId) loadSubtasks(parentId);
     // Refresh main task list for updated counts
     await loadTasks();
     render();
