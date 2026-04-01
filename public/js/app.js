@@ -1433,64 +1433,16 @@ let expandedNoteDepts = new Set();
 function renderSidebarFolders() {
   const container = document.getElementById('sidebar-folders');
 
-  // Categorize folders: special (All Team, Marketing Leaders, Personal) vs department-based
-  const specialNames = ['All Team', 'Marketing Leaders', 'Personal'];
-  const specialFolders = folders.filter(f => specialNames.includes(f.name));
-  const deptFolders = folders.filter(f => !specialNames.includes(f.name));
-
-  // Map sub-department folders to their parent dept
-  const foldersByDept = {};
-  for (const dept of DEPARTMENTS) {
-    const subs = SUB_DEPARTMENTS[dept] || [];
-    foldersByDept[dept] = deptFolders.filter(f => subs.includes(f.name) || f.name === dept);
-  }
-  // Any folders not matched
-  const unmatchedFolders = deptFolders.filter(f => !Object.values(foldersByDept).flat().includes(f));
+  // Show main folders only (no sub-department nesting)
+  const subDeptNames = ['Biz Dev', 'Growth & Brand', 'Rev Ops', 'Internal Comms'];
+  const mainFolders = folders.filter(f => !subDeptNames.includes(f.name));
 
   let html = '';
-
-  // Special folders first
-  specialFolders.forEach(f => {
-    html += `<button class="sidebar-dept-item ${activeFolderId === f.id ? 'active' : ''}" data-folder-id="${f.id}">${escapeHtml(f.name)}</button>`;
-  });
-
-  // Department groups with carets
-  for (const dept of DEPARTMENTS) {
-    if (dept === 'Personal') continue; // Already in special
-    const deptFolder = deptFolders.find(f => f.name === dept);
-    const subFolders = (SUB_DEPARTMENTS[dept] || []).map(sub => deptFolders.find(f => f.name === sub)).filter(Boolean);
-    const hasSubs = subFolders.length > 0;
-    const expanded = expandedNoteDepts.has(dept);
-
-    html += `<button class="sidebar-dept-item ${deptFolder && activeFolderId === deptFolder.id ? 'active' : ''}" data-folder-id="${deptFolder ? deptFolder.id : ''}" data-note-dept="${dept}">
-      ${dept}
-      ${hasSubs ? `<span class="sidebar-caret-small" data-toggle-note-dept="${dept}">${expanded ? '&#9662;' : '&#9656;'}</span>` : ''}
-    </button>`;
-
-    if (hasSubs && expanded) {
-      subFolders.forEach(f => {
-        html += `<button class="sidebar-dept-item sidebar-subdept ${activeFolderId === f.id ? 'active' : ''}" data-folder-id="${f.id}">${escapeHtml(f.name)}</button>`;
-      });
-    }
-  }
-
-  // Unmatched folders
-  unmatchedFolders.forEach(f => {
+  mainFolders.forEach(f => {
     html += `<button class="sidebar-dept-item ${activeFolderId === f.id ? 'active' : ''}" data-folder-id="${f.id}">${escapeHtml(f.name)}</button>`;
   });
 
   container.innerHTML = html;
-
-  // Caret toggle handlers
-  container.querySelectorAll('[data-toggle-note-dept]').forEach(caret => {
-    caret.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const dept = caret.dataset.toggleNoteDept;
-      if (expandedNoteDepts.has(dept)) expandedNoteDepts.delete(dept);
-      else expandedNoteDepts.add(dept);
-      renderSidebarFolders();
-    });
-  });
   container.querySelectorAll('[data-folder-id]').forEach(btn => {
     btn.addEventListener('click', async () => {
       // Save or cleanup pending note before switching
@@ -1542,22 +1494,110 @@ async function loadNotesList(folderId) {
   } catch (err) { notesList = []; renderNotesList(); }
 }
 
+let currentNoteTags = [];
+
+function renderNoteTags(tags, canEdit) {
+  currentNoteTags = tags || [];
+  const container = document.getElementById('note-tags-list');
+  container.innerHTML = currentNoteTags.map(tag =>
+    `<span class="note-tag">${escapeHtml(tag)}${canEdit ? `<span class="note-tag-remove" data-remove-tag="${escapeHtml(tag)}">&times;</span>` : ''}</span>`
+  ).join('');
+  document.getElementById('note-tag-input').style.display = canEdit ? '' : 'none';
+
+  // Remove tag handlers
+  container.querySelectorAll('.note-tag-remove').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tag = btn.dataset.removeTag;
+      currentNoteTags = currentNoteTags.filter(t => t !== tag);
+      saveNoteTags();
+      renderNoteTags(currentNoteTags, true);
+    });
+  });
+}
+
+async function saveNoteTags() {
+  if (!activeNoteId) return;
+  try { await api('PUT', `/api/notes/${activeNoteId}`, { tags: currentNoteTags }); } catch {}
+}
+
+function initNoteTagInput() {
+  const input = document.getElementById('note-tag-input');
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      const tag = input.value.trim().replace(/,/g, '');
+      if (tag && !currentNoteTags.includes(tag)) {
+        currentNoteTags.push(tag);
+        saveNoteTags();
+        renderNoteTags(currentNoteTags, true);
+      }
+      input.value = '';
+    }
+  });
+  // Also add on blur for mobile
+  input.addEventListener('change', () => {
+    const tag = input.value.trim();
+    if (tag && !currentNoteTags.includes(tag)) {
+      currentNoteTags.push(tag);
+      saveNoteTags();
+      renderNoteTags(currentNoteTags, true);
+    }
+    input.value = '';
+  });
+}
+
+// Tag filter for notes list
+let activeTagFilter = '';
+
+function renderNoteTagFilters() {
+  const container = document.getElementById('notes-tag-filter');
+  // Collect all unique tags from current notes list
+  const allTags = new Set();
+  notesList.forEach(n => (n.tags || []).forEach(t => allTags.add(t)));
+  if (allTags.size === 0) { container.style.display = 'none'; return; }
+  container.style.display = 'flex';
+  let html = `<span style="font-size:0.65rem;color:var(--color-text-muted);margin-right:0.25rem;">Filter:</span>`;
+  html += `<button class="note-tag-filter-btn ${!activeTagFilter ? 'active' : ''}" data-tag-filter="">All</button>`;
+  [...allTags].sort().forEach(tag => {
+    html += `<button class="note-tag-filter-btn ${activeTagFilter === tag ? 'active' : ''}" data-tag-filter="${escapeHtml(tag)}">${escapeHtml(tag)}</button>`;
+  });
+  container.innerHTML = html;
+  container.querySelectorAll('.note-tag-filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      activeTagFilter = btn.dataset.tagFilter;
+      renderNoteTagFilters();
+      renderNotesList();
+    });
+  });
+}
+
 function renderNotesList() {
   const container = document.getElementById('notes-list');
   const empty = document.getElementById('notes-empty');
-  if (notesList.length === 0) { container.innerHTML = ''; empty.style.display = 'block'; return; }
+
+  // Update tag filter bar
+  renderNoteTagFilters();
+
+  // Apply tag filter
+  let filtered = notesList;
+  if (activeTagFilter) {
+    filtered = notesList.filter(n => (n.tags || []).includes(activeTagFilter));
+  }
+
+  if (filtered.length === 0) { container.innerHTML = ''; empty.style.display = 'block'; return; }
   empty.style.display = 'none';
   const canPin = myProfile && (myProfile.role === 'cmo' || myProfile.role === 'lead');
-  container.innerHTML = notesList.map(n => {
+  container.innerHTML = filtered.map(n => {
     const date = new Date(n.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     const isOwn = myProfile && n.createdBy === myProfile.userId;
     const authorLabel = isOwn ? '' : ` &middot; ${escapeHtml(n.authorName || 'Unknown')}`;
     const pinSvg = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 2h6l-1 7h-4L9 2z"/><path d="M5 14h14l-2-5H7l-2 5z"/></svg>';
-    const pinIcon = n.pinned ? pinSvg : '';
     const pinBtn = `<span class="note-pin-btn ${n.pinned ? 'pinned' : ''}" data-pin-id="${n.id}" title="${n.pinned ? 'Unpin' : 'Pin to top'}">${pinSvg}</span>`;
+    const tagChips = (n.tags || []).map(t => `<span class="note-tag" style="font-size:0.55rem;padding:0.1rem 0.35rem;">${escapeHtml(t)}</span>`).join('');
     return `<button class="note-list-item ${activeNoteId === n.id ? 'active' : ''} ${n.pinned ? 'note-pinned' : ''}" data-note-id="${n.id}">
-      <div class="note-list-item-title">${pinIcon ? '' : ''}${escapeHtml(n.title || 'Untitled')}</div>
+      <div class="note-list-item-title">${escapeHtml(n.title || 'Untitled')}</div>
       <div class="note-list-item-date">${date}${authorLabel} ${pinBtn}</div>
+      ${tagChips ? `<div style="display:flex;gap:0.2rem;flex-wrap:wrap;margin-top:0.15rem;">${tagChips}</div>` : ''}
     </button>`;
   }).join('');
   container.querySelectorAll('[data-note-id]').forEach(btn => {
@@ -1633,6 +1673,9 @@ async function openNote(noteId) {
     folderSelect.innerHTML = folders.map(f =>
       `<option value="${f.id}" ${f.id === note.folderId ? 'selected' : ''}>${escapeHtml(f.name)}</option>`
     ).join('');
+
+    // Render note tags
+    renderNoteTags(note.tags || [], canEdit);
 
     renderNotesList();
   } catch (err) { alert('Failed to open note: ' + err.message); }
@@ -2556,6 +2599,7 @@ async function init() {
 
   // Notes event listeners
   document.getElementById('btn-new-note').addEventListener('click', createNote);
+  initNoteTagInput();
 
   // My Notes / All Notes toggle
   document.getElementById('btn-my-notes').addEventListener('click', () => {

@@ -903,6 +903,47 @@ app.post('/api/migrate-files', auth, async (req, res) => {
   }
 });
 
+// POST /api/folders/migrate-subdepts — Move sub-folder notes to parent folders, tag them, and remove sub-folders (CMO only)
+app.post('/api/folders/migrate-subdepts', auth, async (req, res) => {
+  if (req.memberRole !== 'cmo') return res.status(403).json({ error: 'CMO only' });
+  try {
+    const foldersSnap = await orgCol(req, 'folders').get();
+    const folderMap = {};
+    foldersSnap.docs.forEach(d => { folderMap[d.id] = { id: d.id, ...d.data(), ref: d.ref }; });
+
+    const subDeptNames = ['Biz Dev', 'Growth & Brand', 'Rev Ops', 'Internal Comms'];
+    const subFolders = Object.values(folderMap).filter(f => subDeptNames.includes(f.name));
+
+    // Find parent dept folders
+    const b2bFolder = Object.values(folderMap).find(f => f.name === 'B2B Marketing');
+
+    let moved = 0;
+    let deleted = 0;
+    const batch = db.batch();
+
+    for (const sub of subFolders) {
+      // Move notes from sub-folder to parent, adding the sub-folder name as a tag
+      const notesSnap = await orgCol(req, 'notes').where('folderId', '==', sub.id).get();
+      notesSnap.docs.forEach(d => {
+        const note = d.data();
+        const existingTags = note.tags || [];
+        if (!existingTags.includes(sub.name)) existingTags.push(sub.name);
+        batch.update(d.ref, {
+          folderId: b2bFolder ? b2bFolder.id : '',
+          tags: existingTags
+        });
+        moved++;
+      });
+      // Delete the sub-folder
+      batch.delete(sub.ref);
+      deleted++;
+    }
+
+    if (moved > 0 || deleted > 0) await batch.commit();
+    res.json({ moved, deleted, message: `Moved ${moved} notes, removed ${deleted} sub-folders` });
+  } catch (err) { console.error('Migration failed:', err); res.status(500).json({ error: 'Migration failed.' }); }
+});
+
 // POST /api/folders/seed-subdepts — Create missing sub-department folders (CMO only)
 app.post('/api/folders/seed-subdepts', auth, async (req, res) => {
   if (req.memberRole !== 'cmo') return res.status(403).json({ error: 'CMO only' });
@@ -1182,7 +1223,8 @@ app.get('/api/notes', auth, async (req, res) => {
         pinned: d.pinned || false,
         archived: d.archived || false,
         private: d.private || false,
-        allowEditing: d.allowEditing || false
+        allowEditing: d.allowEditing || false,
+        tags: d.tags || []
       };
     });
 
@@ -1257,7 +1299,8 @@ app.post('/api/notes', authWrite, async (req, res) => {
       createdAt: now, updatedAt: now, aiSummary: '', createdBy: req.userId,
       links: req.body.links || [],
       pinned: false,
-      private: req.body.private || false
+      private: req.body.private || false,
+      tags: req.body.tags || []
     };
     const ref = await orgCol(req, 'notes').add(note);
     res.status(201).json({ id: ref.id, ...note });
@@ -1294,7 +1337,7 @@ app.put('/api/notes/:id', authWrite, async (req, res) => {
     }
 
     const updates = { updatedAt: new Date().toISOString() };
-    const allowed = ['title', 'content', 'folderId', 'aiSummary', 'sharedWith', 'links', 'pinned', 'archived', 'private', 'allowEditing'];
+    const allowed = ['title', 'content', 'folderId', 'aiSummary', 'sharedWith', 'links', 'pinned', 'archived', 'private', 'allowEditing', 'tags'];
     for (const f of allowed) { if (req.body[f] !== undefined) updates[f] = req.body[f]; }
     await ref.update(updates);
 
