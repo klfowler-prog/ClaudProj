@@ -1083,9 +1083,10 @@ function showTaskDetail(id) {
   const createdMember = teamMembers.find(m => m.userId === task.createdBy);
   const createdName = createdMember ? createdMember.displayName : 'Me';
 
-  // Build assignee dropdown options
+  // Build assignee dropdown options (exclude self — "Me" covers that)
+  const myId = myProfile ? myProfile.userId : '';
   const assignOptions = '<option value="">Me</option>' + teamMembers
-    .filter(m => m.status === 'active' || !m.status)
+    .filter(m => (m.status === 'active' || !m.status) && m.userId !== myId)
     .map(m => `<option value="${m.userId}" ${m.userId === task.assignedTo ? 'selected' : ''}>${escapeHtml(m.displayName)}</option>`)
     .join('');
 
@@ -2129,7 +2130,8 @@ async function aiGenerateTasks() {
 
     const deptOptions = DEPARTMENTS.map(d => `<option value="${d}">${d}</option>`).join('');
     const prioOptions = ['High', 'Medium', 'Low'].map(p => `<option value="${p}">${p}</option>`).join('');
-    const assignOptions = '<option value="">Me</option>' + teamMembers.filter(m => m.status === 'active' || !m.status).map(m =>
+    const aiMyId = myProfile ? myProfile.userId : '';
+    const assignOptions = '<option value="">Me</option>' + teamMembers.filter(m => (m.status === 'active' || !m.status) && m.userId !== aiMyId).map(m =>
       `<option value="${m.userId}">${escapeHtml(m.displayName)}</option>`
     ).join('');
 
@@ -3229,8 +3231,9 @@ async function loadTeam() {
 function populateAssignToDropdown() {
   const select = document.getElementById('input-assign-to');
   if (!select) return;
+  const myId = myProfile ? myProfile.userId : '';
   select.innerHTML = '<option value="">Me (default)</option>' +
-    teamMembers.filter(m => m.status === 'active' || !m.status).map(m =>
+    teamMembers.filter(m => (m.status === 'active' || !m.status) && m.userId !== myId).map(m =>
       `<option value="${m.userId}">${escapeHtml(m.displayName)} (${(m.departments || [m.department]).join(', ')})</option>`
     ).join('');
 }
