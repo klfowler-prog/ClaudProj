@@ -151,11 +151,22 @@ const KANBAN_COLUMNS = [
 ];
 
 function renderKanban() {
-  const filtered = getFilteredTasks().filter(t => t.status !== 'Delegated' || t.assignedTo === (myProfile && myProfile.userId));
+  let filtered = getFilteredTasks();
+  // In normal view, hide delegated tasks (they show in the Delegated section of list view)
+  // But if the user clicked the Delegated pill, show them
+  if (filters.statFilter !== 'delegated') {
+    filtered = filtered.filter(t => t.status !== 'Delegated' || t.assignedTo === (myProfile && myProfile.userId));
+  }
   const today = new Date().toISOString().split('T')[0];
   const board = document.getElementById('kanban-board');
 
-  board.innerHTML = KANBAN_COLUMNS.map(col => {
+  // Add Delegated column when that filter is active
+  let columns = KANBAN_COLUMNS;
+  if (filters.statFilter === 'delegated') {
+    columns = [{ status: 'Delegated', label: 'Delegated', color: '#d4960a' }];
+  }
+
+  board.innerHTML = columns.map(col => {
     const colTasks = filtered.filter(t => {
       if (col.status === 'Not Started') return t.status === 'Not Started' || (t.status === 'Delegated' && t.assignedTo === (myProfile && myProfile.userId));
       return t.status === col.status;
@@ -1501,6 +1512,7 @@ function renderSidebarFolders() {
 
 async function loadNotesList(folderId) {
   try {
+    activeTagFilter = ''; // Reset tag filter when switching folders
     let url = folderId ? `/api/notes?folderId=${folderId}` : '/api/notes';
     if (showMyNotesOnly) url += (url.includes('?') ? '&' : '?') + 'mine=true';
     notesList = await api('GET', url);
