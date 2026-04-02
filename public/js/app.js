@@ -1171,8 +1171,8 @@ function initTaskTagInput() {
 // === Attachment Handling ===
 function handleFiles(files) {
   for (const file of files) {
-    if (file.size > 2 * 1024 * 1024) {
-      showToast(`File "${file.name}" is too large (max 2MB)`, 'error');
+    if (file.size > 50 * 1024 * 1024) {
+      showToast(`File "${file.name}" is too large (max 50MB)`, 'error');
       continue;
     }
     const reader = new FileReader();
