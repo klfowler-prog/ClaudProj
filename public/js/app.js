@@ -164,7 +164,7 @@ let taskViewMode = 'kanban'; // 'list', 'kanban', or 'calendar'
 
 function setTaskViewMode(mode) {
   taskViewMode = mode;
-  if (currentUser) localStorage.setItem('taskViewMode_' + currentUser.uid, mode);
+  if (currentUser) sessionStorage.setItem('taskViewMode_' + currentUser.uid, mode);
   document.getElementById('btn-view-list').classList.toggle('active', mode === 'list');
   document.getElementById('btn-view-kanban').classList.toggle('active', mode === 'kanban');
   document.getElementById('btn-view-calendar').classList.toggle('active', mode === 'calendar');
@@ -530,7 +530,7 @@ let currentView = 'tasks';
 
 function switchView(view) {
   currentView = view;
-  if (currentUser) localStorage.setItem('appView_' + currentUser.uid, view);
+  if (currentUser) sessionStorage.setItem('appView_' + currentUser.uid, view);
   document.getElementById('view-tasks').style.display = view === 'tasks' ? 'block' : 'none';
   document.getElementById('view-notes').style.display = view === 'notes' ? 'flex' : 'none';
   document.getElementById('view-ai').style.display = view === 'ai' ? 'flex' : 'none';
@@ -1611,7 +1611,7 @@ function renderSidebarFolders() {
       document.getElementById('notes-editor-panel').style.display = 'none';
       document.getElementById('notes-no-selection').style.display = 'flex';
       activeFolderId = btn.dataset.folderId || null;
-      if (currentUser) localStorage.setItem('activeFolderId_' + currentUser.uid, activeFolderId || '');
+      if (currentUser) sessionStorage.setItem('activeFolderId_' + currentUser.uid, activeFolderId || '');
       switchView('notes');
       const folder = activeFolderId ? folders.find(f => f.id === activeFolderId) : null;
       const isPersonal = folder && (folder.personal || folder.name === 'Personal');
@@ -3422,7 +3422,7 @@ async function openWorkspace(id) {
   if (!ws) return;
   activeWorkspaceId = id;
   activeWorkspaceName = ws.name;
-  if (currentUser) localStorage.setItem('activeWorkspaceId_' + currentUser.uid, id);
+  if (currentUser) sessionStorage.setItem('activeWorkspaceId_' + currentUser.uid, id);
   // Reset task scope to show all workspace tasks (not filtered by "My Tasks")
   showMyTasksOnly = false;
   showMyTeam = false;
@@ -3443,7 +3443,7 @@ async function openWorkspace(id) {
 async function closeWorkspace() {
   activeWorkspaceId = null;
   activeWorkspaceName = '';
-  if (currentUser) localStorage.removeItem('activeWorkspaceId_' + currentUser.uid);
+  if (currentUser) sessionStorage.removeItem('activeWorkspaceId_' + currentUser.uid);
   document.getElementById('workspace-header').style.display = 'none';
   // Restore default "My Tasks" scope
   showMyTasksOnly = true;
@@ -4345,10 +4345,10 @@ document.addEventListener('DOMContentLoaded', () => {
       await init();
 
       // Restore saved view state
-      const savedView = localStorage.getItem('appView_' + user.uid);
-      const savedTaskMode = localStorage.getItem('taskViewMode_' + user.uid);
-      const savedWorkspaceId = localStorage.getItem('activeWorkspaceId_' + user.uid);
-      const savedFolderId = localStorage.getItem('activeFolderId_' + user.uid);
+      const savedView = sessionStorage.getItem('appView_' + user.uid);
+      const savedTaskMode = sessionStorage.getItem('taskViewMode_' + user.uid);
+      const savedWorkspaceId = sessionStorage.getItem('activeWorkspaceId_' + user.uid);
+      const savedFolderId = sessionStorage.getItem('activeFolderId_' + user.uid);
 
       if (savedTaskMode) { taskViewMode = savedTaskMode; setTaskViewMode(taskViewMode); }
       if (savedWorkspaceId && workspaces.find(w => w.id === savedWorkspaceId)) {
