@@ -38,7 +38,7 @@ const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 15, message: { er
 app.use('/api/', apiLimiter);
 
 // Validation constants
-const VALID_STATUSES = ['Not Started', 'In Progress', 'Blocked', 'Approved', 'Delegated', 'Completed'];
+const VALID_STATUSES = ['Backlog', 'Not Started', 'In Progress', 'Blocked', 'Approved', 'Delegated', 'Completed'];
 const VALID_PRIORITIES = ['High', 'Medium', 'Low'];
 const VALID_DEPARTMENTS = ['B2B Marketing', 'B2C Marketing', 'Personal'];
 const VALID_ROLES = ['cmo', 'lead', 'member', 'viewer'];
@@ -1865,7 +1865,7 @@ app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
     const completedLastWeek = taskDocs.filter(t => t.completedAt && t.completedAt >= lastWeekStart && t.completedAt < weekStartStr).length;
     const createdLastWeek = taskDocs.filter(t => t.createdAt && t.createdAt >= lastWeekStart && t.createdAt < weekStartStr).length;
     const currentlyBlocked = taskDocs.filter(t => t.status === 'Blocked').length;
-    const overdueCount = taskDocs.filter(t => t.status !== 'Completed' && t.status !== 'Delegated' && t.dueDate && t.dueDate < today).length;
+    const overdueCount = taskDocs.filter(t => t.status !== 'Completed' && t.status !== 'Delegated' && t.status !== 'Backlog' && t.dueDate && t.dueDate < today).length;
 
     // Fetch org AI context
     const orgContext = await getOrgAiContext(req.orgId);
@@ -2443,7 +2443,7 @@ app.get('/api/briefing', auth, async (req, res) => {
     const myTasks = allTasks.filter(t => t.assignedTo === req.userId || t.createdBy === req.userId);
 
     const dueToday = myTasks.filter(t => t.dueDate === today && t.status !== 'Completed');
-    const overdue = myTasks.filter(t => t.dueDate && t.dueDate < today && t.status !== 'Completed' && t.status !== 'Delegated');
+    const overdue = myTasks.filter(t => t.dueDate && t.dueDate < today && t.status !== 'Completed' && t.status !== 'Delegated' && t.status !== 'Backlog');
 
     // Coming this week (next 7 days, excluding today and overdue)
     const weekEnd = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
@@ -2510,7 +2510,7 @@ app.get('/api/briefing', auth, async (req, res) => {
 
     // CMO extras: team stats
     if (req.memberRole === 'cmo') {
-      const teamOverdue = allTasks.filter(t => t.dueDate && t.dueDate < today && t.status !== 'Completed' && t.status !== 'Delegated' && t.assignedTo !== req.userId);
+      const teamOverdue = allTasks.filter(t => t.dueDate && t.dueDate < today && t.status !== 'Completed' && t.status !== 'Delegated' && t.status !== 'Backlog' && t.assignedTo !== req.userId);
       const teamCompletedThisWeek = allTasks.filter(t => t.status === 'Completed' && t.completedAt && t.completedAt >= weekAgo && t.createdBy !== req.userId);
 
       // Group team overdue by person

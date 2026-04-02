@@ -164,6 +164,7 @@
           <button class="stat-pill stat-pill-blocked stat-pill-clickable" id="pill-blocked" data-stat-filter="blocked"><strong id="stat-blocked">0</strong> Blocked</button>
           <button class="stat-pill stat-pill-approved stat-pill-clickable" id="pill-approved" data-stat-filter="approved"><strong id="stat-approved">0</strong> Approved</button>
           <button class="stat-pill stat-pill-clickable" id="pill-delegated" data-stat-filter="delegated"><strong id="stat-delegated">0</strong> Delegated</button>
+          <button class="stat-pill stat-pill-clickable" id="pill-backlog" data-stat-filter="backlog"><strong id="stat-backlog">0</strong> Backlog</button>
           <button class="stat-pill stat-pill-overdue stat-pill-clickable" id="pill-overdue" data-stat-filter="overdue"><strong id="stat-overdue">0</strong> Overdue</button>
           <button class="stat-pill stat-pill-clickable" id="pill-completed" data-stat-filter="completed"><strong id="stat-completed">0</strong> Done this wk</button>
         </div>
@@ -231,6 +232,15 @@
             <h3>Delegated <span class="completed-count" id="delegated-count">0</span></h3>
           </div>
           <div class="task-list" id="delegated-list" style="display: none;"></div>
+        </div>
+
+        <!-- Backlog Section -->
+        <div class="completed-section" id="backlog-section" style="display: none;">
+          <div class="section-toggle" onclick="toggleSection('backlog-list','backlog-caret')">
+            <span class="section-caret" id="backlog-caret">&#9656;</span>
+            <h3>Backlog <span class="completed-count" id="backlog-count">0</span></h3>
+          </div>
+          <div class="task-list" id="backlog-list" style="display: none;"></div>
         </div>
 
         <!-- Completed Section -->

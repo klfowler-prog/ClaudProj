@@ -6,7 +6,7 @@ const SUB_DEPARTMENTS = {
 };
 const ALL_SUB_DEPTS = Object.values(SUB_DEPARTMENTS).flat();
 const PRIORITIES = ['High', 'Medium', 'Low'];
-const STATUSES = ['Not Started', 'In Progress', 'Blocked', 'Approved', 'Delegated', 'Completed'];
+const STATUSES = ['Backlog', 'Not Started', 'In Progress', 'Blocked', 'Approved', 'Delegated', 'Completed'];
 const STORAGE_KEY = 'cmo_tasks';
 
 // === Unified Tag Color System ===
@@ -206,10 +206,13 @@ const KANBAN_COLUMNS = [
 
 function renderKanban() {
   let filtered = getFilteredTasks();
-  // In normal view, hide delegated tasks (they show in the Delegated section of list view)
-  // But if the user clicked the Delegated pill, show them
+  // In normal view, hide delegated and backlog tasks
+  // But show them when their specific pill is active
   if (filters.statFilter !== 'delegated') {
     filtered = filtered.filter(t => t.status !== 'Delegated' || t.assignedTo === (myProfile && myProfile.userId));
+  }
+  if (filters.statFilter !== 'backlog') {
+    filtered = filtered.filter(t => t.status !== 'Backlog');
   }
   const today = new Date().toISOString().split('T')[0];
   const board = document.getElementById('kanban-board');
@@ -217,7 +220,9 @@ function renderKanban() {
   // When a stat filter is active, only show the relevant column(s)
   let columns = KANBAN_COLUMNS;
   const sf = filters.statFilter;
-  if (sf === 'delegated') {
+  if (sf === 'backlog') {
+    columns = [{ status: 'Backlog', label: 'Backlog', color: '#7398A9' }];
+  } else if (sf === 'delegated') {
     columns = [{ status: 'Delegated', label: 'Delegated', color: '#d4960a' }];
   } else if (sf === 'not-started') {
     columns = KANBAN_COLUMNS.filter(c => c.status === 'Not Started');
@@ -489,13 +494,15 @@ function renderStats() {
   const mondayStr = monday.toISOString().split('T')[0];
   const twoWeeksAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
+  const backlog = filtered.filter(t => t.status === 'Backlog').length;
   const notStarted = filtered.filter(t => t.status === 'Not Started').length;
   const inProgress = filtered.filter(t => t.status === 'In Progress').length;
   const blocked = filtered.filter(t => t.status === 'Blocked').length;
   const approved = filtered.filter(t => t.status === 'Approved' && t.createdAt && t.createdAt.split('T')[0] >= twoWeeksAgo).length;
   const delegated = filtered.filter(t => t.status === 'Delegated').length;
-  const overdue = filtered.filter(t => t.status !== 'Completed' && t.status !== 'Delegated' && t.dueDate && t.dueDate < today).length;
+  const overdue = filtered.filter(t => t.status !== 'Completed' && t.status !== 'Delegated' && t.status !== 'Backlog' && t.dueDate && t.dueDate < today).length;
   const completed = filtered.filter(t => t.status === 'Completed' && t.completedAt && t.completedAt.split('T')[0] >= mondayStr).length;
+  document.getElementById('stat-backlog').textContent = backlog;
   document.getElementById('stat-not-started').textContent = notStarted;
   document.getElementById('stat-in-progress').textContent = inProgress;
   document.getElementById('stat-blocked').textContent = blocked;
@@ -663,16 +670,22 @@ function renderTaskList() {
   const delegatedSection = document.getElementById('delegated-section');
   const delegatedList = document.getElementById('delegated-list');
   const delegatedCountEl = document.getElementById('delegated-count');
+  const backlogSection = document.getElementById('backlog-section');
+  const backlogList = document.getElementById('backlog-list');
+  const backlogCountEl = document.getElementById('backlog-count');
 
   // Split tasks: active (not approved, not delegated, not completed), approved, delegated, completed
-  let activeTasks = filtered.filter(t => t.status !== 'Completed' && t.status !== 'Delegated' && t.status !== 'Approved');
+  let activeTasks = filtered.filter(t => t.status !== 'Completed' && t.status !== 'Delegated' && t.status !== 'Approved' && t.status !== 'Backlog');
+  const backlogTasks = filtered.filter(t => t.status === 'Backlog');
   const approvedTasks = filtered.filter(t => t.status === 'Approved');
   const delegatedTasks = filtered.filter(t => t.status === 'Delegated');
   const completedTasks = getFilteredCompletedTasks();
 
   // Apply stat filter
   const sf = filters.statFilter;
-  if (sf === 'not-started') {
+  if (sf === 'backlog') {
+    activeTasks = backlogTasks;
+  } else if (sf === 'not-started') {
     activeTasks = activeTasks.filter(t => t.status === 'Not Started');
   } else if (sf === 'in-progress') {
     activeTasks = activeTasks.filter(t => t.status === 'In Progress');
@@ -736,6 +749,15 @@ function renderTaskList() {
     delegatedList.innerHTML = sortTasks(delegatedTasks).map(renderTaskItem).join('');
   } else {
     delegatedSection.style.display = 'none';
+  }
+
+  // Backlog section (collapsed by default, hidden when backlog pill is active)
+  if (backlogTasks.length > 0 && sf !== 'backlog') {
+    backlogSection.style.display = 'block';
+    backlogCountEl.textContent = backlogTasks.length;
+    backlogList.innerHTML = sortTasks(backlogTasks).map(renderTaskItem).join('');
+  } else {
+    backlogSection.style.display = 'none';
   }
 
   // Completed section
@@ -880,12 +902,13 @@ function getFilteredTasks() {
     // Status pill filter
     const sf = filters.statFilter;
     if (sf && sf !== 'none') {
+      if (sf === 'backlog' && t.status !== 'Backlog') return false;
       if (sf === 'not-started' && t.status !== 'Not Started') return false;
       if (sf === 'in-progress' && t.status !== 'In Progress') return false;
       if (sf === 'blocked' && t.status !== 'Blocked') return false;
       if (sf === 'approved' && t.status !== 'Approved') return false;
       if (sf === 'delegated' && t.status !== 'Delegated') return false;
-      if (sf === 'overdue' && !(t.status !== 'Completed' && t.status !== 'Delegated' && t.dueDate && t.dueDate < today)) return false;
+      if (sf === 'overdue' && !(t.status !== 'Completed' && t.status !== 'Delegated' && t.status !== 'Backlog' && t.dueDate && t.dueDate < today)) return false;
       if (sf === 'completed' && t.status !== 'Completed') return false;
     }
     return true;
