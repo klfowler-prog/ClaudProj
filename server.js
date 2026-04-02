@@ -33,7 +33,7 @@ app.use(express.json({ limit: '5mb' }));
 // Validation constants
 const VALID_STATUSES = ['Not Started', 'In Progress', 'Blocked', 'Approved', 'Delegated', 'Completed'];
 const VALID_PRIORITIES = ['High', 'Medium', 'Low'];
-const VALID_DEPARTMENTS = ['B2B Marketing', 'B2C Marketing', 'Personal'];
+const VALID_DEPARTMENTS = ['B2B Marketing', 'B2C Marketing', 'All Marketing', 'Personal'];
 const MAX_TITLE_LENGTH = 500;
 const MAX_NOTES_LENGTH = 50000;
 
@@ -323,6 +323,9 @@ app.get('/api/tasks', auth, async (req, res) => {
     if (req.query.mine === 'true') {
       tasks = tasks.filter(t => t.assignedTo === req.userId || t.createdBy === req.userId);
     }
+
+    // allSpaces=true: return tasks across all departments (for aggregated "My Tasks" view)
+    // When not set, department filtering happens client-side via getFilteredTasks()
 
     // Optional: filter to "my team" (me + my direct reports)
     if (req.query.team === 'true') {

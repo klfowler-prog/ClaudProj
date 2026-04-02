@@ -1,5 +1,5 @@
 // === Constants ===
-const DEPARTMENTS = ['B2B Marketing', 'B2C Marketing', 'Personal'];
+const DEPARTMENTS = ['B2B Marketing', 'B2C Marketing', 'All Marketing', 'Personal'];
 const SUB_DEPARTMENTS = {
   'B2B Marketing': ['Biz Dev', 'Growth & Brand', 'Rev Ops', 'Internal Comms'],
   'B2C Marketing': [] // Robert will define later
@@ -36,6 +36,7 @@ const DEPT_KEYS = {
   'Internal Comms': 'comms',
   'Rev Ops': 'revops',
   'B2C Marketing': 'b2c',
+  'All Marketing': 'all-mktg',
   'Personal': 'personal'
 };
 
@@ -68,7 +69,8 @@ let deleteConfirmId = null;  // track which task is awaiting delete confirm
 async function loadTasks() {
   try {
     let url = '/api/tasks';
-    if (showMyTasksOnly) url += '?mine=true';
+    if (globalMyTasksView) url += '?mine=true&allSpaces=true';
+    else if (showMyTasksOnly) url += '?mine=true';
     else if (showMyTeam) url += '?team=true';
     if (activeSubDept) url += (url.includes('?') ? '&' : '?') + `subDept=${encodeURIComponent(activeSubDept)}`;
     tasks = await api('GET', url);
@@ -123,7 +125,7 @@ async function migrateLocalStorage() {
 // === Rendering ===
 function render() {
   renderStats();
-  renderSidebarCounts();
+  renderSidebarSpaces();
   renderTaskList();
 }
 
@@ -155,71 +157,130 @@ function renderStats() {
   document.getElementById('stat-completed').textContent = completed;
 }
 
-function renderSidebarCounts() {
-  const container = document.getElementById('tasks-subnav');
+function renderSidebarSpaces() {
+  const container = document.getElementById('sidebar-dept-spaces');
+  if (!container) return;
+
+  // Update global My Tasks count
+  const globalCount = tasks.filter(t => t.status !== 'Completed').length;
+  const globalCountEl = document.getElementById('sidebar-count-my-tasks');
+  if (globalCountEl) globalCountEl.textContent = globalCount;
+
+  // Highlight My Tasks / My Notes buttons
+  const myTasksBtn = document.getElementById('btn-my-tasks-global');
+  const myNotesBtn = document.getElementById('btn-my-notes-global');
+  if (myTasksBtn) myTasksBtn.classList.toggle('active', globalMyTasksView && currentView === 'tasks');
+  if (myNotesBtn) myNotesBtn.classList.toggle('active', globalMyNotesView && currentView === 'notes');
 
   // Determine which departments to show
   let visibleDepts;
   if (myProfile && myProfile.role === 'cmo') {
     visibleDepts = DEPARTMENTS;
   } else {
-    // Show user's department + any department where they have tasks
     const myDepts = myProfile ? (myProfile.departments || []) : [];
     const deptsWithTasks = new Set(tasks.map(t => t.department));
     visibleDepts = DEPARTMENTS.filter(d => myDepts.includes(d) || deptsWithTasks.has(d));
   }
 
-  let html = '<button class="sidebar-dept-item ' + (filters.department === 'all' && !activeSubDept ? 'active' : '') + '" data-dept="all">All Tasks</button>';
+  let html = '';
   for (const dept of visibleDepts) {
     const key = DEPT_KEYS[dept];
     const count = tasks.filter(t => t.department === dept && t.status !== 'Completed').length;
-    const isActive = filters.department === dept && !activeSubDept;
+    const isExpanded = expandedDepts.has(dept);
+    const isActiveTasksDept = !globalMyTasksView && filters.department === dept && currentView === 'tasks';
     const subDepts = SUB_DEPARTMENTS[dept] || [];
     const hasSubs = subDepts.length > 0;
-    const deptExpanded = expandedDepts.has(dept);
-    html += `<button class="sidebar-dept-item ${isActive ? 'active' : ''}" data-dept="${dept}">
-      <span class="dept-dot dept-${key}"></span> ${dept} <span class="sidebar-count">${count}</span>
-      ${hasSubs ? `<span class="sidebar-caret-small" data-toggle-dept="${dept}">${deptExpanded ? '&#9662;' : '&#9656;'}</span>` : ''}
-    </button>`;
-    if (hasSubs && deptExpanded) {
-      for (const sub of subDepts) {
-        const subCount = tasks.filter(t => t.department === dept && t.subDepartment === sub && t.status !== 'Completed').length;
-        const subActive = activeSubDept === sub;
-        html += `<button class="sidebar-dept-item sidebar-subdept ${subActive ? 'active' : ''}" data-dept="${dept}" data-subdept="${sub}">
-          ${sub} <span class="sidebar-count">${subCount}</span>
+
+    html += `<div class="sidebar-space">
+      <button class="sidebar-space-header ${isExpanded ? 'expanded' : ''}" data-space-dept="${dept}">
+        <span class="dept-dot dept-${key}"></span>
+        <span class="sidebar-space-name">${dept}</span>
+        <span class="sidebar-caret-small">${isExpanded ? '&#9662;' : '&#9656;'}</span>
+      </button>`;
+
+    if (isExpanded) {
+      html += `<div class="sidebar-space-subitems">
+        <button class="sidebar-space-subitem ${isActiveTasksDept && !activeSubDept ? 'active' : ''}" data-space-action="tasks" data-dept="${dept}">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          Tasks <span class="sidebar-count">${count}</span>
         </button>`;
+
+      // Sub-departments under Tasks
+      if (hasSubs) {
+        for (const sub of subDepts) {
+          const subCount = tasks.filter(t => t.department === dept && t.subDepartment === sub && t.status !== 'Completed').length;
+          const subActive = isActiveTasksDept && activeSubDept === sub;
+          html += `<button class="sidebar-space-subitem sidebar-subdept ${subActive ? 'active' : ''}" data-space-action="tasks" data-dept="${dept}" data-subdept="${sub}">
+            ${sub} <span class="sidebar-count">${subCount}</span>
+          </button>`;
+        }
       }
+
+      html += `<button class="sidebar-space-subitem ${!globalMyNotesView && currentView === 'notes' && !globalMyTasksView && filters.department === dept ? 'active' : ''}" data-space-action="notes" data-dept="${dept}">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          Notes
+        </button>
+      </div>`;
     }
+
+    html += `</div>`;
   }
+
   container.innerHTML = html;
 
-  // Caret toggle handlers
-  container.querySelectorAll('[data-toggle-dept]').forEach(caret => {
-    caret.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const dept = caret.dataset.toggleDept;
+  // Space header toggle handlers
+  container.querySelectorAll('[data-space-dept]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const dept = btn.dataset.spaceDept;
       if (expandedDepts.has(dept)) expandedDepts.delete(dept);
       else expandedDepts.add(dept);
-      renderSidebarCounts();
+      renderSidebarSpaces();
     });
   });
 
-  // Department/sub-department click handlers
-  container.querySelectorAll('.sidebar-dept-item').forEach(item => {
-    item.addEventListener('click', (e) => {
-      if (e.target.closest('[data-toggle-dept]')) return;
-      const dept = item.dataset.dept;
-      activeSubDept = item.dataset.subdept || null;
-      // Auto-expand when clicking a parent dept
-      if (!activeSubDept && SUB_DEPARTMENTS[dept] && SUB_DEPARTMENTS[dept].length > 0) {
-        expandedDepts.add(dept);
+  // Space sub-item click handlers (Tasks / Notes per dept)
+  container.querySelectorAll('[data-space-action]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const action = btn.dataset.spaceAction;
+      const dept = btn.dataset.dept;
+      const subdept = btn.dataset.subdept || null;
+
+      if (action === 'tasks') {
+        globalMyTasksView = false;
+        globalMyNotesView = false;
+        activeSubDept = subdept;
+        showMyTasksOnly = true;
+        showMyTeam = false;
+        document.getElementById('filter-department').value = dept;
+        if (!subdept && SUB_DEPARTMENTS[dept] && SUB_DEPARTMENTS[dept].length > 0) {
+          expandedDepts.add(dept);
+        }
+        applyFilters(!!subdept);
+        switchView('tasks');
+      } else if (action === 'notes') {
+        globalMyTasksView = false;
+        globalMyNotesView = false;
+        switchView('notes');
+        // Find folder matching dept name and open it
+        const deptFolder = folders.find(f => f.name === dept);
+        if (deptFolder) {
+          activeFolderId = deptFolder.id;
+          loadNotesList(activeFolderId);
+          renderSidebarFolders();
+          document.getElementById('notes-folder-title').textContent = dept;
+        } else {
+          loadNotesList(null);
+        }
       }
-      document.getElementById('filter-department').value = dept;
-      applyFilters(!!activeSubDept);
-      switchView('tasks');
       closeSidebar();
     });
   });
+}
+
+// Legacy alias for any remaining calls
+function renderSidebarCounts() {
+  renderSidebarSpaces();
 }
 
 // === View Switching ===
@@ -234,10 +295,21 @@ function switchView(view) {
   document.getElementById('view-notifications').style.display = view === 'notifications' ? 'block' : 'none';
   document.getElementById('view-search').style.display = view === 'search' ? 'block' : 'none';
   document.getElementById('view-features').style.display = view === 'features' ? 'block' : 'none';
+  // Update sidebar active states — skip global buttons (handled by renderSidebarSpaces)
   document.querySelectorAll('.sidebar-nav-item').forEach(el => {
-    const match = el.dataset.view === view || (el.id === 'btn-open-chat' && view === 'ai') || (el.id === 'btn-notifications' && view === 'notifications');
+    if (el.id === 'btn-my-tasks-global' || el.id === 'btn-my-notes-global') return;
+    const match = (el.id === 'btn-open-chat' && view === 'ai') ||
+                  (el.id === 'btn-notifications' && view === 'notifications') ||
+                  (el.id === 'btn-feature-requests' && view === 'features') ||
+                  (el.dataset.view === 'team' && view === 'team');
     el.classList.toggle('active', match);
   });
+  // Update global buttons
+  const myTasksBtn = document.getElementById('btn-my-tasks-global');
+  const myNotesBtn = document.getElementById('btn-my-notes-global');
+  if (myTasksBtn) myTasksBtn.classList.toggle('active', globalMyTasksView && view === 'tasks');
+  if (myNotesBtn) myNotesBtn.classList.toggle('active', globalMyNotesView && view === 'notes');
+  renderSidebarSpaces();
 }
 
 function toggleSidebarSection(sectionId, caretId) {
@@ -527,7 +599,14 @@ function sortTasks(taskList) {
 // === Filtering ===
 function getFilteredTasks() {
   return tasks.filter(t => {
-    if (filters.department !== 'all' && t.department !== filters.department) return false;
+    if (filters.department !== 'all') {
+      if (filters.department === 'All Marketing') {
+        // Show B2B + B2C + All Marketing tasks
+        if (t.department !== 'B2B Marketing' && t.department !== 'B2C Marketing' && t.department !== 'All Marketing') return false;
+      } else if (t.department !== filters.department) {
+        return false;
+      }
+    }
     if (filters.priority !== 'all' && t.priority !== filters.priority) return false;
     if (filters.search) {
       const q = filters.search.toLowerCase();
@@ -1288,8 +1367,14 @@ function renderNotesList() {
     const pinSvg = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 2h6l-1 7h-4L9 2z"/><path d="M5 14h14l-2-5H7l-2 5z"/></svg>';
     const pinIcon = n.pinned ? pinSvg : '';
     const pinBtn = `<span class="note-pin-btn ${n.pinned ? 'pinned' : ''}" data-pin-id="${n.id}" title="${n.pinned ? 'Unpin' : 'Pin to top'}">${pinSvg}</span>`;
+    // Show source folder badge in global My Notes view
+    let sourceBadge = '';
+    if (globalMyNotesView && n.folderId) {
+      const folder = folders.find(f => f.id === n.folderId);
+      if (folder) sourceBadge = `<span class="note-source-badge">${escapeHtml(folder.name)}</span>`;
+    }
     return `<button class="note-list-item ${activeNoteId === n.id ? 'active' : ''} ${n.pinned ? 'note-pinned' : ''}" data-note-id="${n.id}">
-      <div class="note-list-item-title">${pinIcon ? '' : ''}${escapeHtml(n.title || 'Untitled')}</div>
+      <div class="note-list-item-title">${escapeHtml(n.title || 'Untitled')}${sourceBadge}</div>
       <div class="note-list-item-date">${date}${authorLabel} ${pinBtn}</div>
     </button>`;
   }).join('');
@@ -2202,16 +2287,46 @@ async function init() {
   document.getElementById('filter-sort').addEventListener('change', applyFilters);
   document.getElementById('filter-search').addEventListener('input', applyFilters);
 
-  // Sidebar navigation
+  // Global "My Tasks" button
+  document.getElementById('btn-my-tasks-global').addEventListener('click', () => {
+    globalMyTasksView = true;
+    globalMyNotesView = false;
+    showMyTasksOnly = true;
+    showMyTeam = false;
+    activeSubDept = null;
+    document.getElementById('filter-department').value = 'all';
+    loadTasks().then(render);
+    switchView('tasks');
+    closeSidebar();
+  });
+
+  // Global "My Notes" button
+  document.getElementById('btn-my-notes-global').addEventListener('click', async () => {
+    globalMyNotesView = true;
+    globalMyTasksView = false;
+    showMyNotesOnly = true;
+    switchView('notes');
+    if (!folders || folders.length === 0) {
+      await loadFolders();
+    }
+    // Show all notes (no folder filter)
+    activeFolderId = null;
+    loadNotesList(null);
+    renderSidebarFolders();
+    document.getElementById('notes-folder-title').textContent = 'My Notes';
+    renderSidebarSpaces();
+    closeSidebar();
+  });
+
+  // Sidebar navigation for non-global items (AI, Ideas, etc.)
   document.querySelectorAll('.sidebar-nav-item').forEach(item => {
+    if (item.id === 'btn-my-tasks-global' || item.id === 'btn-my-notes-global') return; // handled above
     item.addEventListener('click', async () => {
       const view = item.dataset.view;
-      switchView(view);
-      // Toggle subnav
-      if (view === 'tasks') toggleSidebarSection('tasks-subnav', 'tasks-caret');
       if (view === 'notes') {
+        globalMyNotesView = false;
+        switchView('notes');
         toggleSidebarSection('notes-subnav', 'notes-caret');
-        // Load folders if not yet loaded, then default to All Team
         if (!folders || folders.length === 0) {
           await loadFolders();
         }
@@ -2223,18 +2338,9 @@ async function init() {
         renderSidebarFolders();
         const activeFolder = folders.find(f => f.id === activeFolderId);
         document.getElementById('notes-folder-title').textContent = activeFolder ? activeFolder.name : 'Notes';
+      } else if (view) {
+        switchView(view);
       }
-      closeSidebar();
-    });
-  });
-
-  // Sidebar department clicks (filter tasks)
-  document.querySelectorAll('.sidebar-dept-item').forEach(item => {
-    item.addEventListener('click', () => {
-      const dept = item.dataset.dept;
-      document.getElementById('filter-department').value = dept;
-      applyFilters();
-      switchView('tasks');
       closeSidebar();
     });
   });
@@ -2361,6 +2467,7 @@ async function init() {
 
   // My Tasks / All Tasks toggle
   function setTaskToggle(mode) {
+    globalMyTasksView = false; // Switching to dept-specific mode
     showMyTasksOnly = mode === 'mine';
     showMyTeam = mode === 'team';
     document.getElementById('btn-my-tasks').classList.toggle('active', mode === 'mine');
@@ -2572,6 +2679,8 @@ let showMyTasksOnly = true;
 let showMyTeam = false;
 let activeSubDept = null;
 let expandedDepts = new Set();
+let globalMyTasksView = true;   // true = aggregated My Tasks (default landing)
+let globalMyNotesView = false;  // true = aggregated My Notes view
 let teamMembers = [];
 
 function applyRoleUI() {
@@ -2590,6 +2699,26 @@ async function loadProfile() {
     myProfile = await api('GET', '/api/me');
     applyRoleUI();
   } catch (err) { console.error('Failed to load profile:', err); }
+}
+
+// === What's New Popup ===
+function showWhatsNewIfNeeded(uid) {
+  const key = 'whatsNewSeen_sidebar_v1_' + uid;
+  if (localStorage.getItem(key)) return;
+  const modal = document.getElementById('modal-whats-new');
+  if (!modal) return;
+  modal.style.display = 'flex';
+  document.getElementById('btn-dismiss-whats-new').addEventListener('click', () => {
+    localStorage.setItem(key, 'true');
+    modal.style.display = 'none';
+  });
+  // Also dismiss on overlay click
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) {
+      localStorage.setItem(key, 'true');
+      modal.style.display = 'none';
+    }
+  });
 }
 
 // === Daily Briefing / Onboarding ===
@@ -3490,6 +3619,8 @@ document.addEventListener('DOMContentLoaded', () => {
       await init();
       loadNotifications();
       try { await showBriefingIfNeeded(); } catch (e) { console.error('[Briefing] Error:', e); }
+      // Show What's New popup on first login after sidebar restructure
+      showWhatsNewIfNeeded(user.uid);
       // Poll notifications every 60 seconds
       setInterval(loadNotifications, 60000);
     } else {
