@@ -60,6 +60,10 @@ async function api(method, path, body) {
   if (body) opts.body = JSON.stringify(body);
   const res = await fetch(path, opts);
   if (!res.ok) {
+    if (res.status === 429) {
+      showToast('Slow down — too many requests. Wait a moment and try again.', 'error');
+      throw new Error('Rate limit reached');
+    }
     const err = await res.json().catch(() => ({ error: 'Request failed' }));
     throw new Error(err.error || 'Request failed');
   }
@@ -75,6 +79,7 @@ const DEPT_KEYS = {
 };
 
 const STATUS_KEYS = {
+  'Backlog': 'backlog',
   'Not Started': 'not-started',
   'In Progress': 'in-progress',
   'Blocked': 'blocked',
@@ -2389,6 +2394,7 @@ async function createAiTasks() {
       const parentTask = await api('POST', '/api/tasks', {
         title, department, priority, dueDate,
         notes: pendingAiGroups[gi].parent.notes || '',
+        tags: pendingAiGroups[gi].parent.tags || [],
         status: isDelegate ? 'Delegated' : 'Not Started',
         source: 'manual', recurring: 'none',
         assignedTo: assignedTo || undefined
