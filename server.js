@@ -41,6 +41,7 @@ app.use('/api/', apiLimiter);
 const VALID_STATUSES = ['Not Started', 'In Progress', 'Blocked', 'Approved', 'Delegated', 'Completed'];
 const VALID_PRIORITIES = ['High', 'Medium', 'Low'];
 const VALID_DEPARTMENTS = ['B2B Marketing', 'B2C Marketing', 'Personal'];
+const VALID_ROLES = ['cmo', 'lead', 'member', 'viewer'];
 const MAX_TITLE_LENGTH = 500;
 const MAX_NOTES_LENGTH = 50000;
 
@@ -448,6 +449,9 @@ app.post('/api/tasks', authWrite, async (req, res) => {
       showOnMaster: req.body.showOnMaster || false,
       tags: req.body.tags || []
     };
+    if (task.tags && Array.isArray(task.tags)) {
+      task.tags = task.tags.slice(0, 20).map(t => String(t).substring(0, 50));
+    }
     // Auto-migrate: if subDepartment set but no tags, copy to tags
     if (task.subDepartment && task.tags.length === 0) {
       task.tags = [task.subDepartment];
@@ -560,6 +564,9 @@ app.put('/api/tasks/:id', auth, async (req, res) => {
     if (updates.status && !VALID_STATUSES.includes(updates.status)) {
       return res.status(400).json({ error: 'Invalid status value' });
     }
+    if (updates.tags && Array.isArray(updates.tags)) {
+      updates.tags = updates.tags.slice(0, 20).map(t => String(t).substring(0, 50));
+    }
 
     if (updates.status) updates.completed = updates.status === 'Completed';
 
@@ -641,24 +648,32 @@ app.put('/api/tasks/:id', auth, async (req, res) => {
 
     // Notify parent task owner when a sub-task is completed
     if (updates.status === 'Completed' && oldTask.parentTaskId) {
-      const parentDoc = await orgCol(req, 'tasks').doc(oldTask.parentTaskId).get();
-      if (parentDoc.exists) {
-        const parent = parentDoc.data();
-        // Count sub-tasks
-        const allSubs = await orgCol(req, 'tasks').where('parentTaskId', '==', oldTask.parentTaskId).get();
-        const totalSubs = allSubs.size;
-        const completedSubs = allSubs.docs.filter(d => d.data().status === 'Completed' || d.id === req.params.id).length;
-        const allDone = completedSubs >= totalSubs;
+      // Read subtasks outside the transaction (Firestore transactions don't support .where() queries)
+      const allSubs = await orgCol(req, 'tasks').where('parentTaskId', '==', oldTask.parentTaskId).get();
+      const totalSubs = allSubs.size;
+      const completedSubs = allSubs.docs.filter(d => d.data().status === 'Completed' || d.id === req.params.id).length;
+      const allDone = completedSubs >= totalSubs;
 
-        // Auto-complete parent when all subtasks are done
+      const parentRef = orgCol(req, 'tasks').doc(oldTask.parentTaskId);
+
+      // Use a transaction for the parent update to avoid race conditions
+      await db.runTransaction(async (transaction) => {
+        const parentDoc = await transaction.get(parentRef);
+        if (!parentDoc.exists) return;
+        const parent = parentDoc.data();
+
         if (allDone && parent.status !== 'Completed') {
-          await orgCol(req, 'tasks').doc(oldTask.parentTaskId).update({
+          transaction.update(parentRef, {
             status: 'Completed',
             completed: true,
             completedAt: new Date().toISOString()
           });
         }
+      });
 
+      const parentDoc = await parentRef.get();
+      if (parentDoc.exists) {
+        const parent = parentDoc.data();
         if (parent.createdBy && parent.createdBy !== req.userId) {
           const notifTitle = allDone
             ? `All sub-tasks completed for "${parent.title}" — ready to mark as complete?`
@@ -692,6 +707,14 @@ app.delete('/api/tasks/:id', authWrite, async (req, res) => {
       return res.status(403).json({ error: 'Only the task creator can delete this task' });
     }
     await taskRef.delete();
+    // Delete subtasks
+    const subsSnap = await orgCol(req, 'tasks').where('parentTaskId', '==', req.params.id).get();
+    const batch = db.batch();
+    subsSnap.docs.forEach(d => batch.delete(d.ref));
+    // Delete comments
+    const commSnap = await orgCol(req, 'comments').where('taskId', '==', req.params.id).get();
+    commSnap.docs.forEach(d => batch.delete(d.ref));
+    if (subsSnap.size > 0 || commSnap.size > 0) await batch.commit();
     res.json({ deleted: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to delete task' });
@@ -1173,12 +1196,8 @@ app.get('/api/folders', auth, async (req, res) => {
 
     // Deduplicate folders by name (delete extras, keep first)
     // Also migrate: mark Personal folder with personal flag if missing
-    // Also migrate: move sub-department folder notes to parent B2B folder with tags
     const seen = new Set();
     const unique = [];
-    const subDeptNames = ['Biz Dev', 'Growth & Brand', 'Rev Ops', 'Internal Comms'];
-    const subFoldersToMigrate = [];
-    let b2bFolder = null;
 
     for (const f of all) {
       if (seen.has(f.name)) {
@@ -1189,28 +1208,8 @@ app.get('/api/folders', auth, async (req, res) => {
           await orgCol(req, 'folders').doc(f.id).update({ personal: true });
           f.personal = true;
         }
-        if (f.name === 'B2B Marketing') b2bFolder = f;
-        if (subDeptNames.includes(f.name)) {
-          subFoldersToMigrate.push(f);
-        } else {
-          unique.push(f);
-        }
+        unique.push(f);
       }
-    }
-
-    // Auto-migrate sub-department folder notes to B2B parent
-    if (subFoldersToMigrate.length > 0 && b2bFolder) {
-      const batch = db.batch();
-      for (const sub of subFoldersToMigrate) {
-        const notesSnap = await orgCol(req, 'notes').where('folderId', '==', sub.id).get();
-        notesSnap.docs.forEach(d => {
-          const existingTags = d.data().tags || [];
-          if (!existingTags.includes(sub.name)) existingTags.push(sub.name);
-          batch.update(d.ref, { folderId: b2bFolder.id, tags: existingTags });
-        });
-        batch.delete(orgCol(req, 'folders').doc(sub.id));
-      }
-      await batch.commit();
     }
 
     res.json(unique);
@@ -1962,9 +1961,11 @@ const SLACK_NOTIFICATION_COLORS = {
 
 // Make a Slack API call using the org's bot token
 async function slackApiCall(botToken, method, body, useGet) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
   try {
     let url = `https://slack.com/api/${method}`;
-    const opts = { headers: { 'Authorization': `Bearer ${botToken}` } };
+    const opts = { headers: { 'Authorization': `Bearer ${botToken}` }, signal: controller.signal };
 
     if (useGet) {
       const qs = new URLSearchParams();
@@ -1986,6 +1987,8 @@ async function slackApiCall(botToken, method, body, useGet) {
   } catch (err) {
     console.error(`Slack API ${method} error:`, err);
     return { ok: false, error: err.message };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -2215,6 +2218,7 @@ app.post('/api/team/invite', auth, async (req, res) => {
   try {
     const { email, displayName, role, departments } = req.body;
     if (!email || !departments || departments.length === 0) return res.status(400).json({ error: 'Email and at least one department required' });
+    if (role && !VALID_ROLES.includes(role)) return res.status(400).json({ error: 'Invalid role' });
 
     // Leads can only invite members/viewers into their own departments
     if (req.memberRole === 'lead') {

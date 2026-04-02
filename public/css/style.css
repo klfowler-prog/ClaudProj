@@ -2489,7 +2489,8 @@ body {
   .cal-day { min-height: 60px; }
   .cal-task { font-size: 0.55rem; }
   .cal-day-num { font-size: 0.65rem; }
-  .view-toggle { display: none; }
+  .view-toggle { display: flex; }
+  .view-toggle-btn { padding: 0.35rem 0.5rem; font-size: 0.65rem; min-height: 32px; }
 }
 
 /* AI response links */
@@ -2595,14 +2596,16 @@ body {
     align-items: center;
   }
   .stat-toggle {
-    font-size: 0.65rem;
-    padding: 0.15rem 0.5rem;
+    font-size: 0.7rem;
+    padding: 0.35rem 0.625rem;
+    min-height: 32px;
   }
   .stat-pill {
-    font-size: 0.6rem;
-    padding: 0.1rem 0.35rem;
+    font-size: 0.65rem;
+    padding: 0.2rem 0.5rem;
     border: none;
     background: none;
+    min-height: 28px;
   }
   .stat-pill strong { font-size: 0.7rem; }
   .filter-select-compact {
@@ -2619,7 +2622,8 @@ body {
   }
   .task-actions-bar .btn {
     font-size: 0.75rem;
-    padding: 0.35rem 0.6rem;
+    padding: 0.45rem 0.75rem;
+    min-height: 36px;
   }
 
   /* Task items — tighter on mobile */

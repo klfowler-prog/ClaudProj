@@ -99,9 +99,25 @@ let pendingAttachments = []; // temp attachments for the add-task form
 let pendingLinks = [];       // temp links for the add-task form
 let editingTaskId = null;    // null = adding, string = editing
 let deleteConfirmId = null;  // track which task is awaiting delete confirm
+let notifPollInterval = null; // notification polling interval ID
+
+// === Toast Notifications ===
+function showToast(message, type = 'success') {
+  const existing = document.getElementById('toast-container');
+  if (existing) existing.remove();
+  const toast = document.createElement('div');
+  toast.id = 'toast-container';
+  toast.style.cssText = `position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);padding:0.625rem 1.25rem;border-radius:var(--radius-lg);font-size:0.85rem;font-family:'Roboto',sans-serif;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,0.15);transition:opacity 0.3s;max-width:90%;text-align:center;${type === 'error' ? 'background:#fde8e7;color:#DC6B67;' : 'background:var(--follett-dark-blue);color:white;'}`;
+  toast.textContent = message;
+  document.body.appendChild(toast);
+  setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 3000);
+}
 
 // === Persistence (API-backed) ===
+let isLoadingTasks = false;
 async function loadTasks() {
+  if (isLoadingTasks) return;
+  isLoadingTasks = true;
   try {
     let url = '/api/tasks';
     if (showMyTasksOnly) url += '?mine=true';
@@ -112,6 +128,8 @@ async function loadTasks() {
   } catch (err) {
     console.error('Failed to load tasks:', err);
     tasks = [];
+  } finally {
+    isLoadingTasks = false;
   }
 }
 
@@ -149,7 +167,7 @@ async function migrateLocalStorage() {
   try {
     await api('POST', '/api/tasks/batch', { tasks: localTasks });
     localStorage.setItem(MIGRATION_KEY, 'done');
-    alert(`Successfully imported ${count} task${count !== 1 ? 's' : ''} to the cloud!`);
+    showToast(`Successfully imported ${count} task${count !== 1 ? 's' : ''} to the cloud!`);
     await loadTasks();
     render();
   } catch (err) {
@@ -253,61 +271,70 @@ function renderKanban() {
     </div>`;
   }).join('');
 
-  // Click to open detail
-  board.querySelectorAll('.kb-card').forEach(card => {
-    card.addEventListener('click', () => showTaskDetail(card.dataset.taskId));
-  });
-
-  // Drag and drop
+  // Event delegation for clicks and drag-and-drop
   let draggedId = null;
 
-  board.querySelectorAll('.kb-card').forEach(card => {
-    card.addEventListener('dragstart', (e) => {
-      draggedId = card.dataset.taskId;
-      card.classList.add('kb-dragging');
-      e.dataTransfer.effectAllowed = 'move';
-    });
-    card.addEventListener('dragend', () => {
-      card.classList.remove('kb-dragging');
-      draggedId = null;
-      board.querySelectorAll('.kb-column-body').forEach(col => col.classList.remove('kb-drag-over'));
-    });
-  });
+  board.onclick = (e) => {
+    const card = e.target.closest('.kb-card');
+    if (card) showTaskDetail(card.dataset.taskId);
+  };
 
-  board.querySelectorAll('.kb-column-body').forEach(col => {
-    col.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-      col.classList.add('kb-drag-over');
-    });
-    col.addEventListener('dragleave', () => col.classList.remove('kb-drag-over'));
-    col.addEventListener('drop', async (e) => {
-      e.preventDefault();
-      col.classList.remove('kb-drag-over');
-      if (!draggedId) return;
-      const newStatus = col.dataset.status;
-      const task = tasks.find(t => t.id === draggedId);
-      if (!task || task.status === newStatus) return;
+  board.ondragstart = (e) => {
+    const card = e.target.closest('.kb-card');
+    if (!card) return;
+    draggedId = card.dataset.taskId;
+    card.classList.add('kb-dragging');
+    e.dataTransfer.effectAllowed = 'move';
+  };
 
-      try {
-        const updates = { status: newStatus };
-        if (newStatus === 'Completed') {
-          updates.completed = true;
-          updates.completedAt = new Date().toISOString();
-        } else {
-          updates.completed = false;
-          updates.completedAt = '';
-        }
-        if (newStatus === 'Blocked') {
-          const reason = prompt('Why is this blocked? (optional)');
-          if (reason) updates.blockedReason = reason;
-        }
-        await api('PUT', `/api/tasks/${draggedId}`, updates);
-        Object.assign(task, updates);
-        render();
-      } catch (err) { alert('Failed to update status'); }
-    });
-  });
+  board.ondragend = (e) => {
+    const card = e.target.closest('.kb-card');
+    if (card) card.classList.remove('kb-dragging');
+    draggedId = null;
+    board.querySelectorAll('.kb-column-body').forEach(col => col.classList.remove('kb-drag-over'));
+  };
+
+  board.ondragover = (e) => {
+    const col = e.target.closest('.kb-column-body');
+    if (!col) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    col.classList.add('kb-drag-over');
+  };
+
+  board.ondragleave = (e) => {
+    const col = e.target.closest('.kb-column-body');
+    if (col) col.classList.remove('kb-drag-over');
+  };
+
+  board.ondrop = async (e) => {
+    const col = e.target.closest('.kb-column-body');
+    if (!col) return;
+    e.preventDefault();
+    col.classList.remove('kb-drag-over');
+    if (!draggedId) return;
+    const newStatus = col.dataset.status;
+    const task = tasks.find(t => t.id === draggedId);
+    if (!task || task.status === newStatus) return;
+
+    try {
+      const updates = { status: newStatus };
+      if (newStatus === 'Completed') {
+        updates.completed = true;
+        updates.completedAt = new Date().toISOString();
+      } else {
+        updates.completed = false;
+        updates.completedAt = '';
+      }
+      if (newStatus === 'Blocked') {
+        const reason = prompt('Why is this blocked? (optional)');
+        if (reason) updates.blockedReason = reason;
+      }
+      await api('PUT', `/api/tasks/${draggedId}`, updates);
+      Object.assign(task, updates);
+      render();
+    } catch (err) { showToast('Failed to update status', 'error'); }
+  };
 }
 
 function renderCalendar() {
@@ -434,12 +461,12 @@ function renderTaskTagFilter() {
     html += `<button class="note-tag-filter-btn ${isActive ? 'active' : ''}" data-task-tag="${escapeHtml(tag)}" style="${isActive ? `background:${c.text};color:white;border-color:${c.text};` : `background:${c.bg};color:${c.text};border-color:${c.border};`}">${escapeHtml(tag)}</button>`;
   });
   container.innerHTML = html;
-  container.querySelectorAll('.note-tag-filter-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      activeTaskTagFilter = btn.dataset.taskTag;
-      render();
-    });
-  });
+  container.onclick = (e) => {
+    const btn = e.target.closest('.note-tag-filter-btn');
+    if (!btn) return;
+    activeTaskTagFilter = btn.dataset.taskTag;
+    render();
+  };
 }
 
 function toggleSection(listId, caretId) {
@@ -503,26 +530,26 @@ function renderSidebarCounts() {
   }
   container.innerHTML = html;
 
-  // Department click handlers
-  container.querySelectorAll('.sidebar-dept-item').forEach(item => {
-    item.addEventListener('click', () => {
-      const dept = item.dataset.dept;
-      // Clear workspace and stat filter when switching departments
-      if (activeWorkspaceId) {
-        activeWorkspaceId = null;
-        activeWorkspaceName = '';
-        document.getElementById('workspace-header').style.display = 'none';
-        renderSidebarWorkspaces();
-      }
-      filters.statFilter = 'none';
-      document.querySelectorAll('.stat-pill-clickable').forEach(p => p.classList.remove('active'));
-      activeTaskTagFilter = '';
-      document.getElementById('filter-department').value = dept;
-      applyFilters(true); // Reload from server to get full data
-      switchView('tasks');
-      closeSidebar();
-    });
-  });
+  // Department click handler (event delegation)
+  container.onclick = (e) => {
+    const item = e.target.closest('.sidebar-dept-item');
+    if (!item) return;
+    const dept = item.dataset.dept;
+    // Clear workspace and stat filter when switching departments
+    if (activeWorkspaceId) {
+      activeWorkspaceId = null;
+      activeWorkspaceName = '';
+      document.getElementById('workspace-header').style.display = 'none';
+      renderSidebarWorkspaces();
+    }
+    filters.statFilter = 'none';
+    document.querySelectorAll('.stat-pill-clickable').forEach(p => p.classList.remove('active'));
+    activeTaskTagFilter = '';
+    document.getElementById('filter-department').value = dept;
+    applyFilters(true); // Reload from server to get full data
+    switchView('tasks');
+    closeSidebar();
+  };
 }
 
 // === View Switching ===
@@ -1532,7 +1559,7 @@ async function handleSyncClick() {
         if (status.connected) {
           clearInterval(poll);
           await checkGmailStatus();
-          alert(`Connected to ${status.email}! Click "Sync Email" to import messages.`);
+          showToast(`Connected to ${status.email}! Click "Sync Email" to import messages.`);
         }
       }, 2000);
       // Stop polling after 5 minutes
@@ -1550,9 +1577,9 @@ async function handleSyncClick() {
     if (result.synced > 0) {
       await loadTasks();
       render();
-      alert(`Synced ${result.synced} new email${result.synced !== 1 ? 's' : ''} as tasks!`);
+      showToast(`Synced ${result.synced} new email${result.synced !== 1 ? 's' : ''} as tasks!`);
     } else {
-      alert('No new unread emails to sync.');
+      showToast('No new unread emails to sync.');
     }
   } catch (err) {
     alert('Sync failed: ' + err.message);
@@ -1711,13 +1738,13 @@ function renderNoteTagFilters() {
     html += `<button class="note-tag-filter-btn ${isActive ? 'active' : ''}" data-tag-filter="${escapeHtml(tag)}" style="${isActive ? `background:${c.text};color:white;border-color:${c.text};` : `background:${c.bg};color:${c.text};border-color:${c.border};`}">${escapeHtml(tag)}</button>`;
   });
   container.innerHTML = html;
-  container.querySelectorAll('.note-tag-filter-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      activeTagFilter = btn.dataset.tagFilter;
-      renderNoteTagFilters();
-      renderNotesList();
-    });
-  });
+  container.onclick = (e) => {
+    const btn = e.target.closest('.note-tag-filter-btn');
+    if (!btn) return;
+    activeTagFilter = btn.dataset.tagFilter;
+    renderNoteTagFilters();
+    renderNotesList();
+  };
 }
 
 function renderNotesList() {
@@ -1749,19 +1776,12 @@ function renderNotesList() {
       ${tagChips ? `<div style="display:flex;gap:0.2rem;flex-wrap:wrap;margin-top:0.15rem;">${tagChips}</div>` : ''}
     </button>`;
   }).join('');
-  container.querySelectorAll('[data-note-id]').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      // Don't open note if clicking pin button
-      if (e.target.closest('.note-pin-btn')) return;
-      openNote(btn.dataset.noteId);
-    });
-  });
-
-  // Pin button handlers
-  container.querySelectorAll('.note-pin-btn').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
+  // Event delegation for note list clicks and pin buttons
+  container.onclick = async (e) => {
+    const pinBtn = e.target.closest('.note-pin-btn');
+    if (pinBtn) {
       e.stopPropagation();
-      const noteId = btn.dataset.pinId;
+      const noteId = pinBtn.dataset.pinId;
       const note = notesList.find(n => n.id === noteId);
       if (!note) return;
       try {
@@ -1775,8 +1795,13 @@ function renderNotesList() {
         });
         renderNotesList();
       } catch (err) { console.error('Failed to pin:', err); }
-    });
-  });
+      return;
+    }
+    const noteItem = e.target.closest('[data-note-id]');
+    if (noteItem) {
+      openNote(noteItem.dataset.noteId);
+    }
+  };
 }
 
 async function openNote(noteId) {
@@ -2156,7 +2181,7 @@ async function saveSharing() {
     await api('PUT', `/api/notes/${activeNoteId}`, { sharedWith, allowEditing });
     closeModal('modal-share-note');
     const count = sharedWith.length;
-    alert(count > 0 ? `Note shared with ${count} ${count === 1 ? 'recipient' : 'recipients'}${allowEditing ? ' (editing enabled)' : ''}.` : 'Note is now private.');
+    showToast(count > 0 ? `Note shared with ${count} ${count === 1 ? 'recipient' : 'recipients'}${allowEditing ? ' (editing enabled)' : ''}.` : 'Note is now private.');
   } catch (err) {
     alert('Failed to save sharing: ' + err.message);
   }
@@ -2350,7 +2375,7 @@ async function createAiTasks() {
     closeModal('modal-ai-tasks');
     await loadTasks();
     render();
-    alert(`Created ${totalCreated} task${totalCreated !== 1 ? 's' : ''}!`);
+    showToast(`Created ${totalCreated} task${totalCreated !== 1 ? 's' : ''}!`);
   } catch (err) {
     alert('Failed to create tasks: ' + err.message);
   }
@@ -2590,11 +2615,6 @@ async function init() {
       lastParsedResult = parsed;
       document.getElementById('parsed-title').value = parsed.title || text;
       document.getElementById('parsed-dept').value = parsed.department || 'Personal';
-      // Populate sub-dept dropdown based on parsed department
-      const parsedSubSelect = document.getElementById('parsed-subdept');
-      const parsedSubs = SUB_DEPARTMENTS[parsed.department] || [];
-      parsedSubSelect.innerHTML = '<option value="">General</option>' + parsedSubs.map(s => `<option value="${s}">${s}</option>`).join('');
-      if (parsed.subDepartment) parsedSubSelect.value = parsed.subDepartment;
       document.getElementById('parsed-priority').value = parsed.priority || 'Medium';
       document.getElementById('parsed-due').value = parsed.dueDate || '';
       document.getElementById('parsed-recurring').value = parsed.recurring || 'none';
@@ -2606,14 +2626,6 @@ async function init() {
     }
     btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="vertical-align:-1px;"><path d="M12 0l1.8 7.6L22 8l-6.4 4.2L18 20l-6-4.8L6 20l2.4-7.8L2 8l8.2-.4z"/></svg> Create Task';
     btn.disabled = false;
-  });
-
-  // Update sub-dept when parsed dept changes
-  document.getElementById('parsed-dept').addEventListener('change', () => {
-    const dept = document.getElementById('parsed-dept').value;
-    const subSelect = document.getElementById('parsed-subdept');
-    const subs = SUB_DEPARTMENTS[dept] || [];
-    subSelect.innerHTML = '<option value="">General</option>' + subs.map(s => `<option value="${s}">${s}</option>`).join('');
   });
 
   // Create parsed task button
@@ -3335,30 +3347,30 @@ async function showNotifications() {
       <div class="notif-item-time">${ago}</div>
     </div>`;
   }).join('');
-  container.querySelectorAll('.notif-item').forEach(item => {
-    item.addEventListener('click', async () => {
-      // Mark as read visually and in background
-      if (item.classList.contains('notif-unread')) {
-        item.classList.remove('notif-unread');
-        item.classList.add('notif-read');
-        api('POST', `/api/notifications/${item.dataset.notifId}/read`).catch(() => {});
-        loadNotifications();
+  container.onclick = async (e) => {
+    const item = e.target.closest('.notif-item');
+    if (!item) return;
+    // Mark as read visually and in background
+    if (item.classList.contains('notif-unread')) {
+      item.classList.remove('notif-unread');
+      item.classList.add('notif-read');
+      api('POST', `/api/notifications/${item.dataset.notifId}/read`).catch(() => {});
+      loadNotifications();
+    }
+    // Open task detail - fetch from server if not in local array
+    const taskId = item.dataset.taskId;
+    if (taskId) {
+      let task = tasks.find(t => t.id === taskId);
+      if (!task) {
+        try { task = await api('GET', `/api/tasks/${taskId}`); } catch { return; }
       }
-      // Open task detail - fetch from server if not in local array
-      const taskId = item.dataset.taskId;
-      if (taskId) {
-        let task = tasks.find(t => t.id === taskId);
-        if (!task) {
-          try { task = await api('GET', `/api/tasks/${taskId}`); } catch { return; }
-        }
-        if (task) {
-          // Temporarily add to tasks array so showTaskDetail can find it
-          if (!tasks.find(t => t.id === taskId)) tasks.push(task);
-          showTaskDetail(taskId);
-        }
+      if (task) {
+        // Temporarily add to tasks array so showTaskDetail can find it
+        if (!tasks.find(t => t.id === taskId)) tasks.push(task);
+        showTaskDetail(taskId);
       }
-    });
-  });
+    }
+  };
 }
 
 function timeAgo(iso) {
@@ -3412,9 +3424,12 @@ function renderSidebarWorkspaces() {
       <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${w.color || getTagColor(w.name).text};margin-right:0.375rem;vertical-align:0;"></span>${escapeHtml(w.name)}
     </button>`
   ).join('');
-  container.querySelectorAll('[data-workspace-id]').forEach(btn => {
-    btn.addEventListener('click', () => { openWorkspace(btn.dataset.workspaceId); closeSidebar(); });
-  });
+  container.onclick = (e) => {
+    const btn = e.target.closest('[data-workspace-id]');
+    if (!btn) return;
+    openWorkspace(btn.dataset.workspaceId);
+    closeSidebar();
+  };
 }
 
 async function openWorkspace(id) {
@@ -3521,7 +3536,7 @@ async function saveAiContext() {
   try {
     await api('PUT', '/api/settings/ai-context', { context: document.getElementById('ai-context-textarea').value });
     closeModal('modal-ai-context');
-    alert('AI context saved! The AI will now use this across the app.');
+    showToast('AI context saved! The AI will now use this across the app.');
   } catch (err) { alert('Failed to save: ' + err.message); }
 }
 
@@ -3543,7 +3558,7 @@ async function sendAnnouncement() {
   if (!message || !message.trim()) return;
   try {
     const result = await api('POST', '/api/slack/announce', { message: message.trim() });
-    alert(`Announcement sent! ${result.slackSent} Slack DMs + ${result.notifSent} in-app notifications delivered.`);
+    showToast(`Announcement sent! ${result.slackSent} Slack DMs + ${result.notifSent} in-app notifications delivered.`);
   } catch (err) { alert('Failed to send: ' + err.message); }
 }
 
@@ -3683,16 +3698,16 @@ async function openSlackSettings() {
     document.getElementById('btn-slack-test').addEventListener('click', async () => {
       try {
         await api('POST', '/api/slack/test');
-        alert('Test notification sent! Check your Slack DMs.');
-      } catch (err) { alert(err.message); }
+        showToast('Test notification sent! Check your Slack DMs.');
+      } catch (err) { showToast(err.message, 'error'); }
     });
 
     document.getElementById('btn-slack-automap').addEventListener('click', async () => {
       try {
         const result = await api('POST', '/api/slack/auto-map');
-        alert(`Auto-mapped ${result.mapped} user(s) by email.`);
+        showToast(`Auto-mapped ${result.mapped} user(s) by email.`);
         openSlackSettings(); // Refresh
-      } catch (err) { alert(err.message); }
+      } catch (err) { showToast(err.message, 'error'); }
     });
 
     document.getElementById('btn-slack-save-mappings').addEventListener('click', async () => {
@@ -3704,8 +3719,8 @@ async function openSlackSettings() {
       try {
         await api('POST', '/api/slack/map-users', { mappings });
         await loadTeam();
-        alert('User mappings saved!');
-      } catch (err) { alert(err.message); }
+        showToast('User mappings saved!');
+      } catch (err) { showToast(err.message, 'error'); }
     });
 
     // Searchable Slack user dropdowns
@@ -3768,8 +3783,8 @@ async function openSlackSettings() {
         });
         try {
           await api('PUT', '/api/slack/notification-channels', { notificationChannels });
-          alert('Channel notifications saved!');
-        } catch (err) { alert(err.message); }
+          showToast('Channel notifications saved!');
+        } catch (err) { showToast(err.message, 'error'); }
       });
     }
 
@@ -4021,15 +4036,13 @@ async function submitInvite(e) {
   const email = document.getElementById('invite-email').value.trim();
   const departments = [];
   document.querySelectorAll('.invite-dept-cb:checked').forEach(cb => departments.push(cb.value));
-  const subDepartments = [];
-  document.querySelectorAll('.invite-subdept-cb:checked').forEach(cb => subDepartments.push(cb.value));
   const role = document.getElementById('invite-role').value;
   const reportsTo = document.getElementById('invite-reports-to').value;
 
   if (!name || !email || departments.length === 0) { alert('Select at least one department'); return; }
 
   try {
-    const result = await api('POST', '/api/team/invite', { email, displayName: name, departments, subDepartments, role, reportsTo });
+    const result = await api('POST', '/api/team/invite', { email, displayName: name, departments, role, reportsTo });
 
     // Build the rich onboarding message (same as Reset PW)
     const firstName = name.split(' ')[0];
@@ -4040,9 +4053,9 @@ async function submitInvite(e) {
         `3. Sign in with your email (${email}) and the password you just created.\n\n` +
         `You'll see a Getting Started task with a few steps to walk you through it. Let me know if you have any questions!`;
       await navigator.clipboard.writeText(message);
-      alert(`${name} added! Onboarding message copied to clipboard — paste it into Slack or email.`);
+      showToast(`${name} added! Onboarding message copied to clipboard.`);
     } else {
-      alert(`${name} added! Use the "Reset PW" button on their card to generate a login link.`);
+      showToast(`${name} added! Use the "Reset PW" button on their card to generate a login link.`);
     }
 
     closeModal('modal-invite');
@@ -4066,26 +4079,12 @@ async function editMember(id) {
   const member = teamMembers.find(m => m.id === id);
   if (!member) return;
   const memberDepts = member.departments || [member.department];
-  const memberSubDepts = member.subDepartments || [];
 
   const deptCheckboxes = DEPARTMENTS.map(d =>
     `<label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;padding:0.25rem 0;">
       <input type="checkbox" class="edit-dept-cb" value="${d}" ${memberDepts.includes(d) ? 'checked' : ''}> ${d}
     </label>`
   ).join('');
-
-  // Build sub-department checkboxes grouped by parent dept
-  let subDeptCheckboxes = '';
-  for (const dept of DEPARTMENTS) {
-    const subs = SUB_DEPARTMENTS[dept] || [];
-    if (subs.length === 0) continue;
-    subDeptCheckboxes += `<div style="margin-top:0.25rem;font-size:0.75rem;color:var(--color-text-muted);font-weight:600;">${dept}:</div>`;
-    subs.forEach(s => {
-      subDeptCheckboxes += `<label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;padding:0.15rem 0;padding-left:0.5rem;">
-        <input type="checkbox" class="edit-subdept-cb" value="${s}" ${memberSubDepts.includes(s) ? 'checked' : ''}> ${s}
-      </label>`;
-    });
-  }
 
   const roleSelect = `<select id="edit-role" style="padding:0.4rem;border-radius:var(--radius);border:1px solid var(--color-border);font-size:0.85rem;margin-top:0.25rem;">
     <option value="member" ${member.role === 'member' ? 'selected' : ''}>Team Member</option>
@@ -4105,7 +4104,6 @@ async function editMember(id) {
     <div style="flex:1;">
       <div class="team-member-name" style="margin-bottom:0.5rem;">Editing: ${escapeHtml(member.displayName)}</div>
       <div style="margin-bottom:0.5rem;"><strong style="font-size:0.75rem;text-transform:uppercase;color:var(--follett-dark-blue);">Departments:</strong><br>${deptCheckboxes}</div>
-      ${subDeptCheckboxes ? `<div style="margin-bottom:0.5rem;"><strong style="font-size:0.75rem;text-transform:uppercase;color:var(--follett-dark-blue);">Sub-Departments:</strong><br>${subDeptCheckboxes}</div>` : ''}
       <div style="margin-bottom:0.5rem;"><strong style="font-size:0.75rem;text-transform:uppercase;color:var(--follett-dark-blue);">Role:</strong><br>${roleSelect}</div>
       <div><strong style="font-size:0.75rem;text-transform:uppercase;color:var(--follett-dark-blue);">Reports To:</strong><br>${reportsToSelect}</div>
     </div>
@@ -4128,15 +4126,13 @@ async function editMember(id) {
 async function saveMemberEdit(id) {
   const departments = [];
   document.querySelectorAll('.edit-dept-cb:checked').forEach(cb => departments.push(cb.value));
-  const subDepartments = [];
-  document.querySelectorAll('.edit-subdept-cb:checked').forEach(cb => subDepartments.push(cb.value));
   const role = document.getElementById('edit-role').value;
   const reportsTo = document.getElementById('edit-reports-to').value;
 
   if (departments.length === 0) { alert('Select at least one department'); return; }
 
   try {
-    await api('PUT', `/api/team/${id}`, { departments, subDepartments, role, reportsTo });
+    await api('PUT', `/api/team/${id}`, { departments, role, reportsTo });
     showTeamView();
   } catch (err) { alert('Failed to update: ' + err.message); }
 }
@@ -4156,7 +4152,7 @@ async function resetPassword(id, name) {
       `3. Sign in with your email (${result.email}) and the password you just created.\n\n` +
       `You'll see a Getting Started task with a few steps to walk you through it. Let me know if you have any questions!`;
     await navigator.clipboard.writeText(message);
-    alert(`Message for ${name} copied to clipboard! Just paste it into Slack or email.`);
+    showToast(`Message for ${name} copied to clipboard!`);
   } catch (err) { alert('Failed to generate reset link: ' + err.message); }
 }
 
@@ -4212,8 +4208,8 @@ async function mapSlackUser(memberId, memberName) {
         await loadTeam();
         overlay.remove();
         showTeamView();
-        alert(`${memberName} mapped to Slack!`);
-      } catch (err) { alert('Failed to map: ' + err.message); }
+        showToast(`${memberName} mapped to Slack!`);
+      } catch (err) { showToast('Failed to map: ' + err.message, 'error'); }
     });
 
     document.getElementById('btn-close-slack-map').addEventListener('click', () => overlay.remove());
@@ -4327,7 +4323,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!email) { document.getElementById('login-error').textContent = 'Enter your email first'; return; }
     firebase.auth().sendPasswordResetEmail(email).then(() => {
       document.getElementById('login-error').textContent = '';
-      alert('Password reset email sent to ' + email);
+      showToast('Password reset email sent to ' + email);
     }).catch(err => { document.getElementById('login-error').textContent = err.message; });
   });
 
@@ -4388,12 +4384,13 @@ document.addEventListener('DOMContentLoaded', () => {
       loadNotifications();
       try { await showBriefingIfNeeded(); } catch (e) { console.error('[Briefing] Error:', e); }
       // Poll notifications every 60 seconds
-      setInterval(loadNotifications, 60000);
+      notifPollInterval = setInterval(loadNotifications, 60000);
     } else {
       currentUser = null;
       authToken = null;
       myProfile = null;
       tasks = [];
+      if (notifPollInterval) { clearInterval(notifPollInterval); notifPollInterval = null; }
       loginScreen.style.display = 'flex';
       appContainer.style.display = 'none';
     }
