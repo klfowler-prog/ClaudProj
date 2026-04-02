@@ -2988,7 +2988,7 @@ app.post('/api/slack/announce', auth, async (req, res) => {
     const membersSnap = await db.collection('orgs').doc(req.orgId).collection('members').get();
     const activeMembers = membersSnap.docs.filter(d => {
       const m = d.data();
-      return (m.status === 'active' || !m.status) && m.userId !== req.userId;
+      return (m.status === 'active' || !m.status);
     });
 
     let slackSent = 0;

@@ -527,6 +527,24 @@
       </div>
     </div>
 
+    <!-- Announcement Modal -->
+    <div class="modal-overlay" id="modal-announce" style="display: none;">
+      <div class="modal modal-wide">
+        <div class="modal-header">
+          <h2>Send Announcement</h2>
+          <button class="modal-close" data-close="modal-announce">&times;</button>
+        </div>
+        <div style="padding: 0 1.5rem 1.5rem;">
+          <p style="font-size:0.85rem;color:var(--color-text-muted);margin-bottom:0.75rem;">This will be sent as a Slack DM and in-app notification to every active team member.</p>
+          <textarea id="announce-message" rows="5" style="width:100%;padding:0.75rem;border:1px solid var(--color-border);border-radius:var(--radius);font-family:'Roboto',sans-serif;font-size:0.9rem;line-height:1.6;resize:vertical;box-sizing:border-box;" placeholder="Type your announcement..."></textarea>
+          <div class="modal-actions">
+            <button class="btn btn-ghost" data-close="modal-announce">Cancel</button>
+            <button class="btn btn-primary" id="btn-send-announce">Send to Team</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Create/Edit Workspace Modal -->
     <div class="modal-overlay" id="modal-workspace" style="display: none;">
       <div class="modal">

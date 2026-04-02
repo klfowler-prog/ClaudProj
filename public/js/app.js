@@ -2925,6 +2925,20 @@ async function init() {
   document.getElementById('btn-slack-settings') && document.getElementById('btn-slack-settings').addEventListener('click', openSlackSettings);
   document.getElementById('btn-ai-context') && document.getElementById('btn-ai-context').addEventListener('click', openAiContext);
   document.getElementById('btn-announce') && document.getElementById('btn-announce').addEventListener('click', sendAnnouncement);
+  document.getElementById('btn-send-announce').addEventListener('click', async () => {
+    const message = document.getElementById('announce-message').value.trim();
+    if (!message) { showToast('Please type a message', 'error'); return; }
+    const btn = document.getElementById('btn-send-announce');
+    btn.disabled = true;
+    btn.textContent = 'Sending...';
+    try {
+      const result = await api('POST', '/api/slack/announce', { message });
+      closeModal('modal-announce');
+      showToast(`Announcement sent! ${result.slackSent} Slack DMs + ${result.notifSent} in-app notifications.`);
+    } catch (err) { showToast('Failed to send', 'error'); }
+    btn.disabled = false;
+    btn.textContent = 'Send to Team';
+  });
   document.getElementById('btn-ai-context-save').addEventListener('click', saveAiContext);
   document.getElementById('btn-ai-context-generate').addEventListener('click', generateAiContext);
   document.querySelectorAll('[data-view="team"]').forEach(btn => {
@@ -3596,12 +3610,8 @@ async function generateAiContext() {
 
 // === Announcements ===
 async function sendAnnouncement() {
-  const message = prompt('Type your announcement message for the whole team:');
-  if (!message || !message.trim()) return;
-  try {
-    const result = await api('POST', '/api/slack/announce', { message: message.trim() });
-    showToast(`Announcement sent! ${result.slackSent} Slack DMs + ${result.notifSent} in-app notifications delivered.`);
-  } catch (err) { showToast('Failed to send', 'error'); }
+  document.getElementById('announce-message').value = '';
+  openModal('modal-announce');
 }
 
 // === Slack Settings ===
