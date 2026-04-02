@@ -2486,9 +2486,16 @@ body {
 .cal-more:hover { color: var(--follett-medium-blue); }
 
 @media (max-width: 768px) {
-  .cal-day { min-height: 60px; }
-  .cal-task { font-size: 0.55rem; }
+  .cal-grid {
+    grid-template-columns: repeat(7, minmax(75px, 1fr));
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .cal-day { min-height: 55px; padding: 0.2rem; }
+  .cal-task { font-size: 0.6rem; padding: 0.1rem 0.2rem; }
   .cal-day-num { font-size: 0.65rem; }
+  .cal-day-header { font-size: 0.6rem; padding: 0.25rem; }
+  .cal-header { flex-wrap: wrap; }
   .view-toggle { display: flex; }
   .view-toggle-btn { padding: 0.35rem 0.5rem; font-size: 0.65rem; min-height: 32px; }
 }
