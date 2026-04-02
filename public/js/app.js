@@ -1262,7 +1262,7 @@ function showTaskDetail(id) {
       </div>` : ''}
       <div>
         <div class="detail-section-title">Due Date</div>
-        ${task.dueDate ? `<span>${formatDueDate(task.dueDate, task.status === 'Completed')} ${new Date(task.dueDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>` : '<span style="color:var(--color-text-light);font-size:0.85rem;">Not set</span>'}
+        <input type="date" value="${task.dueDate || ''}" onchange="updateTaskDueDate('${task.id}', this.value)" style="font-size:0.8rem;padding:0.25rem 0.4rem;border:1px solid var(--color-border);border-radius:var(--radius);font-family:'Roboto',sans-serif;">
       </div>
       <div>
         <div class="detail-section-title">Assigned To</div>
@@ -1458,6 +1458,16 @@ async function reassignTask(taskId, newAssignee) {
   } catch (err) { showToast('Failed to reassign', 'error'); }
 }
 
+async function updateTaskDueDate(taskId, newDate) {
+  try {
+    await api('PUT', `/api/tasks/${taskId}`, { dueDate: newDate || '' });
+    const task = tasks.find(t => t.id === taskId);
+    if (task) task.dueDate = newDate || '';
+    render();
+    showToast('Due date updated');
+  } catch (err) { showToast('Failed to update due date', 'error'); }
+}
+
 async function loadSubtasks(parentId) {
   try {
     const subtasks = await api('GET', `/api/tasks/${parentId}/subtasks`);
@@ -1469,15 +1479,15 @@ async function loadSubtasks(parentId) {
     container.innerHTML = subtasks.map(s => {
       const isComplete = s.status === 'Completed';
       const assignName = teamMembers.find(m => m.userId === s.assignedTo);
-      const assignLabel = assignName ? ` &middot; ${escapeHtml(assignName.displayName)}` : '';
-      const dueLabel = s.dueDate ? ` &middot; Due ${s.dueDate}` : '';
-      return `<div style="display:flex;align-items:center;gap:0.5rem;padding:0.375rem 0;border-bottom:1px solid var(--color-border);">
-        <button class="task-check ${isComplete ? 'checked' : ''}" onclick="event.stopPropagation();toggleSubtask('${s.id}', '${s.status}', '${parentId}')" style="width:18px;height:18px;font-size:0.6rem;">${isComplete ? '&#10003;' : ''}</button>
-        <div style="flex:1;cursor:pointer;" onclick="showTaskDetail('${s.id}')">
-          <span style="font-size:0.85rem;${isComplete ? 'text-decoration:line-through;opacity:0.5;' : ''}">${escapeHtml(s.title)}</span>
-          <span style="font-size:0.7rem;color:var(--color-text-light);">${assignLabel}${dueLabel}</span>
+      const assignLabel = assignName ? escapeHtml(assignName.displayName.split(' ')[0]) : '';
+      const dueLabel = s.dueDate ? s.dueDate.substring(5) : '';
+      return `<div style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem 0.25rem;border-bottom:1px solid var(--color-border);min-height:36px;">
+        <button class="task-check ${isComplete ? 'checked' : ''}" onclick="event.stopPropagation();toggleSubtask('${s.id}', '${s.status}', '${parentId}')" style="width:22px;height:22px;font-size:0.7rem;flex-shrink:0;">${isComplete ? '&#10003;' : ''}</button>
+        <div style="flex:1;cursor:pointer;min-width:0;" onclick="showTaskDetail('${s.id}')">
+          <div style="font-size:0.85rem;${isComplete ? 'text-decoration:line-through;opacity:0.5;' : ''}white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(s.title)}</div>
+          ${assignLabel || dueLabel ? `<div style="font-size:0.7rem;color:var(--color-text-light);">${assignLabel}${assignLabel && dueLabel ? ' · ' : ''}${dueLabel}</div>` : ''}
         </div>
-        <button class="btn btn-ghost btn-sm" style="font-size:0.65rem;padding:0.15rem 0.375rem;" onclick="event.stopPropagation();editTask('${s.id}')">Edit</button>
+        <button class="btn btn-ghost btn-sm" style="font-size:0.7rem;padding:0.3rem 0.5rem;flex-shrink:0;" onclick="event.stopPropagation();editTask('${s.id}')">Edit</button>
       </div>`;
     }).join('');
   } catch (err) { document.getElementById('subtask-list').textContent = 'Failed to load'; }
