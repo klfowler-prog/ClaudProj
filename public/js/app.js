@@ -171,7 +171,7 @@ async function migrateLocalStorage() {
     await loadTasks();
     render();
   } catch (err) {
-    alert('Migration failed: ' + err.message + '. Your local tasks are still safe. Try again on next login.');
+    showToast('Migration failed. Your local tasks are still safe.', 'error');
   }
 }
 
@@ -936,7 +936,7 @@ async function addTask(title, department, priority, notes, source, attachments, 
     render();
     return created;
   } catch (err) {
-    alert('Failed to create task: ' + err.message);
+    showToast('Failed to create task', 'error');
     return null;
   }
 }
@@ -998,7 +998,7 @@ async function setTaskStatus(id, newStatus) {
   } catch (err) {
     await loadTasks();
     render();
-    alert('Failed to update status: ' + err.message);
+    showToast('Failed to update status', 'error');
   }
 }
 
@@ -1012,7 +1012,7 @@ async function deleteTask(id) {
   } catch (err) {
     await loadTasks();
     render();
-    alert('Failed to delete task: ' + err.message);
+    showToast('Failed to delete task', 'error');
   }
 }
 
@@ -1142,7 +1142,7 @@ function initTaskTagInput() {
 function handleFiles(files) {
   for (const file of files) {
     if (file.size > 2 * 1024 * 1024) {
-      alert(`File "${file.name}" is too large (max 2MB). Use a link instead.`);
+      showToast(`File "${file.name}" is too large (max 2MB)`, 'error');
       continue;
     }
     const reader = new FileReader();
@@ -1381,7 +1381,7 @@ async function addComment(taskId) {
     await api('POST', `/api/tasks/${taskId}/comments`, { text });
     input.value = '';
     loadComments(taskId);
-  } catch (err) { alert('Failed to post comment: ' + err.message); }
+  } catch (err) { showToast('Failed to post comment', 'error'); }
 }
 
 // Enter key to post comment
@@ -1407,7 +1407,7 @@ function hideSubtaskForm() {
 async function toggleTaskPrivate(taskId, isPrivate) {
   try {
     await api('PUT', `/api/tasks/${taskId}`, { private: isPrivate });
-  } catch (err) { alert('Failed to update: ' + err.message); }
+  } catch (err) { showToast('Failed to update', 'error'); }
 }
 
 async function setTaskStatusFromDetail(taskId, newStatus) {
@@ -1424,7 +1424,7 @@ async function setTaskStatusFromDetail(taskId, newStatus) {
     await loadTasks();
     render();
     closeModal('modal-detail');
-  } catch (err) { alert('Failed to update status: ' + err.message); }
+  } catch (err) { showToast('Failed to update status', 'error'); }
 }
 
 async function approveAndReturn(taskId, createdBy) {
@@ -1433,7 +1433,7 @@ async function approveAndReturn(taskId, createdBy) {
     closeModal('modal-detail');
     await loadTasks();
     render();
-  } catch (err) { alert('Failed to approve: ' + err.message); }
+  } catch (err) { showToast('Failed to approve', 'error'); }
 }
 
 async function needsRevision(taskId, createdBy) {
@@ -1445,7 +1445,7 @@ async function needsRevision(taskId, createdBy) {
     closeModal('modal-detail');
     await loadTasks();
     render();
-  } catch (err) { alert('Failed to send back: ' + err.message); }
+  } catch (err) { showToast('Failed to send back', 'error'); }
 }
 
 async function reassignTask(taskId, newAssignee) {
@@ -1455,7 +1455,7 @@ async function reassignTask(taskId, newAssignee) {
     await api('PUT', `/api/tasks/${taskId}`, updates);
     await loadTasks();
     render();
-  } catch (err) { alert('Failed to reassign: ' + err.message); }
+  } catch (err) { showToast('Failed to reassign', 'error'); }
 }
 
 async function loadSubtasks(parentId) {
@@ -1496,7 +1496,7 @@ async function toggleSubtask(subtaskId, currentStatus, parentId) {
     // Refresh main task list for updated counts
     await loadTasks();
     render();
-  } catch (err) { alert('Failed to update sub-task: ' + err.message); }
+  } catch (err) { showToast('Failed to update sub-task', 'error'); }
 }
 
 async function submitSubtask(parentId, department) {
@@ -1524,7 +1524,7 @@ async function submitSubtask(parentId, department) {
     loadSubtasks(parentId);
     await loadTasks();
     render();
-  } catch (err) { alert('Failed to create sub-task: ' + err.message); }
+  } catch (err) { showToast('Failed to create sub-task', 'error'); }
 }
 
 // === Gmail Sync ===
@@ -1565,7 +1565,7 @@ async function handleSyncClick() {
       // Stop polling after 5 minutes
       setTimeout(() => clearInterval(poll), 300000);
     } catch (err) {
-      alert('Failed to start Gmail authorization: ' + err.message);
+      showToast('Failed to start Gmail authorization', 'error');
     }
     return;
   }
@@ -1582,7 +1582,7 @@ async function handleSyncClick() {
       showToast('No new unread emails to sync.');
     }
   } catch (err) {
-    alert('Sync failed: ' + err.message);
+    showToast('Email sync failed', 'error');
   }
   await checkGmailStatus();
 }
@@ -1812,6 +1812,7 @@ async function openNote(noteId) {
     document.getElementById('editor-content').innerHTML = note.content || '';
     document.getElementById('notes-editor-panel').style.display = 'flex';
     document.getElementById('notes-no-selection').style.display = 'none';
+    document.getElementById('view-notes').classList.add('note-open');
     document.getElementById('editor-saved').textContent = '';
     document.getElementById('note-ai-panel').style.display = 'none';
     noteAiHistory = [];
@@ -1852,7 +1853,7 @@ async function openNote(noteId) {
     renderNoteTags(note.tags || [], canEdit);
 
     renderNotesList();
-  } catch (err) { alert('Failed to open note: ' + err.message); }
+  } catch (err) { showToast('Failed to open note', 'error'); }
 }
 
 async function createNote() {
@@ -1864,7 +1865,7 @@ async function createNote() {
     notesList.unshift(note);
     renderNotesList();
     openNote(note.id);
-  } catch (err) { alert('Failed to create note: ' + err.message); }
+  } catch (err) { showToast('Failed to create note', 'error'); }
 }
 
 function autoLinkUrls(element) {
@@ -1943,7 +1944,7 @@ async function deleteNote() {
     document.getElementById('notes-editor-panel').style.display = 'none';
     document.getElementById('notes-no-selection').style.display = 'flex';
     renderNotesList();
-  } catch (err) { alert('Failed to delete note: ' + err.message); }
+  } catch (err) { showToast('Failed to delete note', 'error'); }
 }
 
 async function archiveNote() {
@@ -1956,7 +1957,7 @@ async function archiveNote() {
     document.getElementById('notes-no-selection').style.display = 'flex';
     renderNotesList();
     loadArchivedNotes();
-  } catch (err) { alert('Failed to archive: ' + err.message); }
+  } catch (err) { showToast('Failed to archive', 'error'); }
 }
 
 async function loadArchivedNotes() {
@@ -2004,7 +2005,7 @@ async function createFolder() {
     const folder = await api('POST', '/api/folders', { name, order: folders.length });
     folders.push(folder);
     renderSidebarFolders();
-  } catch (err) { alert('Failed to create folder: ' + err.message); }
+  } catch (err) { showToast('Failed to create folder', 'error'); }
 }
 
 // === Note Files & Links ===
@@ -2078,7 +2079,7 @@ async function uploadNoteFile(files) {
         type: 'file', name: result.name, gcsPath: result.gcsPath, size: result.size
       });
     } catch (err) {
-      alert('Upload failed: ' + err.message);
+      showToast('Upload failed', 'error');
     }
   }
   status.style.display = 'none';
@@ -2091,7 +2092,7 @@ async function downloadFile(gcsPath) {
     const result = await api('GET', `/api/file-url?path=${encodeURIComponent(gcsPath)}`);
     window.open(result.url, '_blank');
   } catch (err) {
-    alert('Failed to get download link: ' + err.message);
+    showToast('Failed to get download link', 'error');
   }
 }
 
@@ -2183,7 +2184,7 @@ async function saveSharing() {
     const count = sharedWith.length;
     showToast(count > 0 ? `Note shared with ${count} ${count === 1 ? 'recipient' : 'recipients'}${allowEditing ? ' (editing enabled)' : ''}.` : 'Note is now private.');
   } catch (err) {
-    alert('Failed to save sharing: ' + err.message);
+    showToast('Failed to save sharing', 'error');
   }
 }
 
@@ -2231,7 +2232,7 @@ function addNoteAiMessage(role, text) {
 }
 
 async function sendNoteAiMessage(messageOverride) {
-  if (!activeNoteId) { alert('Please select a note first.'); return; }
+  if (!activeNoteId) { showToast('Please select a note first', 'error'); return; }
   const input = document.getElementById('note-ai-input');
   const message = messageOverride || input.value.trim();
   if (!message) return;
@@ -2270,7 +2271,7 @@ async function aiGenerateTasks() {
     hideAiPanel();
     pendingAiGroups = result.groups || [];
     if (pendingAiGroups.length === 0) {
-      alert('No actionable tasks found in this note.');
+      showToast('No actionable tasks found in this note');
       return;
     }
 
@@ -2377,7 +2378,7 @@ async function createAiTasks() {
     render();
     showToast(`Created ${totalCreated} task${totalCreated !== 1 ? 's' : ''}!`);
   } catch (err) {
-    alert('Failed to create tasks: ' + err.message);
+    showToast('Failed to create tasks', 'error');
   }
 }
 
@@ -2622,7 +2623,7 @@ async function init() {
       if (parsed.assignedTo) document.getElementById('parsed-assign').value = parsed.assignedTo;
       document.getElementById('ai-parsed-task').style.display = 'block';
     } catch (err) {
-      alert('AI parsing failed: ' + err.message);
+      showToast('AI parsing failed', 'error');
     }
     btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="vertical-align:-1px;"><path d="M12 0l1.8 7.6L22 8l-6.4 4.2L18 20l-6-4.8L6 20l2.4-7.8L2 8l8.2-.4z"/></svg> Create Task';
     btn.disabled = false;
@@ -2653,6 +2654,8 @@ async function init() {
   // Add/Edit task form submit
   document.getElementById('form-add-task').addEventListener('submit', async (e) => {
     e.preventDefault();
+    const submitBtn = document.getElementById('btn-submit-task');
+    submitBtn.disabled = true;
     const title = document.getElementById('input-title').value.trim();
     const department = document.getElementById('input-department').value;
     const priority = document.getElementById('input-priority').value;
@@ -2682,7 +2685,7 @@ async function init() {
         if (task) Object.assign(task, updates);
         render();
       } catch (err) {
-        alert('Failed to update task: ' + err.message);
+        showToast('Failed to update task', 'error');
       }
     } else {
       await addTask(title, department, priority, notes, 'manual', allAttachments, dueDate, recurring, assignTo, currentTaskTags);
@@ -2690,6 +2693,7 @@ async function init() {
 
     closeModal('modal-add');
     resetAddForm();
+    submitBtn.disabled = false;
   });
 
   // Close modals
@@ -2763,6 +2767,11 @@ async function init() {
 
   // Notes event listeners
   document.getElementById('btn-new-note').addEventListener('click', createNote);
+  document.getElementById('btn-notes-back').addEventListener('click', () => {
+    document.getElementById('view-notes').classList.remove('note-open');
+    document.getElementById('notes-editor-panel').style.display = 'none';
+    document.getElementById('notes-no-selection').style.display = 'flex';
+  });
   initNoteTagInput();
   initTaskTagInput();
 
@@ -2791,7 +2800,7 @@ async function init() {
       btn.style.color = isPrivate ? 'var(--follett-coral)' : '';
       btn.title = isPrivate ? 'Private — click to make visible' : 'Click to make private';
       document.getElementById('editor-saved').textContent = isPrivate ? 'Private' : 'Saved';
-    } catch (err) { alert('Failed to update: ' + err.message); }
+    } catch (err) { showToast('Failed to update', 'error'); }
   });
   document.getElementById('notes-archived-toggle').addEventListener('click', () => {
     const list = document.getElementById('notes-archived-list');
@@ -2838,7 +2847,7 @@ async function init() {
       // Update the note in the local list
       const item = notesList.find(n => n.id === activeNoteId);
       if (item) item.folderId = e.target.value;
-    } catch (err) { alert('Failed to move note: ' + err.message); }
+    } catch (err) { showToast('Failed to move note', 'error'); }
   });
   document.getElementById('btn-save-share').addEventListener('click', saveSharing);
   document.getElementById('btn-add-folder').addEventListener('click', createFolder);
@@ -2874,7 +2883,7 @@ async function init() {
       await api('POST', '/api/notifications/read-all');
       await loadNotifications();
       showNotifications();
-    } catch (err) { alert('Failed to mark all read'); }
+    } catch (err) { showToast('Failed to mark all read', 'error'); }
   });
 
   // Team (CMO only)
@@ -3511,7 +3520,7 @@ async function submitWorkspace(e) {
       activeWorkspaceName = name;
       document.getElementById('workspace-header-name').textContent = name;
     }
-  } catch (err) { alert('Failed: ' + err.message); }
+  } catch (err) { showToast('Operation failed', 'error'); }
 }
 
 async function toggleShowOnMaster(taskId, current) {
@@ -3520,7 +3529,7 @@ async function toggleShowOnMaster(taskId, current) {
     const task = tasks.find(t => t.id === taskId);
     if (task) task.showOnMaster = !current;
     render();
-  } catch (err) { alert('Failed to update: ' + err.message); }
+  } catch (err) { showToast('Failed to update', 'error'); }
 }
 
 // === AI Context Settings ===
@@ -3537,7 +3546,7 @@ async function saveAiContext() {
     await api('PUT', '/api/settings/ai-context', { context: document.getElementById('ai-context-textarea').value });
     closeModal('modal-ai-context');
     showToast('AI context saved! The AI will now use this across the app.');
-  } catch (err) { alert('Failed to save: ' + err.message); }
+  } catch (err) { showToast('Failed to save', 'error'); }
 }
 
 async function generateAiContext() {
@@ -3547,7 +3556,7 @@ async function generateAiContext() {
   try {
     const { draft } = await api('POST', '/api/settings/ai-context/generate');
     document.getElementById('ai-context-textarea').value = draft;
-  } catch (err) { alert('Failed to generate: ' + err.message); }
+  } catch (err) { showToast('Failed to generate', 'error'); }
   btn.disabled = false;
   btn.textContent = 'Auto-Generate Draft';
 }
@@ -3559,7 +3568,7 @@ async function sendAnnouncement() {
   try {
     const result = await api('POST', '/api/slack/announce', { message: message.trim() });
     showToast(`Announcement sent! ${result.slackSent} Slack DMs + ${result.notifSent} in-app notifications delivered.`);
-  } catch (err) { alert('Failed to send: ' + err.message); }
+  } catch (err) { showToast('Failed to send', 'error'); }
 }
 
 // === Slack Settings ===
@@ -3594,7 +3603,7 @@ async function openSlackSettings() {
             if (s.connected) { clearInterval(poll); openSlackSettings(); }
           }, 2000);
           setTimeout(() => clearInterval(poll), 120000);
-        } catch (err) { alert('Failed to start Slack connection: ' + err.message); }
+        } catch (err) { showToast('Failed to start Slack connection', 'error'); }
       });
       return;
     }
@@ -3692,7 +3701,7 @@ async function openSlackSettings() {
     // Event listeners
     document.getElementById('btn-slack-disconnect').addEventListener('click', async () => {
       if (!confirm('Disconnect Slack? This will stop all Slack notifications.')) return;
-      try { await api('POST', '/api/slack/disconnect'); openSlackSettings(); } catch (err) { alert(err.message); }
+      try { await api('POST', '/api/slack/disconnect'); openSlackSettings(); } catch (err) { showToast(err.message, 'error'); }
     });
 
     document.getElementById('btn-slack-test').addEventListener('click', async () => {
@@ -4012,7 +4021,7 @@ async function viewAs(userId) {
     switchView('tasks');
   } catch (err) {
     viewAsUserId = null;
-    alert('Failed to impersonate: ' + err.message);
+    showToast('Failed to impersonate', 'error');
   }
 }
 
@@ -4039,7 +4048,7 @@ async function submitInvite(e) {
   const role = document.getElementById('invite-role').value;
   const reportsTo = document.getElementById('invite-reports-to').value;
 
-  if (!name || !email || departments.length === 0) { alert('Select at least one department'); return; }
+  if (!name || !email || departments.length === 0) { showToast('Name, email, and at least one department required', 'error'); return; }
 
   try {
     const result = await api('POST', '/api/team/invite', { email, displayName: name, departments, role, reportsTo });
@@ -4063,16 +4072,16 @@ async function submitInvite(e) {
     document.getElementById('form-invite').style.display = '';
     document.getElementById('invite-result').style.display = 'none';
     showTeamView();
-  } catch (err) { alert('Failed to add member: ' + err.message); }
+  } catch (err) { showToast('Failed to add member', 'error'); }
 }
 
 async function disableMember(id) {
   if (!confirm('Disable this team member? They will lose access immediately.')) return;
-  try { await api('POST', `/api/team/${id}/disable`); showTeamView(); } catch (err) { alert(err.message); }
+  try { await api('POST', `/api/team/${id}/disable`); showTeamView(); } catch (err) { showToast(err.message, 'error'); }
 }
 
 async function enableMember(id) {
-  try { await api('POST', `/api/team/${id}/enable`); showTeamView(); } catch (err) { alert(err.message); }
+  try { await api('POST', `/api/team/${id}/enable`); showTeamView(); } catch (err) { showToast(err.message, 'error'); }
 }
 
 async function editMember(id) {
@@ -4129,17 +4138,17 @@ async function saveMemberEdit(id) {
   const role = document.getElementById('edit-role').value;
   const reportsTo = document.getElementById('edit-reports-to').value;
 
-  if (departments.length === 0) { alert('Select at least one department'); return; }
+  if (departments.length === 0) { showToast('Select at least one department', 'error'); return; }
 
   try {
     await api('PUT', `/api/team/${id}`, { departments, role, reportsTo });
     showTeamView();
-  } catch (err) { alert('Failed to update: ' + err.message); }
+  } catch (err) { showToast('Failed to update', 'error'); }
 }
 
 async function deleteMember(id, name) {
   if (!confirm(`Remove ${name} from the team? This deletes their account entirely so you can re-invite them if needed.`)) return;
-  try { await api('DELETE', `/api/team/${id}`); showTeamView(); } catch (err) { alert(err.message); }
+  try { await api('DELETE', `/api/team/${id}`); showTeamView(); } catch (err) { showToast(err.message, 'error'); }
 }
 
 async function resetPassword(id, name) {
@@ -4153,14 +4162,14 @@ async function resetPassword(id, name) {
       `You'll see a Getting Started task with a few steps to walk you through it. Let me know if you have any questions!`;
     await navigator.clipboard.writeText(message);
     showToast(`Message for ${name} copied to clipboard!`);
-  } catch (err) { alert('Failed to generate reset link: ' + err.message); }
+  } catch (err) { showToast('Failed to generate reset link', 'error'); }
 }
 
 async function mapSlackUser(memberId, memberName) {
   try {
     const slackUsers = await api('GET', '/api/slack/users');
     if (!slackUsers || slackUsers.length === 0) {
-      alert('Slack is not connected or no users found.');
+      showToast('Slack is not connected or no users found', 'error');
       return;
     }
 
@@ -4214,7 +4223,7 @@ async function mapSlackUser(memberId, memberName) {
 
     document.getElementById('btn-close-slack-map').addEventListener('click', () => overlay.remove());
     overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
-  } catch (err) { alert('Failed to load Slack users: ' + err.message); }
+  } catch (err) { showToast('Failed to load Slack users', 'error'); }
 }
 
 // === Feature Requests ===
@@ -4255,7 +4264,7 @@ async function loadFeatureRequests() {
         try {
           await api('POST', `/api/feature-requests/${id}/vote`, { vote: newVote });
           loadFeatureRequests();
-        } catch (err) { alert('Failed to vote: ' + err.message); }
+        } catch (err) { showToast('Failed to vote', 'error'); }
       });
     });
   } catch (err) { console.error('Failed to load feature requests:', err); }
@@ -4282,7 +4291,7 @@ async function submitSuggestion() {
       btn.disabled = false;
     }, 2000);
   } catch (err) {
-    alert('Failed to submit: ' + err.message);
+    showToast('Failed to submit', 'error');
     btn.textContent = 'Submit';
     btn.disabled = false;
   }
