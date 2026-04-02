@@ -2191,7 +2191,7 @@ app.get('/api/team', auth, async (req, res) => {
     const members = snap.docs.map(d => {
       const m = d.data();
       if (req.memberRole === 'cmo') return { id: d.id, ...m };
-      return { id: d.id, userId: m.userId, displayName: m.displayName, department: m.department, departments: getMemberDepts(m), subDepartments: getMemberSubDepts(m) };
+      return { id: d.id, userId: m.userId, displayName: m.displayName, email: m.email, department: m.department, departments: getMemberDepts(m), subDepartments: getMemberSubDepts(m), role: m.role, reportsTo: m.reportsTo || '', slackUserId: m.slackUserId || '', status: m.status };
     });
     res.json(members);
   } catch (err) { res.status(500).json({ error: 'Failed to fetch team' }); }
