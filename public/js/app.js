@@ -337,6 +337,8 @@ function renderKanban() {
       }
       await api('PUT', `/api/tasks/${draggedId}`, updates);
       Object.assign(task, updates);
+      // Auto-create next occurrence for recurring tasks
+      if (newStatus === 'Completed') await handleRecurringTaskCompletion(task);
       render();
     } catch (err) { showToast('Failed to update status', 'error'); }
   };
@@ -964,6 +966,25 @@ async function addTask(title, department, priority, notes, source, attachments, 
   }
 }
 
+async function handleRecurringTaskCompletion(task) {
+  if (task.recurring && task.recurring !== 'none') {
+    const nextDue = getNextDueDate(task.dueDate, task.recurring);
+    await addTask(
+      task.title,
+      task.department,
+      task.priority,
+      task.notes,
+      'manual',
+      task.attachments || [],
+      nextDue,
+      task.recurring,
+      task.assignedTo || undefined,
+      task.tags || []
+    );
+    showToast(`Next ${task.recurring} occurrence created`);
+  }
+}
+
 function getNextDueDate(currentDueDate, frequency) {
   if (!currentDueDate) {
     // No due date — use today as the base
@@ -1003,21 +1024,7 @@ async function setTaskStatus(id, newStatus) {
     await api('PUT', `/api/tasks/${id}`, updates);
 
     // Auto-create next occurrence for recurring tasks
-    if (newStatus === 'Completed' && task.recurring && task.recurring !== 'none') {
-      const nextDue = getNextDueDate(task.dueDate, task.recurring);
-      await addTask(
-        task.title,
-        task.department,
-        task.priority,
-        task.notes,
-        'manual',
-        task.attachments || [],
-        nextDue,
-        task.recurring,
-        task.assignedTo || undefined,
-        task.tags || []
-      );
-    }
+    if (newStatus === 'Completed') await handleRecurringTaskCompletion(task);
   } catch (err) {
     await loadTasks();
     render();
@@ -1444,6 +1451,11 @@ async function setTaskStatusFromDetail(taskId, newStatus) {
       updates.completedAt = new Date().toISOString();
     }
     await api('PUT', `/api/tasks/${taskId}`, updates);
+    // Auto-create next occurrence for recurring tasks
+    if (newStatus === 'Completed') {
+      const task = tasks.find(t => t.id === taskId);
+      if (task) await handleRecurringTaskCompletion(task);
+    }
     await loadTasks();
     render();
     closeModal('modal-detail');
