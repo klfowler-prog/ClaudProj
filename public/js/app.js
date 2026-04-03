@@ -1813,8 +1813,9 @@ async function updateMyNotesCount() {
 async function loadNotesList(folderId, preserveTagFilter) {
   try {
     if (!preserveTagFilter) activeTagFilter = ''; // Reset tag filter when switching folders
+    // When viewing a specific folder, globalMyNotesView doesn't apply — use showMyNotesOnly
+    if (folderId) globalMyNotesView = false;
     let url = folderId ? `/api/notes?folderId=${folderId}` : '/api/notes';
-    // In global My Notes view, always filter to mine
     if (globalMyNotesView || showMyNotesOnly) url += (url.includes('?') ? '&' : '?') + 'mine=true';
     notesList = await api('GET', url);
     // Show/hide the All/Mine toggle — hide in global My Notes view
