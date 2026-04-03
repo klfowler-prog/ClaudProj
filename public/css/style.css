@@ -1191,8 +1191,12 @@ body {
   .notes-list-panel {
     width: 100%;
     border-right: none;
-    border-bottom: 1px solid var(--color-border);
+    border-bottom: none;
     max-height: none;
+  }
+  /* Hide the empty preview panel on mobile — just show the list */
+  .notes-no-selection {
+    display: none !important;
   }
   /* When a note is open on mobile, hide the list and show editor full-screen */
   .notes-view.note-open .notes-list-panel { display: none; }
