@@ -188,6 +188,17 @@ body {
   margin-bottom: 0.25rem;
 }
 
+.sidebar-section-label {
+  padding: 0.5rem 1rem 0.2rem;
+  font-family: 'Roboto', sans-serif;
+  font-size: 0.6rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.25);
+  margin-top: 0.25rem;
+}
+
 .sidebar-nav-item {
   display: flex;
   align-items: center;
@@ -317,33 +328,34 @@ body {
 
 /* === Sidebar Space Navigation === */
 .sidebar-space {
-  margin-bottom: 0.125rem;
+  margin-bottom: 0;
 }
 
 .sidebar-space-header {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.4rem;
   width: 100%;
-  padding: 0.45rem 1rem;
+  padding: 0.35rem 1rem;
   background: none;
   border: none;
-  color: rgba(255, 255, 255, 0.6);
+  color: rgba(255, 255, 255, 0.4);
   font-family: 'Roboto', sans-serif;
-  font-size: 0.8rem;
-  font-weight: 500;
+  font-size: 0.72rem;
+  font-weight: 400;
   cursor: pointer;
   text-align: left;
+  letter-spacing: 0.01em;
   transition: var(--transition);
 }
 
 .sidebar-space-header:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: #ffffff;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.7);
 }
 
 .sidebar-space-header.expanded {
-  color: rgba(255, 255, 255, 0.85);
+  color: rgba(255, 255, 255, 0.6);
 }
 
 .sidebar-space-name {
@@ -351,33 +363,34 @@ body {
 }
 
 .sidebar-space-header .dept-dot {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 .sidebar-space-subitems {
-  padding: 0.125rem 0;
+  padding: 0 0 0.2rem;
 }
 
 .sidebar-space-subitem {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.35rem;
   width: 100%;
-  padding: 0.3rem 1rem 0.3rem 2.75rem;
+  padding: 0.25rem 1rem 0.25rem 2.25rem;
   background: none;
   border: none;
-  color: rgba(255, 255, 255, 0.45);
+  color: rgba(255, 255, 255, 0.4);
   font-family: 'Roboto', sans-serif;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
+  font-weight: 400;
   cursor: pointer;
   text-align: left;
   transition: var(--transition);
 }
 
 .sidebar-space-subitem:hover {
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .sidebar-space-subitem.active {
@@ -386,7 +399,7 @@ body {
 }
 
 .sidebar-space-subitem svg {
-  opacity: 0.5;
+  opacity: 0.4;
   flex-shrink: 0;
 }
 
@@ -395,7 +408,7 @@ body {
 }
 
 .sidebar-space-subitem .sidebar-count {
-  font-size: 0.65rem;
+  font-size: 0.6rem;
 }
 
 .sidebar-space-subitem.sidebar-subdept {

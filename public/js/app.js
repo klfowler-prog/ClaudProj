@@ -3630,6 +3630,8 @@ function renderSidebarWorkspaces() {
   // Show section if user has any workspaces or is CMO/lead
   const show = workspaces.length > 0 || (myProfile && (myProfile.role === 'cmo' || myProfile.role === 'lead'));
   document.getElementById('sidebar-workspaces-section').style.display = show ? 'block' : 'none';
+  const wsLabel = document.getElementById('sidebar-workspaces-label');
+  if (wsLabel) wsLabel.style.display = show ? 'block' : 'none';
   // Auto-expand if user has workspaces
   if (workspaces.length > 0) {
     document.getElementById('workspaces-subnav').classList.remove('collapsed');
