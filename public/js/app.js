@@ -607,6 +607,9 @@ function renderSidebarSpaces() {
     } else if (actionType === 'notes') {
       globalMyTasksView = false;
       globalMyNotesView = false;
+      showMyNotesOnly = false; // Dept notes shows all notes in that folder
+      document.getElementById('btn-all-notes').classList.add('active');
+      document.getElementById('btn-my-notes').classList.remove('active');
       switchView('notes');
       if (!folders || folders.length === 0) {
         await loadFolders();
@@ -1794,6 +1797,19 @@ function renderSidebarFolders() {
   });
 }
 
+// Update the My Notes count badge in sidebar
+async function updateMyNotesCount() {
+  try {
+    const myNotes = await api('GET', '/api/notes?mine=true');
+    const countEl = document.getElementById('sidebar-count-my-notes');
+    if (countEl) {
+      const count = myNotes.filter(n => !n.archived).length;
+      countEl.textContent = count;
+      countEl.style.display = count > 0 ? '' : 'none';
+    }
+  } catch (err) { /* silent */ }
+}
+
 async function loadNotesList(folderId) {
   try {
     activeTagFilter = ''; // Reset tag filter when switching folders
@@ -2006,6 +2022,7 @@ async function createNote() {
     notesList.unshift(note);
     renderNotesList();
     openNote(note.id);
+    updateMyNotesCount();
   } catch (err) { showToast('Failed to create note', 'error'); }
 }
 
@@ -2085,6 +2102,7 @@ async function deleteNote() {
     document.getElementById('notes-editor-panel').style.display = 'none';
     document.getElementById('notes-no-selection').style.display = 'flex';
     renderNotesList();
+    updateMyNotesCount();
   } catch (err) { showToast('Failed to delete note', 'error'); }
 }
 
@@ -2098,6 +2116,7 @@ async function archiveNote() {
     document.getElementById('notes-no-selection').style.display = 'flex';
     renderNotesList();
     loadArchivedNotes();
+    updateMyNotesCount();
   } catch (err) { showToast('Failed to archive', 'error'); }
 }
 
@@ -2694,9 +2713,11 @@ async function init() {
   await loadTasks();
   await loadTeam();
   await loadWorkspaces();
+  await loadFolders();
   await migrateLocalStorage();
   setTaskViewMode(taskViewMode);
   render();
+  updateMyNotesCount(); // async, non-blocking
 
   // Workspace listeners
   document.getElementById('btn-add-workspace').addEventListener('click', () => showCreateWorkspaceModal());
@@ -2893,6 +2914,9 @@ async function init() {
     globalMyNotesView = true;
     globalMyTasksView = false;
     showMyNotesOnly = true;
+    // Sync the All/Mine toggle in notes view
+    document.getElementById('btn-my-notes').classList.add('active');
+    document.getElementById('btn-all-notes').classList.remove('active');
     // Clear workspace context
     if (typeof activeWorkspaceId !== 'undefined' && activeWorkspaceId) {
       activeWorkspaceId = null;
@@ -2905,7 +2929,7 @@ async function init() {
     if (!folders || folders.length === 0) {
       await loadFolders();
     }
-    // Show all notes (no folder filter)
+    // Show all my notes (no folder filter)
     activeFolderId = null;
     loadNotesList(null);
     document.getElementById('notes-folder-title').textContent = 'My Notes';
@@ -3018,11 +3042,18 @@ async function init() {
   document.getElementById('note-folder-select').addEventListener('change', async (e) => {
     if (!activeNoteId) return;
     try {
-      await api('PUT', `/api/notes/${activeNoteId}`, { folderId: e.target.value });
-      document.getElementById('editor-saved').textContent = 'Moved';
+      const newFolderId = e.target.value;
+      await api('PUT', `/api/notes/${activeNoteId}`, { folderId: newFolderId });
+      const folder = folders.find(f => f.id === newFolderId);
+      document.getElementById('editor-saved').textContent = 'Moved to ' + (folder ? folder.name : 'folder');
       // Update the note in the local list
       const item = notesList.find(n => n.id === activeNoteId);
-      if (item) item.folderId = e.target.value;
+      if (item) item.folderId = newFolderId;
+      // If viewing a specific folder, remove moved note from list
+      if (activeFolderId && newFolderId !== activeFolderId) {
+        notesList = notesList.filter(n => n.id !== activeNoteId);
+        renderNotesList();
+      }
     } catch (err) { showToast('Failed to move note', 'error'); }
   });
   document.getElementById('btn-save-share').addEventListener('click', saveSharing);
