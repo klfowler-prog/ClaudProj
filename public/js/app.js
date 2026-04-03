@@ -1378,11 +1378,19 @@ function showTaskDetail(id) {
         <div class="detail-section-title">Priority</div>
         <span class="badge badge-${prioKey}">${task.priority}</span>
       </div>
-      ${!activeWorkspaceId ? `<div>
+      <div>
         <div class="detail-section-title">Department</div>
-        <span class="badge badge-${deptKey}">${escapeHtml(task.department)}</span>
-        ${task.subDepartment ? `<span style="font-size:0.8rem;color:var(--color-text-muted);margin-left:0.25rem;">${escapeHtml(task.subDepartment)}</span>` : ''}
-      </div>` : ''}
+        <select class="filter-select-compact" onchange="moveTaskDepartment('${task.id}', this.value)" style="font-size:0.8rem;">
+          ${DEPARTMENTS.map(d => `<option value="${d}" ${d === task.department ? 'selected' : ''}>${d}</option>`).join('')}
+        </select>
+      </div>
+      <div>
+        <div class="detail-section-title">Workspace</div>
+        <select class="filter-select-compact" onchange="moveTaskWorkspace('${task.id}', this.value)" style="font-size:0.8rem;">
+          <option value="" ${!task.workspaceId ? 'selected' : ''}>None</option>
+          ${workspaces.map(w => `<option value="${w.id}" ${w.id === task.workspaceId ? 'selected' : ''}>${escapeHtml(w.name)}</option>`).join('')}
+        </select>
+      </div>
       <div>
         <div class="detail-section-title">Due Date</div>
         <input type="date" value="${task.dueDate || ''}" onchange="updateTaskDueDate('${task.id}', this.value)" style="font-size:0.8rem;padding:0.25rem 0.4rem;border:1px solid var(--color-border);border-radius:var(--radius);font-family:'Roboto',sans-serif;">
@@ -1594,6 +1602,31 @@ async function updateTaskDueDate(taskId, newDate) {
     render();
     showToast('Due date updated');
   } catch (err) { showToast('Failed to update due date', 'error'); }
+}
+
+async function moveTaskDepartment(taskId, newDept) {
+  try {
+    await api('PUT', `/api/tasks/${taskId}`, { department: newDept, subDepartment: '' });
+    const task = tasks.find(t => t.id === taskId);
+    if (task) { task.department = newDept; task.subDepartment = ''; }
+    render();
+    showToast('Moved to ' + newDept);
+  } catch (err) { showToast('Failed to move task', 'error'); }
+}
+
+async function moveTaskWorkspace(taskId, newWsId) {
+  try {
+    await api('PUT', `/api/tasks/${taskId}`, { workspaceId: newWsId || '' });
+    const task = tasks.find(t => t.id === taskId);
+    if (task) task.workspaceId = newWsId || '';
+    // If we're inside a workspace view and the task was moved out, reload
+    if (activeWorkspaceId && newWsId !== activeWorkspaceId) {
+      await loadTasks();
+    }
+    render();
+    const ws = workspaces.find(w => w.id === newWsId);
+    showToast(newWsId ? 'Moved to ' + ws.name : 'Removed from workspace');
+  } catch (err) { showToast('Failed to move task', 'error'); }
 }
 
 async function loadSubtasks(parentId) {
