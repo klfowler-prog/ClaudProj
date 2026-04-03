@@ -690,7 +690,7 @@ function renderTaskItem(task) {
   const hasAttachments = task.attachments && task.attachments.length > 0;
   const isConfirming = deleteConfirmId === task.id;
   const isCompleted = task.status === 'Completed';
-  const dueDateHtml = formatDueDate(task.dueDate, isCompleted);
+  const dueDateHtml = formatDueDate(task.dueDate, isCompleted, task.startDate);
   const isRecurring = task.recurring && task.recurring !== 'none';
   const recurringLabel = { daily: 'Daily', weekly: 'Weekly', biweekly: 'Biweekly', monthly: 'Monthly' }[task.recurring] || '';
   const isSubtask = !!task.parentTaskId;
@@ -729,6 +729,7 @@ function renderTaskItem(task) {
           ${prioDot}
           ${dueDateHtml}
           ${isRecurring ? `<span class="task-recurring" title="${recurringLabel}">&#8635; ${recurringLabel}</span>` : ''}
+          ${myProfile && (task.watchers || []).includes(myProfile.userId) && task.assignedTo !== myProfile.userId ? '<span class="task-watch-icon" title="Watching"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></span>' : ''}
           ${isCompleted && task.completedAt ? `<span class="task-source">Done ${new Date(task.completedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>` : ''}
           ${task.subtaskCount > 0 ? `<span class="task-source" style="color: var(--follett-medium-blue);"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg> ${task.subtasksCompleted}/${task.subtaskCount}</span>` : ''}
         </div>
@@ -932,13 +933,33 @@ function renderMarkdown(str) {
 }
 
 // === Due Date Formatting ===
-function formatDueDate(dueDate, isCompleted) {
+function formatDueDate(dueDate, isCompleted, startDate) {
   if (!dueDate) return '';
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const due = new Date(dueDate + 'T00:00:00');
   const diffDays = Math.round((due - today) / (1000 * 60 * 60 * 24));
   const dateLabel = due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+  // Multi-day range display
+  if (startDate && startDate !== dueDate) {
+    const startLabel = new Date(startDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const rangeLabel = `${startLabel} – ${dateLabel}`;
+    if (isCompleted) {
+      return `<span class="task-due-date">${rangeLabel}</span>`;
+    }
+    if (diffDays < 0) {
+      return `<span class="task-due-date overdue">Overdue · ${rangeLabel}</span>`;
+    }
+    const startDiff = Math.round((new Date(startDate + 'T00:00:00') - today) / (1000 * 60 * 60 * 24));
+    if (startDiff <= 0 && diffDays >= 0) {
+      return `<span class="task-due-date due-today">${rangeLabel} (active)</span>`;
+    }
+    if (startDiff <= 3) {
+      return `<span class="task-due-date due-soon">${rangeLabel}</span>`;
+    }
+    return `<span class="task-due-date">${rangeLabel}</span>`;
+  }
 
   if (isCompleted) {
     return `<span class="task-due-date">${dateLabel}</span>`;
@@ -1025,7 +1046,7 @@ function applyFilters(reload) {
 // === Task Operations (API-backed) ===
 let currentTaskTags = [];
 
-async function addTask(title, department, priority, notes, source, attachments, dueDate, recurring, assignedTo, tags) {
+async function addTask(title, department, priority, notes, source, attachments, dueDate, recurring, assignedTo, tags, startDate) {
   const taskData = {
     title: title.trim(),
     department,
@@ -1037,6 +1058,7 @@ async function addTask(title, department, priority, notes, source, attachments, 
     createdAt: new Date().toISOString(),
     source: source || 'manual',
     attachments: attachments || [],
+    startDate: startDate || '',
     dueDate: dueDate || '',
     recurring: recurring || 'none',
     workspaceId: activeWorkspaceId || ''
@@ -1154,6 +1176,7 @@ async function editTask(id) {
   document.getElementById('input-title').value = task.title;
   document.getElementById('input-department').value = task.department;
   document.getElementById('input-priority').value = task.priority;
+  document.getElementById('input-start-date').value = task.startDate || '';
   document.getElementById('input-due-date').value = task.dueDate || '';
   document.getElementById('input-notes').value = task.notes || '';
   document.getElementById('input-recurring').value = task.recurring || 'none';
@@ -1406,8 +1429,12 @@ function showTaskDetail(id) {
         </select>
       </div>
       <div>
-        <div class="detail-section-title">Due Date</div>
-        <input type="date" value="${task.dueDate || ''}" onchange="updateTaskDueDate('${task.id}', this.value)" style="font-size:0.8rem;padding:0.25rem 0.4rem;border:1px solid var(--color-border);border-radius:var(--radius);font-family:'Roboto',sans-serif;">
+        <div class="detail-section-title">${task.startDate ? 'Dates' : 'Due Date'}</div>
+        ${task.startDate && task.dueDate ? `<span>${formatDueDate(task.dueDate, task.status === 'Completed', task.startDate)}</span>` : ''}
+        <div style="display:flex;gap:0.375rem;align-items:center;margin-top:0.25rem;">
+          ${task.startDate || task.dueDate ? '' : ''}
+          <input type="date" value="${task.dueDate || ''}" onchange="updateTaskDueDate('${task.id}', this.value)" style="font-size:0.8rem;padding:0.25rem 0.4rem;border:1px solid var(--color-border);border-radius:var(--radius);font-family:'Roboto',sans-serif;">
+        </div>
       </div>
       <div>
         <div class="detail-section-title">Assigned To</div>
@@ -1462,6 +1489,23 @@ function showTaskDetail(id) {
       <div style="display:flex;gap:0.375rem;margin-top:0.5rem;">
         <input type="text" id="comment-input" placeholder="Add a comment or link..." style="flex:1;padding:0.4rem 0.6rem;border:1px solid var(--color-border);border-radius:var(--radius);font-size:0.85rem;font-family:'Roboto',sans-serif;">
         <button class="btn btn-primary btn-sm" onclick="addComment('${task.id}')">Post</button>
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <div class="detail-section-title">Watchers</div>
+      <div id="detail-watchers" style="display:flex;align-items:center;gap:0.375rem;flex-wrap:wrap;">
+        ${(task.watchers || []).map(wId => {
+          const wm = teamMembers.find(m => m.userId === wId);
+          const wName = wm ? wm.displayName : 'Unknown';
+          const wInitials = wName.trim().split(' ').map(w => w[0]).filter(Boolean).join('').substring(0, 2).toUpperCase();
+          const wColors = ['#479FC8', '#DC6B67', '#ABC39B', '#204A65', '#7398A9', '#d4960a', '#2e7d32', '#8e6bbf'];
+          const wColorIdx = wName.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % wColors.length;
+          return `<span class="watcher-chip" title="${escapeHtml(wName)}" style="background:${wColors[wColorIdx]}">${wInitials}</span>`;
+        }).join('')}
+        <button class="btn btn-ghost btn-sm" onclick="toggleWatch('${task.id}')" style="font-size:0.75rem;">
+          ${myProfile && (task.watchers || []).includes(myProfile.userId) ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> Watching' : '+ Watch'}
+        </button>
       </div>
     </div>
 
@@ -1553,6 +1597,16 @@ async function toggleTaskPrivate(taskId, isPrivate) {
   try {
     await api('PUT', `/api/tasks/${taskId}`, { private: isPrivate });
   } catch (err) { showToast('Failed to update', 'error'); }
+}
+
+async function toggleWatch(taskId) {
+  try {
+    const result = await api('POST', `/api/tasks/${taskId}/watch`);
+    // Update local task data
+    const task = tasks.find(t => t.id === taskId);
+    if (task) task.watchers = result.watchers || [];
+    showTaskDetail(taskId);
+  } catch (err) { alert('Failed to toggle watch: ' + err.message); }
 }
 
 async function setTaskStatusFromDetail(taskId, newStatus) {
@@ -2837,6 +2891,7 @@ async function init() {
       document.getElementById('parsed-title').value = parsed.title || text;
       document.getElementById('parsed-dept').value = parsed.department || 'Personal';
       document.getElementById('parsed-priority').value = parsed.priority || 'Medium';
+      document.getElementById('parsed-start-date').value = parsed.startDate || '';
       document.getElementById('parsed-due').value = parsed.dueDate || '';
       document.getElementById('parsed-recurring').value = parsed.recurring || 'none';
       document.getElementById('parsed-notes').value = parsed.notes || '';
@@ -2855,13 +2910,14 @@ async function init() {
     if (!title) return;
     const dept = document.getElementById('parsed-dept').value;
     const priority = document.getElementById('parsed-priority').value;
+    const startDate = document.getElementById('parsed-start-date').value;
     const dueDate = document.getElementById('parsed-due').value;
     const recurring = document.getElementById('parsed-recurring').value;
     const assignedTo = document.getElementById('parsed-assign').value || undefined;
     const notes = document.getElementById('parsed-notes').value.trim();
 
     const parsedTags = lastParsedResult && lastParsedResult.tags ? lastParsedResult.tags : [];
-    await addTask(title, dept, priority, notes, 'manual', [], dueDate, recurring, assignedTo, parsedTags);
+    await addTask(title, dept, priority, notes, 'manual', [], dueDate, recurring, assignedTo, parsedTags, startDate);
     closeModal('modal-import');
   });
 
@@ -2880,6 +2936,7 @@ async function init() {
     const department = document.getElementById('input-department').value;
     const priority = document.getElementById('input-priority').value;
     const notes = document.getElementById('input-notes').value.trim();
+    const startDate = document.getElementById('input-start-date').value;
     const dueDate = document.getElementById('input-due-date').value;
     const recurring = document.getElementById('input-recurring').value;
     const assignTo = document.getElementById('input-assign-to').value || undefined;
@@ -2891,7 +2948,7 @@ async function init() {
     const allAttachments = [...pendingAttachments, ...pendingLinks];
 
     if (editingTaskId) {
-      const updates = { title, department, priority, notes, dueDate, recurring, attachments: allAttachments, tags: currentTaskTags, workspaceId: selectedWorkspaceId };
+      const updates = { title, department, priority, notes, startDate, dueDate, recurring, attachments: allAttachments, tags: currentTaskTags, workspaceId: selectedWorkspaceId };
       if (assignTo) {
         const existingTask = tasks.find(t => t.id === editingTaskId);
         const assigneeChanged = existingTask && assignTo !== existingTask.assignedTo;
@@ -2912,7 +2969,7 @@ async function init() {
     } else {
       const prevWsId = activeWorkspaceId;
       activeWorkspaceId = selectedWorkspaceId || null;
-      await addTask(title, department, priority, notes, 'manual', allAttachments, dueDate, recurring, assignTo, currentTaskTags);
+      await addTask(title, department, priority, notes, 'manual', allAttachments, dueDate, recurring, assignTo, currentTaskTags, startDate);
       activeWorkspaceId = prevWsId;
     }
 

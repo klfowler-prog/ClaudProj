@@ -439,6 +439,7 @@ app.post('/api/tasks', authWrite, async (req, res) => {
       createdAt: req.body.createdAt || new Date().toISOString(),
       source: req.body.source || 'manual',
       attachments: req.body.attachments || [],
+      startDate: req.body.startDate || '',
       dueDate: req.body.dueDate || '',
       emailMessageId: req.body.emailMessageId || '',
       recurring: req.body.recurring || 'none',
@@ -449,7 +450,8 @@ app.post('/api/tasks', authWrite, async (req, res) => {
       private: req.body.private || false,
       workspaceId: req.body.workspaceId || '',
       showOnMaster: req.body.showOnMaster || false,
-      tags: req.body.tags || []
+      tags: req.body.tags || [],
+      watchers: req.body.watchers || []
     };
     if (task.tags && Array.isArray(task.tags)) {
       task.tags = task.tags.slice(0, 20).map(t => String(t).substring(0, 50));
@@ -472,6 +474,11 @@ app.post('/api/tasks', authWrite, async (req, res) => {
         fromUserId: req.userId,
         fromName: req.memberName
       });
+    }
+    // Notify watchers on task creation
+    if (task.watchers && task.watchers.length > 0) {
+      const createdWithId = { ...task, id: docRef.id };
+      await notifyWatchers(req.orgId, createdWithId, 'task_assigned', `${req.memberName} created: ${task.title}`, req.userId, req.memberName, [task.assignedTo]);
     }
 
     res.status(201).json(created);
@@ -544,9 +551,9 @@ app.put('/api/tasks/:id', auth, async (req, res) => {
 
     const updates = {};
     const allowedFields = ['title', 'department', 'priority', 'notes', 'status',
-      'completed', 'completedAt', 'dueDate', 'attachments', 'emailMessageId', 'recurring',
+      'completed', 'completedAt', 'startDate', 'dueDate', 'attachments', 'emailMessageId', 'recurring',
       'assignedTo', 'sharedWith', 'parentTaskId', 'subDepartment', 'blockedReason', 'private',
-      'workspaceId', 'showOnMaster', 'tags'];
+      'workspaceId', 'showOnMaster', 'tags', 'watchers'];
 
     for (const field of allowedFields) {
       if (req.body[field] !== undefined) updates[field] = req.body[field];
@@ -592,6 +599,9 @@ app.put('/api/tasks/:id', auth, async (req, res) => {
 
     await taskRef.update(updates);
 
+    // Build task object with id for watcher notifications
+    const taskWithId = { ...oldTask, ...updates, id: req.params.id };
+
     // Notify if assignedTo changed to someone new
     if (updates.assignedTo && updates.assignedTo !== oldTask.assignedTo && updates.assignedTo !== req.userId) {
       await createNotification(req.orgId, updates.assignedTo, {
@@ -601,6 +611,7 @@ app.put('/api/tasks/:id', auth, async (req, res) => {
         fromUserId: req.userId,
         fromName: req.memberName
       });
+      await notifyWatchers(req.orgId, taskWithId, 'task_assigned', `${req.memberName} reassigned: ${oldTask.title}`, req.userId, req.memberName, [updates.assignedTo]);
     }
 
     // Notify the creator/delegator when a task is blocked
@@ -613,6 +624,7 @@ app.put('/api/tasks/:id', auth, async (req, res) => {
         fromUserId: req.userId,
         fromName: req.memberName
       });
+      await notifyWatchers(req.orgId, taskWithId, 'task_blocked', `${req.memberName} is blocked on: ${oldTask.title}${reason}`, req.userId, req.memberName, [oldTask.createdBy]);
     }
 
     // Notify the delegator when a task is approved
@@ -624,6 +636,7 @@ app.put('/api/tasks/:id', auth, async (req, res) => {
         fromUserId: req.userId,
         fromName: req.memberName
       });
+      await notifyWatchers(req.orgId, taskWithId, 'task_approved', `${req.memberName} approved: ${oldTask.title}`, req.userId, req.memberName, [oldTask.createdBy]);
     }
 
     // Notify the approver when an approved task is completed
@@ -646,6 +659,12 @@ app.put('/api/tasks/:id', auth, async (req, res) => {
         fromUserId: req.userId,
         fromName: req.memberName
       });
+    }
+
+    // Notify watchers on completion (exclude creator + approver who already got notified)
+    if (updates.status === 'Completed') {
+      const completedExclude = [oldTask.createdBy, oldTask.approvedBy].filter(Boolean);
+      await notifyWatchers(req.orgId, taskWithId, 'task_completed', `${req.memberName} completed: ${oldTask.title}`, req.userId, req.memberName, completedExclude);
     }
 
     // Notify parent task owner when a sub-task is completed
@@ -688,12 +707,41 @@ app.put('/api/tasks/:id', auth, async (req, res) => {
             fromName: req.memberName
           });
         }
+        // Notify parent task watchers about subtask completion
+        if (parentDoc.exists) {
+          const parentWithId = { ...parent, id: oldTask.parentTaskId };
+          await notifyWatchers(req.orgId, parentWithId, 'subtask_completed', `${req.memberName} completed subtask "${oldTask.title}" on "${parent.title}"`, req.userId, req.memberName, [parent.createdBy]);
+        }
       }
     }
 
     res.json({ id: req.params.id, ...oldTask, ...updates });
   } catch (err) {
     res.status(500).json({ error: 'Failed to update task' });
+  }
+});
+
+// POST /api/tasks/:id/watch — Toggle watching a task
+app.post('/api/tasks/:id/watch', auth, async (req, res) => {
+  try {
+    const taskRef = orgCol(req, 'tasks').doc(req.params.id);
+    const doc = await taskRef.get();
+    if (!doc.exists) return res.status(404).json({ error: 'Task not found' });
+
+    const task = doc.data();
+    const watchers = task.watchers || [];
+    const idx = watchers.indexOf(req.userId);
+    if (idx >= 0) {
+      watchers.splice(idx, 1);
+      await taskRef.update({ watchers });
+      res.json({ watching: false, watchers });
+    } else {
+      watchers.push(req.userId);
+      await taskRef.update({ watchers });
+      res.json({ watching: true, watchers });
+    }
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to toggle watch' });
   }
 });
 
@@ -799,6 +847,7 @@ app.post('/api/tasks/:id/comments', auth, async (req, res) => {
     const taskDoc = await orgCol(req, 'tasks').doc(req.params.id).get();
     if (taskDoc.exists) {
       const task = taskDoc.data();
+      const commentExclude = [];
       // Notify task creator
       if (task.createdBy && task.createdBy !== req.userId) {
         await createNotification(req.orgId, task.createdBy, {
@@ -808,6 +857,7 @@ app.post('/api/tasks/:id/comments', auth, async (req, res) => {
           fromUserId: req.userId,
           fromName: req.memberName
         });
+        commentExclude.push(task.createdBy);
       }
       // If this is a sub-task, also notify the parent task creator
       if (task.parentTaskId) {
@@ -820,8 +870,12 @@ app.post('/api/tasks/:id/comments', auth, async (req, res) => {
             fromUserId: req.userId,
             fromName: req.memberName
           });
+          commentExclude.push(parentDoc.data().createdBy);
         }
       }
+      // Notify watchers about the comment
+      const taskWithId = { ...task, id: req.params.id };
+      await notifyWatchers(req.orgId, taskWithId, 'comment', `${req.memberName} commented on "${task.title}"`, req.userId, req.memberName, commentExclude);
     }
 
     res.status(201).json({ id: ref.id, ...comment });
@@ -1747,7 +1801,8 @@ Return ONLY a JSON object (no markdown, no code fences) with these fields:
 - "department": one of "B2B Marketing", "B2C Marketing", "All Marketing", "Personal" (infer from context. Use "All Marketing" if it spans both B2B and B2C. Default to "Personal" if unclear)
 - "tags": array of strings. Use relevant tags from: "Biz Dev", "Growth & Brand", "Rev Ops", "Internal Comms", "Social Media", "PR", "Conferences". Can be empty array [] if unclear. Can include multiple tags.
 - "priority": one of "High", "Medium", "Low" (infer from urgency words, default to "Medium")
-- "dueDate": string in YYYY-MM-DD format (calculate from relative dates like "next Tuesday", "end of week", "tomorrow". If no date mentioned, use "")
+- "startDate": string in YYYY-MM-DD format (if the task has an explicit start date different from due date, e.g. "sale runs April 1-5" means startDate is April 1. If not mentioned, use "")
+- "dueDate": string in YYYY-MM-DD format (calculate from relative dates like "next Tuesday", "end of week", "tomorrow". For date ranges like "April 1-5", the end date is the dueDate. If no date mentioned, use "")
 - "assignedTo": string (match to a team member userId if a name is mentioned. Available team members: ${memberList}. If no name mentioned or no match, use "")
 - "notes": string (any additional context from the input that doesn't fit in other fields, or "" if none)
 - "recurring": one of "none", "daily", "weekly", "biweekly", "monthly" (infer if words like "every week", "daily", "monthly" are used, default to "none")
@@ -2114,6 +2169,17 @@ async function sendSlackNotification(orgId, toUserId, data) {
     }
   } catch (err) {
     console.error('Slack notification failed:', err);
+  }
+}
+
+// === Watcher Notification Helper ===
+async function notifyWatchers(orgId, task, type, title, fromUserId, fromName, excludeUserIds) {
+  const exclude = new Set(excludeUserIds || []);
+  exclude.add(fromUserId);
+  for (const watcherId of (task.watchers || [])) {
+    if (!exclude.has(watcherId)) {
+      await createNotification(orgId, watcherId, { type, title, taskId: task.id || '', fromUserId, fromName });
+    }
   }
 }
 
