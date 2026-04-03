@@ -1889,8 +1889,10 @@ function renderNoteTagFilters() {
   notesList.forEach(n => (n.tags || []).forEach(t => allTags.add(t)));
   if (allTags.size === 0) { container.style.display = 'none'; return; }
   container.style.display = 'flex';
-  let html = `<span style="font-size:0.65rem;color:var(--color-text-muted);margin-right:0.25rem;">Filter:</span>`;
-  html += `<button class="note-tag-filter-btn ${!activeTagFilter ? 'active' : ''}" data-tag-filter="">All</button>`;
+  let html = `<span style="font-size:0.65rem;color:var(--color-text-muted);margin-right:0.25rem;">Tags:</span>`;
+  if (activeTagFilter) {
+    html += `<button class="note-tag-filter-btn" data-tag-filter="" style="font-size:0.6rem;color:var(--color-text-muted);border-color:var(--color-border);">&times; Clear</button>`;
+  }
   [...allTags].sort().forEach(tag => {
     const c = getTagColor(tag);
     const isActive = activeTagFilter === tag;
