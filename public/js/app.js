@@ -861,7 +861,7 @@ function renderTaskList() {
 
 function getFilteredCompletedTasks() {
   const completedPeriod = document.getElementById('completed-period') ?
-    document.getElementById('completed-period').value : 'all';
+    document.getElementById('completed-period').value : '2weeks';
   let completed = getFilteredTasks().filter(t => t.status === 'Completed');
 
   if (completedPeriod !== 'all') {
@@ -869,6 +869,8 @@ function getFilteredCompletedTasks() {
     let cutoff;
     if (completedPeriod === 'week') {
       cutoff = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
+    } else if (completedPeriod === '2weeks') {
+      cutoff = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 14);
     } else if (completedPeriod === 'month') {
       cutoff = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
     } else if (completedPeriod === 'quarter') {
