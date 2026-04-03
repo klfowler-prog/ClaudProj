@@ -1810,9 +1810,9 @@ async function updateMyNotesCount() {
   } catch (err) { /* silent */ }
 }
 
-async function loadNotesList(folderId) {
+async function loadNotesList(folderId, preserveTagFilter) {
   try {
-    activeTagFilter = ''; // Reset tag filter when switching folders
+    if (!preserveTagFilter) activeTagFilter = ''; // Reset tag filter when switching folders
     let url = folderId ? `/api/notes?folderId=${folderId}` : '/api/notes';
     // In global My Notes view, always filter to mine
     if (globalMyNotesView || showMyNotesOnly) url += (url.includes('?') ? '&' : '?') + 'mine=true';
@@ -2988,13 +2988,13 @@ async function init() {
     showMyNotesOnly = true;
     document.getElementById('btn-my-notes').classList.add('active');
     document.getElementById('btn-all-notes').classList.remove('active');
-    loadNotesList(activeFolderId);
+    loadNotesList(activeFolderId, true); // preserve tag filter
   });
   document.getElementById('btn-all-notes').addEventListener('click', () => {
     showMyNotesOnly = false;
     document.getElementById('btn-all-notes').classList.add('active');
     document.getElementById('btn-my-notes').classList.remove('active');
-    loadNotesList(activeFolderId);
+    loadNotesList(activeFolderId, true); // preserve tag filter
   });
   document.getElementById('btn-delete-note').addEventListener('click', deleteNote);
   document.getElementById('btn-archive-note').addEventListener('click', archiveNote);
