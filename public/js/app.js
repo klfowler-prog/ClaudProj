@@ -1301,22 +1301,32 @@ function initTaskTagInput() {
 }
 
 // === Attachment Handling ===
-function handleFiles(files) {
+async function handleFiles(files) {
   for (const file of files) {
     if (file.size > 50 * 1024 * 1024) {
       showToast(`File "${file.name}" is too large (max 50MB)`, 'error');
       continue;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${authToken}` },
+        body: formData
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'Upload failed');
+      const result = await res.json();
       pendingAttachments.push({
         type: 'file',
-        name: file.name,
-        data: reader.result
+        name: result.name,
+        gcsPath: result.gcsPath,
+        size: result.size
       });
       renderPendingAttachments();
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      showToast(`Failed to upload "${file.name}"`, 'error');
+    }
   }
 }
 
@@ -1365,6 +1375,9 @@ function showTaskDetail(id) {
   if (task.attachments && task.attachments.length > 0) {
     const items = task.attachments.map(a => {
       if (a.type === 'file') {
+        if (a.gcsPath) {
+          return `<li><a href="#" onclick="event.preventDefault();downloadFile('${a.gcsPath.replace(/'/g, "\\'")}')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> ${escapeHtml(a.name)}</a></li>`;
+        }
         return `<li><a href="${a.data}" download="${escapeHtml(a.name)}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> ${escapeHtml(a.name)}</a></li>`;
       } else {
         return `<li><a href="${escapeHtml(a.url)}" target="_blank" rel="noopener"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg> ${escapeHtml(a.name || a.url)}</a></li>`;
