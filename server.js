@@ -1744,7 +1744,7 @@ app.post('/api/ai/quick-add', aiLimiter, auth, async (req, res) => {
 
 Return ONLY a JSON object (no markdown, no code fences) with these fields:
 - "title": string (clear, concise task title)
-- "department": one of "B2B Marketing", "B2C Marketing", "Personal" (infer from context, default to "Personal" if unclear)
+- "department": one of "B2B Marketing", "B2C Marketing", "All Marketing", "Personal" (infer from context. Use "All Marketing" if it spans both B2B and B2C. Default to "Personal" if unclear)
 - "tags": array of strings. Use relevant tags from: "Biz Dev", "Growth & Brand", "Rev Ops", "Internal Comms", "Social Media", "PR", "Conferences". Can be empty array [] if unclear. Can include multiple tags.
 - "priority": one of "High", "Medium", "Low" (infer from urgency words, default to "Medium")
 - "dueDate": string in YYYY-MM-DD format (calculate from relative dates like "next Tuesday", "end of week", "tomorrow". If no date mentioned, use "")
@@ -3097,10 +3097,10 @@ app.post('/api/gmail/disconnect', auth, async (req, res) => {
 
 // Department detection helper
 const DEPT_KEYWORDS = {
-  'B2B Marketing': ['b2b', 'enterprise', 'account-based', 'abm', 'lead gen', 'demand gen', 'webinar', 'linkedin'],
-  'Internal Comms': ['internal', 'comms', 'newsletter', 'all-hands', 'town hall', 'employee'],
-  'Rev Ops': ['rev ops', 'revenue', 'operations', 'hubspot', 'salesforce', 'crm', 'pipeline', 'analytics'],
-  'B2C Marketing': ['b2c', 'consumer', 'social media', 'instagram', 'tiktok', 'influencer', 'brand', 'campaign', 'seo']
+  'B2B Marketing': ['b2b', 'enterprise', 'account-based', 'abm', 'lead gen', 'demand gen', 'webinar', 'linkedin', 'internal', 'comms', 'newsletter', 'rev ops', 'revenue', 'hubspot', 'salesforce', 'crm', 'pipeline'],
+  'B2C Marketing': ['b2c', 'consumer', 'social media', 'instagram', 'tiktok', 'influencer', 'brand', 'campaign', 'seo'],
+  'All Marketing': ['cross-functional', 'all teams', 'company-wide', 'org-wide'],
+  'Personal': ['personal', 'private', 'reminder', '1:1']
 };
 
 function detectDept(text) {

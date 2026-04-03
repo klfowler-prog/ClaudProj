@@ -91,10 +91,10 @@ const STATUS_KEYS = {
 
 // Keywords for auto-detecting department from imported content
 const DEPT_KEYWORDS = {
-  'B2B Marketing': ['b2b', 'enterprise', 'account-based', 'abm', 'lead gen', 'demand gen', 'sales enablement', 'whitepaper', 'case study', 'webinar', 'linkedin'],
-  'Internal Comms': ['internal', 'comms', 'newsletter', 'all-hands', 'town hall', 'employee', 'culture', 'onboarding', 'intranet', 'announcement'],
-  'Rev Ops': ['rev ops', 'revenue', 'operations', 'hubspot', 'salesforce', 'crm', 'pipeline', 'forecast', 'attribution', 'analytics', 'reporting', 'dashboard'],
-  'B2C Marketing': ['b2c', 'consumer', 'social media', 'instagram', 'tiktok', 'influencer', 'brand', 'campaign', 'creative', 'content marketing', 'seo', 'paid media']
+  'B2B Marketing': ['b2b', 'enterprise', 'account-based', 'abm', 'lead gen', 'demand gen', 'sales enablement', 'whitepaper', 'case study', 'webinar', 'linkedin', 'internal', 'comms', 'rev ops', 'hubspot', 'salesforce', 'crm'],
+  'B2C Marketing': ['b2c', 'consumer', 'social media', 'instagram', 'tiktok', 'influencer', 'brand', 'campaign', 'creative', 'content marketing', 'seo', 'paid media'],
+  'All Marketing': ['cross-functional', 'all teams', 'company-wide', 'org-wide'],
+  'Personal': ['personal', 'private', 'reminder', '1:1']
 };
 
 // === State ===
@@ -1161,6 +1161,13 @@ async function editTask(id) {
   renderTaskFormTags();
   document.getElementById('input-assign-to').value = task.assignedTo || '';
 
+  // Set workspace dropdown
+  const wsSelect = document.getElementById('input-workspace');
+  if (wsSelect) {
+    wsSelect.innerHTML = '<option value="">None</option>' +
+      workspaces.map(w => `<option value="${w.id}" ${w.id === task.workspaceId ? 'selected' : ''}>${escapeHtml(w.name)}</option>`).join('');
+  }
+
   // Load existing attachments into pending lists
   pendingAttachments = (task.attachments || []).filter(a => a.type === 'file');
   pendingLinks = (task.attachments || []).filter(a => a.type === 'link');
@@ -1232,6 +1239,13 @@ function resetAddForm() {
   // Reset task tags
   currentTaskTags = [];
   renderTaskFormTags();
+
+  // Populate workspace dropdown
+  const wsSelect = document.getElementById('input-workspace');
+  if (wsSelect) {
+    wsSelect.innerHTML = '<option value="">None</option>' +
+      workspaces.map(w => `<option value="${w.id}" ${w.id === activeWorkspaceId ? 'selected' : ''}>${escapeHtml(w.name)}</option>`).join('');
+  }
 }
 
 function renderTaskFormTags() {
@@ -2869,13 +2883,15 @@ async function init() {
     const dueDate = document.getElementById('input-due-date').value;
     const recurring = document.getElementById('input-recurring').value;
     const assignTo = document.getElementById('input-assign-to').value || undefined;
+    const wsSelect = document.getElementById('input-workspace');
+    const selectedWorkspaceId = wsSelect ? wsSelect.value : '';
 
     if (!title || !department) return;
 
     const allAttachments = [...pendingAttachments, ...pendingLinks];
 
     if (editingTaskId) {
-      const updates = { title, department, priority, notes, dueDate, recurring, attachments: allAttachments, tags: currentTaskTags };
+      const updates = { title, department, priority, notes, dueDate, recurring, attachments: allAttachments, tags: currentTaskTags, workspaceId: selectedWorkspaceId };
       if (assignTo) {
         const existingTask = tasks.find(t => t.id === editingTaskId);
         const assigneeChanged = existingTask && assignTo !== existingTask.assignedTo;
@@ -2894,7 +2910,10 @@ async function init() {
         showToast('Failed to update task', 'error');
       }
     } else {
+      const prevWsId = activeWorkspaceId;
+      activeWorkspaceId = selectedWorkspaceId || null;
       await addTask(title, department, priority, notes, 'manual', allAttachments, dueDate, recurring, assignTo, currentTaskTags);
+      activeWorkspaceId = prevWsId;
     }
 
     closeModal('modal-add');
