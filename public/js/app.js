@@ -126,8 +126,7 @@ async function loadTasks() {
   isLoadingTasks = true;
   try {
     let url = '/api/tasks';
-    if (globalMyTasksView) url += '?mine=true&allSpaces=true';
-    else if (showMyTasksOnly) url += '?mine=true';
+    if (globalMyTasksView || showMyTasksOnly) url += '?mine=true';
     else if (showMyTeam) url += '?team=true';
     if (activeTaskTagFilter) url += (url.includes('?') ? '&' : '?') + `tag=${encodeURIComponent(activeTaskTagFilter)}`;
     if (activeWorkspaceId) url += (url.includes('?') ? '&' : '?') + `workspaceId=${encodeURIComponent(activeWorkspaceId)}`;
@@ -552,7 +551,7 @@ function renderSidebarSpaces() {
     const count = tasks.filter(t => t.department === dept && t.status !== 'Completed').length;
     const isExpanded = expandedDepts.has(dept);
     const isActiveTasks = !globalMyTasksView && filters.department === dept && currentView === 'tasks';
-    const isActiveNotes = !globalMyNotesView && !globalMyTasksView && currentView === 'notes' && activeFolderId && folders.find(f => f.id === activeFolderId && f.name === dept);
+    const isActiveNotes = !globalMyNotesView && !globalMyTasksView && currentView === 'notes' && activeFolderId && (folders || []).find(f => f.id === activeFolderId && f.name === dept);
 
     html += `<button class="sidebar-dept-item ${isActiveTasks || isActiveNotes ? 'active' : ''}" data-dept-toggle="${dept}">
       <span class="dept-dot dept-${key}"></span> ${dept} ${count > 0 ? `<span class="sidebar-count">${count}</span>` : ''}
@@ -566,67 +565,66 @@ function renderSidebarSpaces() {
 
   container.innerHTML = html;
 
-  // Department header click — toggle expand/collapse
-  container.querySelectorAll('[data-dept-toggle]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const dept = btn.dataset.deptToggle;
+  // Event delegation for all department clicks (avoids listener accumulation on re-render)
+  container.onclick = async (e) => {
+    // Department header click — toggle expand/collapse
+    const toggle = e.target.closest('[data-dept-toggle]');
+    if (toggle) {
+      const dept = toggle.dataset.deptToggle;
       if (expandedDepts.has(dept)) expandedDepts.delete(dept);
       else expandedDepts.add(dept);
       renderSidebarSpaces();
-    });
-  });
+      return;
+    }
 
-  // Department sub-item click (Tasks / Notes)
-  container.querySelectorAll('[data-dept-action]').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const action = btn.dataset.deptAction;
-      const dept = btn.dataset.dept;
+    // Department sub-item click (Tasks / Notes)
+    const action = e.target.closest('[data-dept-action]');
+    if (!action) return;
+    const actionType = action.dataset.deptAction;
+    const dept = action.dataset.dept;
 
-      // Clear workspace when switching departments
-      if (typeof activeWorkspaceId !== 'undefined' && activeWorkspaceId) {
-        activeWorkspaceId = null;
-        activeWorkspaceName = '';
-        const wsHeader = document.getElementById('workspace-header');
-        if (wsHeader) wsHeader.style.display = 'none';
-        if (typeof renderSidebarWorkspaces === 'function') renderSidebarWorkspaces();
+    // Clear workspace when switching departments
+    if (typeof activeWorkspaceId !== 'undefined' && activeWorkspaceId) {
+      activeWorkspaceId = null;
+      activeWorkspaceName = '';
+      const wsHeader = document.getElementById('workspace-header');
+      if (wsHeader) wsHeader.style.display = 'none';
+      if (typeof renderSidebarWorkspaces === 'function') renderSidebarWorkspaces();
+    }
+    // Clear stat/tag filters
+    filters.statFilter = 'none';
+    document.querySelectorAll('.stat-pill-clickable').forEach(p => p.classList.remove('active'));
+    if (typeof activeTaskTagFilter !== 'undefined') activeTaskTagFilter = '';
+
+    if (actionType === 'tasks') {
+      globalMyTasksView = false;
+      globalMyNotesView = false;
+      showMyTasksOnly = true;
+      showMyTeam = false;
+      document.getElementById('filter-department').value = dept;
+      applyFilters(true);
+      switchView('tasks');
+    } else if (actionType === 'notes') {
+      globalMyTasksView = false;
+      globalMyNotesView = false;
+      switchView('notes');
+      if (!folders || folders.length === 0) {
+        await loadFolders();
       }
-      // Clear stat/tag filters
-      filters.statFilter = 'none';
-      document.querySelectorAll('.stat-pill-clickable').forEach(p => p.classList.remove('active'));
-      if (typeof activeTaskTagFilter !== 'undefined') activeTaskTagFilter = '';
-
-      if (action === 'tasks') {
-        globalMyTasksView = false;
-        globalMyNotesView = false;
-        showMyTasksOnly = true;
-        showMyTeam = false;
-        document.getElementById('filter-department').value = dept;
-        applyFilters(true);
-        switchView('tasks');
-      } else if (action === 'notes') {
-        globalMyTasksView = false;
-        globalMyNotesView = false;
-        switchView('notes');
-        if (!folders || folders.length === 0) {
-          await loadFolders();
-        }
-        const deptFolder = folders.find(f => f.name === dept);
-        if (deptFolder) {
-          activeFolderId = deptFolder.id;
-          if (currentUser) sessionStorage.setItem('activeFolderId_' + currentUser.uid, activeFolderId);
-          loadNotesList(activeFolderId);
-          document.getElementById('notes-folder-title').textContent = dept;
-        } else {
-          // No matching folder — show all notes for now
-          activeFolderId = null;
-          loadNotesList(null);
-          document.getElementById('notes-folder-title').textContent = dept + ' Notes';
-        }
+      const deptFolder = folders.find(f => f.name === dept);
+      if (deptFolder) {
+        activeFolderId = deptFolder.id;
+        if (currentUser) sessionStorage.setItem('activeFolderId_' + currentUser.uid, activeFolderId);
+        loadNotesList(activeFolderId);
+        document.getElementById('notes-folder-title').textContent = dept;
+      } else {
+        activeFolderId = null;
+        loadNotesList(null);
+        document.getElementById('notes-folder-title').textContent = dept + ' Notes';
       }
-      closeSidebar();
-    });
-  });
+    }
+    closeSidebar();
+  };
 }
 
 // Legacy alias for any remaining calls
@@ -1742,6 +1740,7 @@ let expandedNoteDepts = new Set();
 
 function renderSidebarFolders() {
   const container = document.getElementById('sidebar-folders');
+  if (!container) return;
 
   // Show main folders only (no sub-department nesting)
   const subDeptNames = ['Biz Dev', 'Growth & Brand', 'Rev Ops', 'Internal Comms'];
@@ -2700,10 +2699,6 @@ async function init() {
   render();
 
   // Workspace listeners
-  document.getElementById('btn-toggle-workspaces').addEventListener('click', (e) => {
-    e.stopPropagation();
-    toggleSidebarSection('workspaces-subnav', 'workspaces-caret');
-  });
   document.getElementById('btn-add-workspace').addEventListener('click', () => showCreateWorkspaceModal());
   document.getElementById('btn-close-workspace').addEventListener('click', closeWorkspace);
   document.getElementById('btn-edit-workspace').addEventListener('click', () => showCreateWorkspaceModal(activeWorkspaceId));

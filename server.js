@@ -343,8 +343,7 @@ app.get('/api/tasks', auth, async (req, res) => {
       tasks = tasks.filter(t => t.assignedTo === req.userId || t.createdBy === req.userId);
     }
 
-    // allSpaces=true: return tasks across all departments (for aggregated "My Tasks" view)
-    // When not set, department filtering happens client-side via getFilteredTasks()
+    // Department filtering happens client-side via getFilteredTasks()
 
     // Optional: filter to "my team" (me + my direct reports)
     if (req.query.team === 'true') {
