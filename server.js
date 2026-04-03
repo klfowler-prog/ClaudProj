@@ -1272,6 +1272,7 @@ app.get('/api/notes', auth, async (req, res) => {
       const folderId = (d.folderId && validFolderIds.has(d.folderId)) ? d.folderId : '';
       return {
         id: doc.id, title: d.title, folderId, source: d.source,
+        workspaceId: d.workspaceId || '',
         updatedAt: d.updatedAt, createdAt: d.createdAt, createdBy: d.createdBy,
         sharedWith: d.sharedWith || [],
         authorName: memberNames[d.createdBy] || 'Unknown',
@@ -1294,6 +1295,14 @@ app.get('/api/notes', auth, async (req, res) => {
     // Filter by folder if requested
     if (req.query.folderId) {
       notes = notes.filter(n => n.folderId === req.query.folderId);
+    }
+
+    // Filter by workspace if requested
+    if (req.query.workspaceId) {
+      notes = notes.filter(n => n.workspaceId === req.query.workspaceId);
+    } else if (!req.query.mine) {
+      // When not viewing a workspace or "my notes", exclude workspace notes from general views
+      notes = notes.filter(n => !n.workspaceId || n.workspaceId === '');
     }
 
     // Hide private notes from anyone except the creator
@@ -1359,7 +1368,8 @@ app.post('/api/notes', authWrite, async (req, res) => {
       links: req.body.links || [],
       pinned: false,
       private: req.body.private || false,
-      tags: req.body.tags || []
+      tags: req.body.tags || [],
+      workspaceId: req.body.workspaceId || ''
     };
     const ref = await orgCol(req, 'notes').add(note);
     res.status(201).json({ id: ref.id, ...note });
@@ -1396,7 +1406,7 @@ app.put('/api/notes/:id', authWrite, async (req, res) => {
     }
 
     const updates = { updatedAt: new Date().toISOString() };
-    const allowed = ['title', 'content', 'folderId', 'aiSummary', 'sharedWith', 'links', 'pinned', 'archived', 'private', 'allowEditing', 'tags'];
+    const allowed = ['title', 'content', 'folderId', 'aiSummary', 'sharedWith', 'links', 'pinned', 'archived', 'private', 'allowEditing', 'tags', 'workspaceId'];
     for (const f of allowed) { if (req.body[f] !== undefined) updates[f] = req.body[f]; }
     await ref.update(updates);
 

@@ -607,6 +607,7 @@ function renderSidebarSpaces() {
     } else if (actionType === 'notes') {
       globalMyTasksView = false;
       globalMyNotesView = false;
+      activeWorkspaceNotesView = false;
       showMyNotesOnly = false; // Dept notes shows all notes in that folder
       document.getElementById('btn-all-notes').classList.add('active');
       document.getElementById('btn-my-notes').classList.remove('active');
@@ -2029,7 +2030,9 @@ async function createNote() {
   try {
     const activeFolder = activeFolderId ? folders.find(f => f.id === activeFolderId) : null;
     const isPersonal = activeFolder && (activeFolder.personal || activeFolder.name === 'Personal');
-    const note = await api('POST', '/api/notes', { title: 'Untitled', content: '', folderId: activeFolderId || '', private: isPersonal });
+    const noteData = { title: 'Untitled', content: '', folderId: activeFolderId || '', private: isPersonal };
+    if (activeWorkspaceNotesView && activeWorkspaceId) noteData.workspaceId = activeWorkspaceId;
+    const note = await api('POST', '/api/notes', noteData);
     notesList.unshift(note);
     renderNotesList();
     openNote(note.id);
@@ -2897,6 +2900,7 @@ async function init() {
   document.getElementById('btn-my-tasks-global').addEventListener('click', () => {
     globalMyTasksView = true;
     globalMyNotesView = false;
+    activeWorkspaceNotesView = false;
     showMyTasksOnly = true;
     showMyTeam = false;
     // Clear workspace context
@@ -2924,6 +2928,7 @@ async function init() {
   document.getElementById('btn-my-notes-global').addEventListener('click', async () => {
     globalMyNotesView = true;
     globalMyTasksView = false;
+    activeWorkspaceNotesView = false;
     showMyNotesOnly = true;
     // Sync the All/Mine toggle in notes view
     document.getElementById('btn-my-notes').classList.add('active');
@@ -2991,13 +2996,21 @@ async function init() {
     showMyNotesOnly = true;
     document.getElementById('btn-my-notes').classList.add('active');
     document.getElementById('btn-all-notes').classList.remove('active');
-    loadNotesList(activeFolderId, true); // preserve tag filter
+    if (activeWorkspaceNotesView && activeWorkspaceId) {
+      loadWorkspaceNotes(activeWorkspaceId);
+    } else {
+      loadNotesList(activeFolderId, true);
+    }
   });
   document.getElementById('btn-all-notes').addEventListener('click', () => {
     showMyNotesOnly = false;
     document.getElementById('btn-all-notes').classList.add('active');
     document.getElementById('btn-my-notes').classList.remove('active');
-    loadNotesList(activeFolderId, true); // preserve tag filter
+    if (activeWorkspaceNotesView && activeWorkspaceId) {
+      loadWorkspaceNotes(activeWorkspaceId);
+    } else {
+      loadNotesList(activeFolderId, true);
+    }
   });
   document.getElementById('btn-delete-note').addEventListener('click', deleteNote);
   document.getElementById('btn-archive-note').addEventListener('click', archiveNote);
@@ -3666,6 +3679,8 @@ function populateAssignToDropdown() {
 let workspaces = [];
 let activeWorkspaceId = null;
 let activeWorkspaceName = '';
+let activeWorkspaceNotesView = false;
+let expandedWorkspaces = new Set();
 
 async function loadWorkspaces() {
   try { workspaces = await api('GET', '/api/workspaces'); } catch { workspaces = []; }
@@ -3685,15 +3700,46 @@ function renderSidebarWorkspaces() {
     document.getElementById('workspaces-subnav').classList.remove('collapsed');
     document.getElementById('workspaces-caret').innerHTML = '&#9662;';
   }
-  container.innerHTML = workspaces.map(w =>
-    `<button class="sidebar-dept-item ${activeWorkspaceId === w.id ? 'active' : ''}" data-workspace-id="${w.id}">
-      <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${w.color || getTagColor(w.name).text};margin-right:0.375rem;vertical-align:0;"></span>${escapeHtml(w.name)}
-    </button>`
-  ).join('');
-  container.onclick = (e) => {
-    const btn = e.target.closest('[data-workspace-id]');
-    if (!btn) return;
-    openWorkspace(btn.dataset.workspaceId);
+  let html = '';
+  for (const w of workspaces) {
+    const dotColor = w.color || getTagColor(w.name).text;
+    const isExpanded = expandedWorkspaces.has(w.id);
+    const isActiveTasks = activeWorkspaceId === w.id && currentView === 'tasks';
+    const isActiveNotes = activeWorkspaceId === w.id && currentView === 'notes' && activeWorkspaceNotesView;
+
+    html += `<button class="sidebar-dept-item ${isActiveTasks || isActiveNotes ? 'active' : ''}" data-ws-toggle="${w.id}">
+      <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${dotColor};margin-right:0.375rem;vertical-align:0;flex-shrink:0;"></span>${escapeHtml(w.name)}
+    </button>`;
+
+    if (isExpanded) {
+      html += `<button class="sidebar-dept-item sidebar-dept-sub ${isActiveTasks ? 'active' : ''}" data-ws-action="tasks" data-ws-id="${w.id}">Tasks</button>`;
+      html += `<button class="sidebar-dept-item sidebar-dept-sub ${isActiveNotes ? 'active' : ''}" data-ws-action="notes" data-ws-id="${w.id}">Notes</button>`;
+    }
+  }
+  container.innerHTML = html;
+
+  container.onclick = async (e) => {
+    // Toggle expand/collapse
+    const toggle = e.target.closest('[data-ws-toggle]');
+    if (toggle) {
+      const id = toggle.dataset.wsToggle;
+      if (expandedWorkspaces.has(id)) expandedWorkspaces.delete(id);
+      else expandedWorkspaces.add(id);
+      renderSidebarWorkspaces();
+      return;
+    }
+
+    // Sub-item click (Tasks / Notes)
+    const action = e.target.closest('[data-ws-action]');
+    if (!action) return;
+    const wsId = action.dataset.wsId;
+    const actionType = action.dataset.wsAction;
+
+    if (actionType === 'tasks') {
+      openWorkspace(wsId);
+    } else if (actionType === 'notes') {
+      openWorkspaceNotes(wsId);
+    }
     closeSidebar();
   };
 }
@@ -3707,6 +3753,7 @@ async function openWorkspace(id) {
   // Reset task scope to show all workspace tasks (not filtered by "My Tasks")
   globalMyTasksView = false;
   globalMyNotesView = false;
+  activeWorkspaceNotesView = false;
   showMyTasksOnly = false;
   showMyTeam = false;
   document.getElementById('btn-my-tasks').classList.remove('active');
@@ -3737,8 +3784,53 @@ async function closeWorkspace() {
   document.getElementById('btn-my-team').classList.remove('active');
   document.getElementById('btn-all-tasks').classList.remove('active');
   await loadTasks();
+  activeWorkspaceNotesView = false;
   render();
   renderSidebarWorkspaces();
+}
+
+async function openWorkspaceNotes(id) {
+  const ws = workspaces.find(w => w.id === id);
+  if (!ws) return;
+  activeWorkspaceId = id;
+  activeWorkspaceName = ws.name;
+  activeWorkspaceNotesView = true;
+  globalMyTasksView = false;
+  globalMyNotesView = false;
+  showMyNotesOnly = false;
+  // Show workspace header
+  document.getElementById('workspace-header').style.display = 'flex';
+  document.getElementById('workspace-header-name').textContent = ws.name;
+  document.getElementById('btn-edit-workspace').style.display =
+    (myProfile && (myProfile.role === 'cmo' || myProfile.userId === ws.ownerId)) ? '' : 'none';
+  // Sync All/Mine toggle
+  document.getElementById('btn-all-notes').classList.add('active');
+  document.getElementById('btn-my-notes').classList.remove('active');
+  document.getElementById('btn-all-notes').style.display = '';
+  document.getElementById('btn-my-notes').style.display = '';
+  switchView('notes');
+  activeFolderId = null;
+  await loadWorkspaceNotes(id);
+  document.getElementById('notes-folder-title').textContent = ws.name + ' Notes';
+  renderSidebarWorkspaces();
+}
+
+async function loadWorkspaceNotes(wsId) {
+  try {
+    activeTagFilter = '';
+    let url = `/api/notes?workspaceId=${encodeURIComponent(wsId)}`;
+    if (showMyNotesOnly) url += '&mine=true';
+    notesList = await api('GET', url);
+    // Show All/Mine toggle
+    const toggleAll = document.getElementById('btn-all-notes');
+    const toggleMine = document.getElementById('btn-my-notes');
+    if (toggleAll && toggleMine) {
+      toggleAll.style.display = '';
+      toggleMine.style.display = '';
+    }
+    renderNotesList();
+    loadArchivedNotes();
+  } catch (err) { notesList = []; renderNotesList(); }
 }
 
 function showCreateWorkspaceModal(editId) {
