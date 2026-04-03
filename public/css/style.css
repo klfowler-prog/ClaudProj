@@ -287,6 +287,10 @@ body {
   font-weight: 500;
 }
 
+.sidebar-dept-sub {
+  padding-left: 2.25rem;
+}
+
 .sidebar-subdept {
   padding-left: 3.25rem;
   font-size: 0.75rem;

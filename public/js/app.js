@@ -550,42 +550,77 @@ function renderSidebarSpaces() {
   for (const dept of visibleDepts) {
     const key = DEPT_KEYS[dept];
     const count = tasks.filter(t => t.department === dept && t.status !== 'Completed').length;
-    const isActive = !globalMyTasksView && filters.department === dept && currentView === 'tasks';
-    html += `<button class="sidebar-dept-item ${isActive ? 'active' : ''}" data-dept="${dept}">
+    const isExpanded = expandedDepts.has(dept);
+    const isActiveTasks = !globalMyTasksView && filters.department === dept && currentView === 'tasks';
+    const isActiveNotes = !globalMyNotesView && !globalMyTasksView && currentView === 'notes' && activeFolderId && folders.find(f => f.id === activeFolderId && f.name === dept);
+
+    html += `<button class="sidebar-dept-item ${isActiveTasks || isActiveNotes ? 'active' : ''}" data-dept-toggle="${dept}">
       <span class="dept-dot dept-${key}"></span> ${dept} ${count > 0 ? `<span class="sidebar-count">${count}</span>` : ''}
     </button>`;
+
+    if (isExpanded) {
+      html += `<button class="sidebar-dept-item sidebar-dept-sub ${isActiveTasks ? 'active' : ''}" data-dept-action="tasks" data-dept="${dept}">Tasks ${count > 0 ? `<span class="sidebar-count">${count}</span>` : ''}</button>`;
+      html += `<button class="sidebar-dept-item sidebar-dept-sub ${isActiveNotes ? 'active' : ''}" data-dept-action="notes" data-dept="${dept}">Notes</button>`;
+    }
   }
 
   container.innerHTML = html;
 
-  // Department click handler
-  container.onclick = (e) => {
-    const item = e.target.closest('.sidebar-dept-item');
-    if (!item) return;
-    const dept = item.dataset.dept;
+  // Department header click — toggle expand/collapse
+  container.querySelectorAll('[data-dept-toggle]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const dept = btn.dataset.deptToggle;
+      if (expandedDepts.has(dept)) expandedDepts.delete(dept);
+      else expandedDepts.add(dept);
+      renderSidebarSpaces();
+    });
+  });
 
-    // Clear workspace when switching departments
-    if (typeof activeWorkspaceId !== 'undefined' && activeWorkspaceId) {
-      activeWorkspaceId = null;
-      activeWorkspaceName = '';
-      const wsHeader = document.getElementById('workspace-header');
-      if (wsHeader) wsHeader.style.display = 'none';
-      if (typeof renderSidebarWorkspaces === 'function') renderSidebarWorkspaces();
-    }
-    // Clear stat/tag filters
-    filters.statFilter = 'none';
-    document.querySelectorAll('.stat-pill-clickable').forEach(p => p.classList.remove('active'));
-    if (typeof activeTaskTagFilter !== 'undefined') activeTaskTagFilter = '';
+  // Department sub-item click (Tasks / Notes)
+  container.querySelectorAll('[data-dept-action]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const action = btn.dataset.deptAction;
+      const dept = btn.dataset.dept;
 
-    globalMyTasksView = false;
-    globalMyNotesView = false;
-    showMyTasksOnly = true;
-    showMyTeam = false;
-    document.getElementById('filter-department').value = dept;
-    applyFilters(true);
-    switchView('tasks');
-    closeSidebar();
-  };
+      // Clear workspace when switching departments
+      if (typeof activeWorkspaceId !== 'undefined' && activeWorkspaceId) {
+        activeWorkspaceId = null;
+        activeWorkspaceName = '';
+        const wsHeader = document.getElementById('workspace-header');
+        if (wsHeader) wsHeader.style.display = 'none';
+        if (typeof renderSidebarWorkspaces === 'function') renderSidebarWorkspaces();
+      }
+      // Clear stat/tag filters
+      filters.statFilter = 'none';
+      document.querySelectorAll('.stat-pill-clickable').forEach(p => p.classList.remove('active'));
+      if (typeof activeTaskTagFilter !== 'undefined') activeTaskTagFilter = '';
+
+      if (action === 'tasks') {
+        globalMyTasksView = false;
+        globalMyNotesView = false;
+        showMyTasksOnly = true;
+        showMyTeam = false;
+        document.getElementById('filter-department').value = dept;
+        applyFilters(true);
+        switchView('tasks');
+      } else if (action === 'notes') {
+        globalMyTasksView = false;
+        globalMyNotesView = false;
+        switchView('notes');
+        const deptFolder = folders.find(f => f.name === dept);
+        if (deptFolder) {
+          activeFolderId = deptFolder.id;
+          loadNotesList(activeFolderId);
+          renderSidebarFolders();
+          document.getElementById('notes-folder-title').textContent = dept;
+        } else {
+          loadNotesList(null);
+        }
+      }
+      closeSidebar();
+    });
+  });
 }
 
 // Legacy alias for any remaining calls
