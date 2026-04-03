@@ -36,6 +36,8 @@
   --color-b2c-light: #e5eedf;
   --color-personal: var(--follett-dark-gray);
   --color-personal-light: #dfe6e8;
+  --color-all-mktg: #2e9e8f;
+  --color-all-mktg-light: #d4f0ec;
 
   /* Priority colors */
   --color-high: var(--follett-coral);
@@ -311,6 +313,186 @@ body {
   font-size: 0.75rem;
   cursor: pointer;
   text-align: left;
+}
+
+/* === Sidebar Space Navigation === */
+.sidebar-space {
+  margin-bottom: 0.125rem;
+}
+
+.sidebar-space-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.45rem 1rem;
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.6);
+  font-family: 'Roboto', sans-serif;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: var(--transition);
+}
+
+.sidebar-space-header:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #ffffff;
+}
+
+.sidebar-space-header.expanded {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.sidebar-space-name {
+  flex: 1;
+}
+
+.sidebar-space-header .dept-dot {
+  width: 8px;
+  height: 8px;
+}
+
+.sidebar-space-subitems {
+  padding: 0.125rem 0;
+}
+
+.sidebar-space-subitem {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.3rem 1rem 0.3rem 2.75rem;
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.45);
+  font-family: 'Roboto', sans-serif;
+  font-size: 0.75rem;
+  cursor: pointer;
+  text-align: left;
+  transition: var(--transition);
+}
+
+.sidebar-space-subitem:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.sidebar-space-subitem.active {
+  color: var(--follett-light-blue);
+  font-weight: 500;
+}
+
+.sidebar-space-subitem svg {
+  opacity: 0.5;
+  flex-shrink: 0;
+}
+
+.sidebar-space-subitem.active svg {
+  opacity: 1;
+}
+
+.sidebar-space-subitem .sidebar-count {
+  font-size: 0.65rem;
+}
+
+.sidebar-space-subitem.sidebar-subdept {
+  padding-left: 3.5rem;
+  font-size: 0.7rem;
+}
+
+/* === Note Source Badge (in My Notes global view) === */
+.note-source-badge {
+  display: inline-block;
+  font-size: 0.6rem;
+  font-weight: 500;
+  padding: 0.1rem 0.35rem;
+  margin-left: 0.4rem;
+  border-radius: 3px;
+  background: var(--color-border);
+  color: var(--color-text-muted);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+/* === What's New Popup === */
+.whats-new-modal {
+  max-width: 460px;
+}
+
+.whats-new-header {
+  padding: 1.5rem 1.75rem 0.75rem;
+  border-bottom: 2px solid var(--follett-light-blue);
+}
+
+.whats-new-header h2 {
+  font-family: 'IBM Plex Serif', serif;
+  font-size: 1.25rem;
+  color: var(--follett-dark-blue);
+}
+
+.whats-new-body {
+  padding: 1.25rem 1.75rem 1.5rem;
+}
+
+.whats-new-intro {
+  font-size: 0.9rem;
+  color: var(--color-text-muted);
+  margin-bottom: 1.25rem;
+  line-height: 1.5;
+}
+
+.whats-new-item {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  align-items: flex-start;
+}
+
+.whats-new-icon {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(174, 234, 252, 0.2);
+  border-radius: 6px;
+  color: var(--follett-medium-blue);
+}
+
+.whats-new-item strong {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--follett-dark-blue);
+  margin-bottom: 0.15rem;
+}
+
+.whats-new-item p {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  line-height: 1.45;
+}
+
+.whats-new-callout {
+  margin-top: 1.25rem;
+  padding: 0.75rem 1rem;
+  background: rgba(174, 234, 252, 0.12);
+  border-radius: var(--radius);
+  font-size: 0.82rem;
+  color: var(--follett-dark-blue);
+  line-height: 1.5;
+  border-left: 3px solid var(--follett-light-blue);
+}
+
+.whats-new-dismiss {
+  display: block;
+  width: 100%;
+  margin-top: 1.25rem;
+  padding: 0.7rem;
+  font-size: 0.9rem;
 }
 
 .sidebar-add-folder:hover {
@@ -1223,6 +1405,7 @@ body {
 .dept-revops { background: var(--color-revops); }
 .dept-b2c { background: var(--color-b2c); }
 .dept-personal { background: var(--follett-dark-gray); }
+.dept-all-mktg { background: var(--color-all-mktg); }
 
 /* === Task List === */
 .task-list-container {
@@ -1381,6 +1564,7 @@ body {
 .badge-revops { background: var(--color-revops-light); color: #b84e4b; }
 .badge-b2c { background: var(--color-b2c-light); color: #3d6b35; }
 .badge-personal { background: var(--color-personal-light); color: var(--follett-dark-gray); }
+.badge-all-mktg { background: var(--color-all-mktg-light); color: #1d6e63; }
 
 .badge-high { background: var(--color-high-light); color: var(--color-high); }
 .badge-medium { background: var(--color-medium-light); color: #a17508; }
