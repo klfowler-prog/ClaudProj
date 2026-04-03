@@ -550,90 +550,42 @@ function renderSidebarSpaces() {
   for (const dept of visibleDepts) {
     const key = DEPT_KEYS[dept];
     const count = tasks.filter(t => t.department === dept && t.status !== 'Completed').length;
-    const isExpanded = expandedDepts.has(dept);
-    const isActiveTasksDept = !globalMyTasksView && filters.department === dept && currentView === 'tasks';
-
-    html += `<div class="sidebar-space">
-      <button class="sidebar-space-header ${isExpanded ? 'expanded' : ''}" data-space-dept="${dept}">
-        <span class="dept-dot dept-${key}"></span>
-        <span class="sidebar-space-name">${dept}</span>
-        <span class="sidebar-caret-small">${isExpanded ? '&#9662;' : '&#9656;'}</span>
-      </button>`;
-
-    if (isExpanded) {
-      html += `<div class="sidebar-space-subitems">
-        <button class="sidebar-space-subitem ${isActiveTasksDept ? 'active' : ''}" data-space-action="tasks" data-dept="${dept}">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-          Tasks <span class="sidebar-count">${count}</span>
-        </button>`;
-
-      html += `<button class="sidebar-space-subitem ${!globalMyNotesView && currentView === 'notes' && !globalMyTasksView && filters.department === dept ? 'active' : ''}" data-space-action="notes" data-dept="${dept}">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-          Notes
-        </button>
-      </div>`;
-    }
-
-    html += `</div>`;
+    const isActive = !globalMyTasksView && filters.department === dept && currentView === 'tasks';
+    html += `<button class="sidebar-dept-item ${isActive ? 'active' : ''}" data-dept="${dept}">
+      <span class="dept-dot dept-${key}"></span> ${dept} ${count > 0 ? `<span class="sidebar-count">${count}</span>` : ''}
+    </button>`;
   }
 
   container.innerHTML = html;
 
-  // Space header toggle handlers
-  container.querySelectorAll('[data-space-dept]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const dept = btn.dataset.spaceDept;
-      if (expandedDepts.has(dept)) expandedDepts.delete(dept);
-      else expandedDepts.add(dept);
-      renderSidebarSpaces();
-    });
-  });
+  // Department click handler
+  container.onclick = (e) => {
+    const item = e.target.closest('.sidebar-dept-item');
+    if (!item) return;
+    const dept = item.dataset.dept;
 
-  // Space sub-item click handlers (Tasks / Notes per dept)
-  container.querySelectorAll('[data-space-action]').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const action = btn.dataset.spaceAction;
-      const dept = btn.dataset.dept;
+    // Clear workspace when switching departments
+    if (typeof activeWorkspaceId !== 'undefined' && activeWorkspaceId) {
+      activeWorkspaceId = null;
+      activeWorkspaceName = '';
+      const wsHeader = document.getElementById('workspace-header');
+      if (wsHeader) wsHeader.style.display = 'none';
+      if (typeof renderSidebarWorkspaces === 'function') renderSidebarWorkspaces();
+    }
+    // Clear stat/tag filters
+    filters.statFilter = 'none';
+    document.querySelectorAll('.stat-pill-clickable').forEach(p => p.classList.remove('active'));
+    if (typeof activeTaskTagFilter !== 'undefined') activeTaskTagFilter = '';
 
-      // Clear workspace when switching departments
-      if (typeof activeWorkspaceId !== 'undefined' && activeWorkspaceId) {
-        activeWorkspaceId = null;
-        activeWorkspaceName = '';
-        const wsHeader = document.getElementById('workspace-header');
-        if (wsHeader) wsHeader.style.display = 'none';
-        if (typeof renderSidebarWorkspaces === 'function') renderSidebarWorkspaces();
-      }
-      // Clear stat/tag filters
-      filters.statFilter = 'none';
-      document.querySelectorAll('.stat-pill-clickable').forEach(p => p.classList.remove('active'));
-      if (typeof activeTaskTagFilter !== 'undefined') activeTaskTagFilter = '';
-
-      if (action === 'tasks') {
-        globalMyTasksView = false;
-        globalMyNotesView = false;
-        showMyTasksOnly = true;
-        showMyTeam = false;
-        document.getElementById('filter-department').value = dept;
-        applyFilters(true);
-        switchView('tasks');
-      } else if (action === 'notes') {
-        globalMyTasksView = false;
-        globalMyNotesView = false;
-        switchView('notes');
-        const deptFolder = folders.find(f => f.name === dept);
-        if (deptFolder) {
-          activeFolderId = deptFolder.id;
-          loadNotesList(activeFolderId);
-          renderSidebarFolders();
-          document.getElementById('notes-folder-title').textContent = dept;
-        } else {
-          loadNotesList(null);
-        }
-      }
-      closeSidebar();
-    });
-  });
+    globalMyTasksView = false;
+    globalMyNotesView = false;
+    showMyTasksOnly = true;
+    showMyTeam = false;
+    document.getElementById('filter-department').value = dept;
+    applyFilters(true);
+    switchView('tasks');
+    closeSidebar();
+  };
 }
 
 // Legacy alias for any remaining calls
