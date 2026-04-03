@@ -2759,9 +2759,11 @@ app.get('/api/feature-requests', auth, async (req, res) => {
       const downvotes = Object.values(votes).filter(v => v === 'down').length;
       return {
         id: d.id, summary: data.summary, description: data.description,
-        requestedByName: data.requestedByName, status: data.status || 'new',
-        createdAt: data.createdAt, upvotes, downvotes, score: upvotes - downvotes,
-        myVote: votes[req.userId] || null
+        requestedBy: data.requestedBy, requestedByName: data.requestedByName,
+        status: data.status || 'new', createdAt: data.createdAt,
+        upvotes, downvotes, score: upvotes - downvotes,
+        myVote: votes[req.userId] || null,
+        responses: data.responses || []
       };
     });
     requests.sort((a, b) => b.score - a.score || (b.createdAt || '').localeCompare(a.createdAt || ''));
@@ -2786,6 +2788,90 @@ app.post('/api/feature-requests/:id/vote', auth, async (req, res) => {
     await ref.update({ votes });
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: 'Failed to vote' }); }
+});
+
+// POST /api/feature-requests/:id/respond — Add a response to a feature request (CMO/lead only)
+app.post('/api/feature-requests/:id/respond', auth, async (req, res) => {
+  try {
+    if (req.memberRole !== 'cmo' && req.memberRole !== 'lead') {
+      return res.status(403).json({ error: 'Only managers can respond to suggestions' });
+    }
+    const { text } = req.body;
+    if (!text || !text.trim()) return res.status(400).json({ error: 'Response text required' });
+
+    const ref = orgCol(req, 'featureRequests').doc(req.params.id);
+    const doc = await ref.get();
+    if (!doc.exists) return res.status(404).json({ error: 'Request not found' });
+
+    const data = doc.data();
+    const responses = data.responses || [];
+    responses.push({
+      text: text.trim(),
+      respondedBy: req.userId,
+      respondedByName: req.memberName,
+      respondedAt: new Date().toISOString()
+    });
+    await ref.update({ responses });
+
+    // Notify the requester
+    if (data.requestedBy && data.requestedBy !== req.userId) {
+      await createNotification(req.orgId, data.requestedBy, {
+        type: 'feature_response',
+        title: `${req.memberName} responded to your suggestion: "${data.summary.substring(0, 60)}"`,
+        fromUserId: req.userId,
+        fromName: req.memberName
+      });
+    }
+
+    res.json({ ok: true });
+  } catch (err) { console.error('Respond failed:', err); res.status(500).json({ error: 'Failed to respond' }); }
+});
+
+// PUT /api/feature-requests/:id/status — Mark a feature request as completed/new (CMO/lead only)
+app.put('/api/feature-requests/:id/status', auth, async (req, res) => {
+  try {
+    if (req.memberRole !== 'cmo' && req.memberRole !== 'lead') {
+      return res.status(403).json({ error: 'Only managers can update status' });
+    }
+    const { status } = req.body;
+    if (!['completed', 'new'].includes(status)) return res.status(400).json({ error: 'Invalid status' });
+
+    const ref = orgCol(req, 'featureRequests').doc(req.params.id);
+    const doc = await ref.get();
+    if (!doc.exists) return res.status(404).json({ error: 'Request not found' });
+
+    await ref.update({ status, completedAt: status === 'completed' ? new Date().toISOString() : null });
+
+    // Notify the requester
+    const data = doc.data();
+    if (status === 'completed' && data.requestedBy && data.requestedBy !== req.userId) {
+      await createNotification(req.orgId, data.requestedBy, {
+        type: 'feature_completed',
+        title: `Your suggestion was marked as done: "${data.summary.substring(0, 60)}"`,
+        fromUserId: req.userId,
+        fromName: req.memberName
+      });
+    }
+
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: 'Failed to update status' }); }
+});
+
+// DELETE /api/feature-requests/:id — Delete a feature request (CMO or original requester)
+app.delete('/api/feature-requests/:id', auth, async (req, res) => {
+  try {
+    const ref = orgCol(req, 'featureRequests').doc(req.params.id);
+    const doc = await ref.get();
+    if (!doc.exists) return res.status(404).json({ error: 'Request not found' });
+
+    const data = doc.data();
+    if (req.memberRole !== 'cmo' && data.requestedBy !== req.userId) {
+      return res.status(403).json({ error: 'Only the CMO or the original submitter can delete suggestions' });
+    }
+
+    await ref.delete();
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: 'Failed to delete' }); }
 });
 
 // === Gmail OAuth Endpoints ===

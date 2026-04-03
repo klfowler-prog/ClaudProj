@@ -4712,17 +4712,35 @@ async function loadFeatureRequests() {
     }
     empty.style.display = 'none';
 
+    const isManager = myProfile && (myProfile.role === 'cmo' || myProfile.role === 'lead');
+    const myId = myProfile ? myProfile.userId : '';
+
     container.innerHTML = requests.map(r => {
       const ago = timeAgo(r.createdAt);
-      return `<div class="feature-card">
+      const isCompleted = r.status === 'completed';
+      const canDelete = myProfile && (myProfile.role === 'cmo' || r.requestedBy === myId);
+      const responsesHtml = r.responses.length > 0 ? r.responses.map(resp => `
+        <div class="feature-response">
+          <strong>${escapeHtml(resp.respondedByName)}</strong>
+          <span class="feature-response-time">${timeAgo(resp.respondedAt)}</span>
+          <div>${escapeHtml(resp.text)}</div>
+        </div>`).join('') : '';
+
+      return `<div class="feature-card ${isCompleted ? 'feature-completed' : ''}">
         <div class="feature-votes">
           <button class="feature-vote-btn ${r.myVote === 'up' ? 'voted-up' : ''}" data-vote-id="${r.id}" data-vote="up" title="Upvote"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/><path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg></button>
           <span class="feature-score">${r.score}</span>
           <button class="feature-vote-btn ${r.myVote === 'down' ? 'voted-down' : ''}" data-vote-id="${r.id}" data-vote="down" title="Downvote"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10z"/><path d="M17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg></button>
         </div>
         <div class="feature-content">
-          <div class="feature-summary">${escapeHtml(r.summary)}</div>
-          <div class="feature-meta">${escapeHtml(r.requestedByName)} &middot; ${ago}</div>
+          <div class="feature-summary">${isCompleted ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--follett-sage)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;"><path d="M20 6L9 17l-5-5"/></svg>' : ''}${escapeHtml(r.summary)}</div>
+          <div class="feature-meta">${escapeHtml(r.requestedByName)} &middot; ${ago}${isCompleted ? ' &middot; <span style="color:var(--follett-sage);font-weight:600;">Done</span>' : ''}</div>
+          ${responsesHtml}
+          <div class="feature-actions">
+            ${isManager ? `<button class="feature-action-btn" data-respond-id="${r.id}" title="Respond"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Respond</button>` : ''}
+            ${isManager ? `<button class="feature-action-btn" data-complete-id="${r.id}" data-current-status="${r.status}" title="${isCompleted ? 'Reopen' : 'Mark done'}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg> ${isCompleted ? 'Reopen' : 'Done'}</button>` : ''}
+            ${canDelete ? `<button class="feature-action-btn feature-action-delete" data-delete-id="${r.id}" title="Delete"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> Delete</button>` : ''}
+          </div>
         </div>
       </div>`;
     }).join('');
@@ -4737,6 +4755,46 @@ async function loadFeatureRequests() {
           await api('POST', `/api/feature-requests/${id}/vote`, { vote: newVote });
           loadFeatureRequests();
         } catch (err) { showToast('Failed to vote', 'error'); }
+      });
+    });
+
+    // Respond click handlers
+    container.querySelectorAll('[data-respond-id]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.respondId;
+        const text = prompt('Your response:');
+        if (!text || !text.trim()) return;
+        try {
+          await api('POST', `/api/feature-requests/${id}/respond`, { text });
+          showToast('Response added');
+          loadFeatureRequests();
+        } catch (err) { showToast('Failed to respond', 'error'); }
+      });
+    });
+
+    // Complete/reopen click handlers
+    container.querySelectorAll('[data-complete-id]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.completeId;
+        const newStatus = btn.dataset.currentStatus === 'completed' ? 'new' : 'completed';
+        try {
+          await api('PUT', `/api/feature-requests/${id}/status`, { status: newStatus });
+          showToast(newStatus === 'completed' ? 'Marked as done' : 'Reopened');
+          loadFeatureRequests();
+        } catch (err) { showToast('Failed to update', 'error'); }
+      });
+    });
+
+    // Delete click handlers
+    container.querySelectorAll('[data-delete-id]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.deleteId;
+        if (!confirm('Delete this suggestion? This cannot be undone.')) return;
+        try {
+          await api('DELETE', `/api/feature-requests/${id}`);
+          showToast('Suggestion deleted');
+          loadFeatureRequests();
+        } catch (err) { showToast('Failed to delete', 'error'); }
       });
     });
   } catch (err) { console.error('Failed to load feature requests:', err); }

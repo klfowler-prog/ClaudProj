@@ -1033,6 +1033,40 @@ body {
 .feature-summary { font-size: 0.9rem; font-weight: 500; margin-bottom: 0.25rem; }
 .feature-meta { font-size: 0.7rem; color: var(--color-text-muted); }
 
+.feature-card.feature-completed { opacity: 0.7; }
+.feature-card.feature-completed .feature-summary { text-decoration: line-through; text-decoration-color: var(--follett-sage); }
+
+.feature-response {
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.625rem;
+  background: var(--color-medium-light);
+  border-radius: var(--radius);
+  font-size: 0.8rem;
+}
+.feature-response strong { font-size: 0.75rem; color: var(--follett-dark-blue); }
+.feature-response-time { font-size: 0.65rem; color: var(--color-text-muted); margin-left: 0.375rem; }
+
+.feature-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+.feature-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.7rem;
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  color: var(--color-text-muted);
+  transition: all 0.15s;
+}
+.feature-action-btn:hover { background: var(--follett-light-gray); color: var(--follett-dark-blue); border-color: var(--follett-dark-blue); }
+.feature-action-delete:hover { color: var(--follett-coral); border-color: var(--follett-coral); }
+
 /* === AI Assistant View === */
 .ai-view {
   height: calc(100vh - 2rem);
