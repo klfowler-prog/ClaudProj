@@ -578,7 +578,7 @@ function renderSidebarSpaces() {
 
   // Department sub-item click (Tasks / Notes)
   container.querySelectorAll('[data-dept-action]').forEach(btn => {
-    btn.addEventListener('click', (e) => {
+    btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       const action = btn.dataset.deptAction;
       const dept = btn.dataset.dept;
@@ -608,14 +608,20 @@ function renderSidebarSpaces() {
         globalMyTasksView = false;
         globalMyNotesView = false;
         switchView('notes');
+        if (!folders || folders.length === 0) {
+          await loadFolders();
+        }
         const deptFolder = folders.find(f => f.name === dept);
         if (deptFolder) {
           activeFolderId = deptFolder.id;
+          if (currentUser) sessionStorage.setItem('activeFolderId_' + currentUser.uid, activeFolderId);
           loadNotesList(activeFolderId);
-          renderSidebarFolders();
           document.getElementById('notes-folder-title').textContent = dept;
         } else {
+          // No matching folder — show all notes for now
+          activeFolderId = null;
           loadNotesList(null);
+          document.getElementById('notes-folder-title').textContent = dept + ' Notes';
         }
       }
       closeSidebar();
@@ -2866,7 +2872,22 @@ async function init() {
     globalMyNotesView = false;
     showMyTasksOnly = true;
     showMyTeam = false;
+    // Clear workspace context
+    if (typeof activeWorkspaceId !== 'undefined' && activeWorkspaceId) {
+      activeWorkspaceId = null;
+      activeWorkspaceName = '';
+      const wsHeader = document.getElementById('workspace-header');
+      if (wsHeader) wsHeader.style.display = 'none';
+      if (typeof renderSidebarWorkspaces === 'function') renderSidebarWorkspaces();
+    }
+    // Clear filters
+    filters.statFilter = 'none';
+    document.querySelectorAll('.stat-pill-clickable').forEach(p => p.classList.remove('active'));
+    if (typeof activeTaskTagFilter !== 'undefined') activeTaskTagFilter = '';
     document.getElementById('filter-department').value = 'all';
+    document.getElementById('btn-my-tasks').classList.add('active');
+    document.getElementById('btn-my-team').classList.remove('active');
+    document.getElementById('btn-all-tasks').classList.remove('active');
     loadTasks().then(render);
     switchView('tasks');
     closeSidebar();
@@ -2877,6 +2898,14 @@ async function init() {
     globalMyNotesView = true;
     globalMyTasksView = false;
     showMyNotesOnly = true;
+    // Clear workspace context
+    if (typeof activeWorkspaceId !== 'undefined' && activeWorkspaceId) {
+      activeWorkspaceId = null;
+      activeWorkspaceName = '';
+      const wsHeader = document.getElementById('workspace-header');
+      if (wsHeader) wsHeader.style.display = 'none';
+      if (typeof renderSidebarWorkspaces === 'function') renderSidebarWorkspaces();
+    }
     switchView('notes');
     if (!folders || folders.length === 0) {
       await loadFolders();
@@ -2884,9 +2913,7 @@ async function init() {
     // Show all notes (no folder filter)
     activeFolderId = null;
     loadNotesList(null);
-    renderSidebarFolders();
     document.getElementById('notes-folder-title').textContent = 'My Notes';
-    renderSidebarSpaces();
     closeSidebar();
   });
 
@@ -2896,20 +2923,17 @@ async function init() {
     item.addEventListener('click', async () => {
       const view = item.dataset.view;
       if (view === 'notes') {
-        globalMyNotesView = false;
+        // Redirect to global My Notes view
+        globalMyNotesView = true;
+        globalMyTasksView = false;
+        showMyNotesOnly = true;
         switchView('notes');
-        toggleSidebarSection('notes-subnav', 'notes-caret');
         if (!folders || folders.length === 0) {
           await loadFolders();
         }
-        const allTeamFolder = folders.find(f => f.name === 'All Team');
-        if (allTeamFolder && !activeFolderId) {
-          activeFolderId = allTeamFolder.id;
-        }
-        loadNotesList(activeFolderId);
-        renderSidebarFolders();
-        const activeFolder = folders.find(f => f.id === activeFolderId);
-        document.getElementById('notes-folder-title').textContent = activeFolder ? activeFolder.name : 'Notes';
+        activeFolderId = null;
+        loadNotesList(null);
+        document.getElementById('notes-folder-title').textContent = 'My Notes';
       } else if (view) {
         switchView(view);
       }
@@ -3644,6 +3668,8 @@ async function openWorkspace(id) {
   activeWorkspaceName = ws.name;
   if (currentUser) sessionStorage.setItem('activeWorkspaceId_' + currentUser.uid, id);
   // Reset task scope to show all workspace tasks (not filtered by "My Tasks")
+  globalMyTasksView = false;
+  globalMyNotesView = false;
   showMyTasksOnly = false;
   showMyTeam = false;
   document.getElementById('btn-my-tasks').classList.remove('active');
@@ -3666,6 +3692,8 @@ async function closeWorkspace() {
   if (currentUser) sessionStorage.removeItem('activeWorkspaceId_' + currentUser.uid);
   document.getElementById('workspace-header').style.display = 'none';
   // Restore default "My Tasks" scope
+  globalMyTasksView = true;
+  globalMyNotesView = false;
   showMyTasksOnly = true;
   showMyTeam = false;
   document.getElementById('btn-my-tasks').classList.add('active');
@@ -4556,12 +4584,19 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
           switchView(savedView);
         }
-        if (savedView === 'notes' && savedFolderId) {
-          activeFolderId = savedFolderId;
-          loadNotesList(activeFolderId);
-          renderSidebarFolders();
-          const folder = folders.find(f => f.id === activeFolderId);
-          document.getElementById('notes-folder-title').textContent = folder ? folder.name : 'Notes';
+        if (savedView === 'notes') {
+          if (savedFolderId) {
+            globalMyNotesView = false;
+            activeFolderId = savedFolderId;
+            loadNotesList(activeFolderId);
+            const folder = folders.find(f => f.id === activeFolderId);
+            document.getElementById('notes-folder-title').textContent = folder ? folder.name : 'Notes';
+          } else {
+            globalMyNotesView = true;
+            showMyNotesOnly = true;
+            loadNotesList(null);
+            document.getElementById('notes-folder-title').textContent = 'My Notes';
+          }
         }
       }
 
