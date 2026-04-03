@@ -507,10 +507,11 @@ app.post('/api/tasks/batch', authWrite, async (req, res) => {
         status: task.status || 'Not Started', completed: task.status === 'Completed',
         completedAt: task.completedAt || '', createdAt: task.createdAt || new Date().toISOString(),
         source: task.source || 'manual', attachments: task.attachments || [],
-        dueDate: task.dueDate || '', emailMessageId: task.emailMessageId || '',
+        startDate: task.startDate || '', dueDate: task.dueDate || '', emailMessageId: task.emailMessageId || '',
         recurring: task.recurring || 'none',
         createdBy: req.userId, assignedTo: task.assignedTo || req.userId, sharedWith: [],
-        subDepartment: task.subDepartment || '', parentTaskId: task.parentTaskId || ''
+        subDepartment: task.subDepartment || '', parentTaskId: task.parentTaskId || '',
+        watchers: []
       };
       batch.set(docRef, taskData);
       results.push({ id: docRef.id, ...taskData });
@@ -708,10 +709,8 @@ app.put('/api/tasks/:id', auth, async (req, res) => {
           });
         }
         // Notify parent task watchers about subtask completion
-        if (parentDoc.exists) {
-          const parentWithId = { ...parent, id: oldTask.parentTaskId };
-          await notifyWatchers(req.orgId, parentWithId, 'subtask_completed', `${req.memberName} completed subtask "${oldTask.title}" on "${parent.title}"`, req.userId, req.memberName, [parent.createdBy]);
-        }
+        const parentWithId = { ...parent, id: oldTask.parentTaskId };
+        await notifyWatchers(req.orgId, parentWithId, 'subtask_completed', `${req.memberName} completed subtask "${oldTask.title}" on "${parent.title}"`, req.userId, req.memberName, [parent.createdBy]);
       }
     }
 
@@ -729,16 +728,23 @@ app.post('/api/tasks/:id/watch', auth, async (req, res) => {
     if (!doc.exists) return res.status(404).json({ error: 'Task not found' });
 
     const task = doc.data();
-    const watchers = task.watchers || [];
-    const idx = watchers.indexOf(req.userId);
-    if (idx >= 0) {
-      watchers.splice(idx, 1);
-      await taskRef.update({ watchers });
-      res.json({ watching: false, watchers });
+
+    // Access control: user must have visibility to this task
+    if (task.private && task.createdBy !== req.userId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    if (req.memberRole !== 'cmo' && task.createdBy !== req.userId && task.assignedTo !== req.userId &&
+        !req.memberDepts.includes(task.department) && !(task.sharedWith || []).includes(req.userId)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const isWatching = (task.watchers || []).includes(req.userId);
+    if (isWatching) {
+      await taskRef.update({ watchers: admin.firestore.FieldValue.arrayRemove(req.userId) });
+      res.json({ watching: false, watchers: (task.watchers || []).filter(w => w !== req.userId) });
     } else {
-      watchers.push(req.userId);
-      await taskRef.update({ watchers });
-      res.json({ watching: true, watchers });
+      await taskRef.update({ watchers: admin.firestore.FieldValue.arrayUnion(req.userId) });
+      res.json({ watching: true, watchers: [...(task.watchers || []), req.userId] });
     }
   } catch (err) {
     res.status(500).json({ error: 'Failed to toggle watch' });
@@ -1862,7 +1868,7 @@ app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
       const attachments = (t.attachments || []).filter(a => a.type === 'file').map(a => `[filelink:${a.gcsPath}:${a.name}]`).join(' ');
       const wsLabel = t.workspaceId && workspaceNames[t.workspaceId] ? ` | Workspace: ${workspaceNames[t.workspaceId]}` : '';
       const tagsLabel = (t.tags && t.tags.length > 0) ? ` | Tags: ${t.tags.join(', ')}` : '';
-      return `[tasklink:${t.id}:${t.title}] [${t.status}] | Assigned: ${assignee} | Created by: ${creator} | Dept: ${t.department} | Priority: ${t.priority}${tagsLabel}${t.createdAt ? ' | Created: ' + t.createdAt.split('T')[0] : ''}${t.dueDate ? ' | Due: ' + t.dueDate : ''}${t.completedAt ? ' | Completed: ' + t.completedAt.split('T')[0] : ''}${t.blockedReason ? ' | Blocked: ' + t.blockedReason : ''}${wsLabel}${attachments ? ' | Files: ' + attachments : ''}${t.notes ? ' | Notes: ' + t.notes.substring(0, 200) : ''}`;
+      return `[tasklink:${t.id}:${t.title}] [${t.status}] | Assigned: ${assignee} | Created by: ${creator} | Dept: ${t.department} | Priority: ${t.priority}${tagsLabel}${t.createdAt ? ' | Created: ' + t.createdAt.split('T')[0] : ''}${t.startDate ? ' | Start: ' + t.startDate : ''}${t.dueDate ? ' | Due: ' + t.dueDate : ''}${t.completedAt ? ' | Completed: ' + t.completedAt.split('T')[0] : ''}${t.blockedReason ? ' | Blocked: ' + t.blockedReason : ''}${wsLabel}${attachments ? ' | Files: ' + attachments : ''}${t.notes ? ' | Notes: ' + t.notes.substring(0, 200) : ''}`;
     });
 
     // Gather notes — apply same access filtering as notes list
@@ -2174,12 +2180,16 @@ async function sendSlackNotification(orgId, toUserId, data) {
 
 // === Watcher Notification Helper ===
 async function notifyWatchers(orgId, task, type, title, fromUserId, fromName, excludeUserIds) {
-  const exclude = new Set(excludeUserIds || []);
-  exclude.add(fromUserId);
-  for (const watcherId of (task.watchers || [])) {
-    if (!exclude.has(watcherId)) {
-      await createNotification(orgId, watcherId, { type, title, taskId: task.id || '', fromUserId, fromName });
+  try {
+    const exclude = new Set(excludeUserIds || []);
+    exclude.add(fromUserId);
+    for (const watcherId of (task.watchers || [])) {
+      if (!exclude.has(watcherId)) {
+        await createNotification(orgId, watcherId, { type, title, taskId: task.id || '', fromUserId, fromName });
+      }
     }
+  } catch (err) {
+    console.error('notifyWatchers failed:', err);
   }
 }
 

@@ -1094,7 +1094,8 @@ async function handleRecurringTaskCompletion(task) {
       nextDue,
       task.recurring,
       task.assignedTo || undefined,
-      task.tags || []
+      task.tags || [],
+      task.startDate ? getNextDueDate(task.startDate, task.recurring) : ''
     );
     showToast(`Next ${task.recurring} occurrence created`);
   }
@@ -1239,6 +1240,7 @@ function resetAddForm() {
   editingTaskId = null;
   document.getElementById('form-add-task').reset();
   document.getElementById('input-priority').value = 'Medium';
+  document.getElementById('input-start-date').value = '';
   document.getElementById('modal-add-title').textContent = 'Add Task';
   document.getElementById('btn-submit-task').textContent = 'Add Task';
   pendingAttachments = [];
@@ -1432,7 +1434,6 @@ function showTaskDetail(id) {
         <div class="detail-section-title">${task.startDate ? 'Dates' : 'Due Date'}</div>
         ${task.startDate && task.dueDate ? `<span>${formatDueDate(task.dueDate, task.status === 'Completed', task.startDate)}</span>` : ''}
         <div style="display:flex;gap:0.375rem;align-items:center;margin-top:0.25rem;">
-          ${task.startDate || task.dueDate ? '' : ''}
           <input type="date" value="${task.dueDate || ''}" onchange="updateTaskDueDate('${task.id}', this.value)" style="font-size:0.8rem;padding:0.25rem 0.4rem;border:1px solid var(--color-border);border-radius:var(--radius);font-family:'Roboto',sans-serif;">
         </div>
       </div>
