@@ -615,7 +615,7 @@ function renderSidebarSpaces() {
       if (!folders || folders.length === 0) {
         await loadFolders();
       }
-      const deptFolder = folders.find(f => f.name === dept);
+      const deptFolder = folders.find(f => f.name === dept || (dept === 'All Marketing' && f.name === 'All Team'));
       if (deptFolder) {
         activeFolderId = deptFolder.id;
         if (currentUser) sessionStorage.setItem('activeFolderId_' + currentUser.uid, activeFolderId);
@@ -2133,6 +2133,15 @@ async function openNote(noteId) {
       `<option value="${f.id}" ${f.id === note.folderId ? 'selected' : ''}>${escapeHtml(f.name)}</option>`
     ).join('');
 
+    // Populate workspace dropdown
+    const wsSelect = document.getElementById('note-workspace-select');
+    wsSelect.innerHTML = `<option value="">No workspace</option>` +
+      workspaces.map(w =>
+        `<option value="${w.id}" ${w.id === note.workspaceId ? 'selected' : ''}>${escapeHtml(w.name)}</option>`
+      ).join('');
+    wsSelect.disabled = !canEdit;
+    wsSelect.style.display = workspaces.length > 0 ? '' : 'none';
+
     // Render note tags
     renderNoteTags(note.tags || [], canEdit);
 
@@ -3203,6 +3212,25 @@ async function init() {
       }
     } catch (err) { showToast('Failed to move note', 'error'); }
   });
+
+  // Move note to a workspace (or remove from workspace)
+  document.getElementById('note-workspace-select').addEventListener('change', async (e) => {
+    if (!activeNoteId) return;
+    try {
+      const newWsId = e.target.value;
+      await api('PUT', `/api/notes/${activeNoteId}`, { workspaceId: newWsId });
+      const ws = workspaces.find(w => w.id === newWsId);
+      document.getElementById('editor-saved').textContent = newWsId ? 'Moved to ' + (ws ? ws.name : 'workspace') : 'Removed from workspace';
+      const item = notesList.find(n => n.id === activeNoteId);
+      if (item) item.workspaceId = newWsId;
+      // If viewing a workspace, remove note from list when moved out
+      if (activeWorkspaceNotesView && newWsId !== activeWorkspaceId) {
+        notesList = notesList.filter(n => n.id !== activeNoteId);
+        renderNotesList();
+      }
+    } catch (err) { showToast('Failed to move note', 'error'); }
+  });
+
   document.getElementById('btn-save-share').addEventListener('click', saveSharing);
   document.getElementById('btn-add-folder').addEventListener('click', createFolder);
   document.getElementById('editor-title').addEventListener('input', scheduleAutoSave);
