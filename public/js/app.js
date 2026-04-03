@@ -1814,8 +1814,16 @@ async function loadNotesList(folderId) {
   try {
     activeTagFilter = ''; // Reset tag filter when switching folders
     let url = folderId ? `/api/notes?folderId=${folderId}` : '/api/notes';
-    if (showMyNotesOnly) url += (url.includes('?') ? '&' : '?') + 'mine=true';
+    // In global My Notes view, always filter to mine
+    if (globalMyNotesView || showMyNotesOnly) url += (url.includes('?') ? '&' : '?') + 'mine=true';
     notesList = await api('GET', url);
+    // Show/hide the All/Mine toggle — hide in global My Notes view
+    const toggleAll = document.getElementById('btn-all-notes');
+    const toggleMine = document.getElementById('btn-my-notes');
+    if (toggleAll && toggleMine) {
+      toggleAll.style.display = globalMyNotesView ? 'none' : '';
+      toggleMine.style.display = globalMyNotesView ? 'none' : '';
+    }
     renderNotesList();
     loadArchivedNotes();
   } catch (err) { notesList = []; renderNotesList(); }
