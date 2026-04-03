@@ -2129,7 +2129,7 @@ async function openNote(noteId) {
 
     // Populate folder dropdown and set current folder
     const folderSelect = document.getElementById('note-folder-select');
-    folderSelect.innerHTML = folders.map(f =>
+    folderSelect.innerHTML = `<option value="">None</option>` + folders.map(f =>
       `<option value="${f.id}" ${f.id === note.folderId ? 'selected' : ''}>${escapeHtml(f.name)}</option>`
     ).join('');
 
@@ -3199,9 +3199,17 @@ async function init() {
     if (!activeNoteId) return;
     try {
       const newFolderId = e.target.value;
-      await api('PUT', `/api/notes/${activeNoteId}`, { folderId: newFolderId });
+      const updates = { folderId: newFolderId };
+      // Moving to a department clears the workspace
+      if (newFolderId) {
+        updates.workspaceId = '';
+        document.getElementById('note-workspace-select').value = '';
+        const item = notesList.find(n => n.id === activeNoteId);
+        if (item) item.workspaceId = '';
+      }
+      await api('PUT', `/api/notes/${activeNoteId}`, updates);
       const folder = folders.find(f => f.id === newFolderId);
-      document.getElementById('editor-saved').textContent = 'Moved to ' + (folder ? folder.name : 'folder');
+      document.getElementById('editor-saved').textContent = newFolderId ? 'Moved to ' + (folder ? folder.name : 'folder') : 'Removed from department';
       // Update the note in the local list
       const item = notesList.find(n => n.id === activeNoteId);
       if (item) item.folderId = newFolderId;
@@ -3218,13 +3226,26 @@ async function init() {
     if (!activeNoteId) return;
     try {
       const newWsId = e.target.value;
-      await api('PUT', `/api/notes/${activeNoteId}`, { workspaceId: newWsId });
+      const updates = { workspaceId: newWsId };
+      // Moving to a workspace clears the department folder
+      if (newWsId) {
+        updates.folderId = '';
+        document.getElementById('note-folder-select').value = '';
+        const item = notesList.find(n => n.id === activeNoteId);
+        if (item) item.folderId = '';
+      }
+      await api('PUT', `/api/notes/${activeNoteId}`, updates);
       const ws = workspaces.find(w => w.id === newWsId);
       document.getElementById('editor-saved').textContent = newWsId ? 'Moved to ' + (ws ? ws.name : 'workspace') : 'Removed from workspace';
       const item = notesList.find(n => n.id === activeNoteId);
       if (item) item.workspaceId = newWsId;
       // If viewing a workspace, remove note from list when moved out
       if (activeWorkspaceNotesView && newWsId !== activeWorkspaceId) {
+        notesList = notesList.filter(n => n.id !== activeNoteId);
+        renderNotesList();
+      }
+      // If viewing a department folder, remove note from list when moved to workspace
+      if (activeFolderId && newWsId) {
         notesList = notesList.filter(n => n.id !== activeNoteId);
         renderNotesList();
       }
