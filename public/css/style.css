@@ -2704,3 +2704,25 @@ body {
   font-style: italic;
   padding: 0.25rem 0;
 }
+
+/* Watcher chips */
+.watcher-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 0.55rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+
+/* Watch icon on task cards */
+.task-watch-icon {
+  color: var(--follett-medium-blue);
+  font-size: 0.7rem;
+  opacity: 0.7;
+}
