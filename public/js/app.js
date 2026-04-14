@@ -2388,10 +2388,19 @@ async function uploadNoteFile(files) {
 }
 
 async function downloadFile(gcsPath) {
+  // Open the tab synchronously within the user gesture so mobile browsers
+  // (iOS Safari especially) don't block it while we fetch the signed URL.
+  const newWindow = window.open('', '_blank');
   try {
     const result = await api('GET', `/api/file-url?path=${encodeURIComponent(gcsPath)}`);
-    window.open(result.url, '_blank');
+    if (newWindow && !newWindow.closed) {
+      newWindow.location.href = result.url;
+    } else {
+      // Popup blocked — fall back to navigating the current window
+      window.location.href = result.url;
+    }
   } catch (err) {
+    if (newWindow && !newWindow.closed) newWindow.close();
     showToast('Failed to get download link', 'error');
   }
 }
