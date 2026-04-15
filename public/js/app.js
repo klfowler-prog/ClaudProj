@@ -1164,6 +1164,12 @@ async function deleteTask(id) {
   }
 }
 
+async function deleteTaskFromDetail(id) {
+  if (!confirm('Delete this task? This cannot be undone.')) return;
+  closeModal('modal-detail');
+  await deleteTask(id);
+}
+
 // === Edit Task ===
 async function editTask(id) {
   let task = tasks.find(t => t.id === id);
@@ -1528,6 +1534,7 @@ function showTaskDetail(id) {
     <div class="detail-actions">
       ${(myProfile && task.createdBy && task.createdBy !== myProfile.userId && task.status !== 'Approved' && task.status !== 'Completed') ? `<button class="btn btn-primary" onclick="approveAndReturn('${task.id}', '${task.createdBy}')" style="background:#2e7d32;">&#10003; Approve</button><button class="btn btn-secondary" onclick="needsRevision('${task.id}', '${task.createdBy}')" style="color:var(--follett-coral);border-color:var(--follett-coral);">&#8617; Needs Revision</button>` : ''}
       <button class="btn btn-primary" onclick="editTask('${task.id}')">Edit Task</button>
+      ${(myProfile && (myProfile.role === 'cmo' || task.createdBy === myProfile.userId)) ? `<button class="btn btn-ghost" onclick="deleteTaskFromDetail('${task.id}')" style="color:var(--follett-coral);">Delete</button>` : ''}
     </div>
   `;
   openModal('modal-detail');
