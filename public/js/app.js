@@ -925,7 +925,7 @@ function renderMarkdown(str) {
   html = html.replace(/\[notelink:([^\]:]+):([^\]]+)\]/g, (_, id, title) =>
     `<a href="#" class="ai-link ai-link-note" data-note-id="${id}" onclick="event.preventDefault();switchView('notes');openNote('${id}')">${title}</a>`);
   html = html.replace(/\[filelink:([^\]:]+):([^\]]+)\]/g, (_, path, name) =>
-    `<a href="#" class="ai-link ai-link-file" onclick="event.preventDefault();downloadFile('${path.replace(/'/g, "\\'")}')">${name}</a>`);
+    `<a href="#" class="ai-link ai-link-file" data-gcs-path="${escapeHtml(path)}" onclick="event.preventDefault();downloadFile('${path.replace(/'/g, "\\'")}')">${name}</a>`);
   // Links
   html = html.replace(/(https?:\/\/[^\s<>"']+)/g, (url) => {
     const cleanUrl = url.replace(/&amp;/g, '&');
@@ -3029,6 +3029,23 @@ async function init() {
     overlay.addEventListener('click', (e) => {
       if (e.target === overlay) closeModal(overlay.id);
     });
+  });
+
+  // Global delegated click handler for dynamically rendered links
+  // (iOS Safari doesn't always fire inline onclick on dynamic innerHTML)
+  document.addEventListener('click', (e) => {
+    // AI task/note/file links
+    const aiLink = e.target.closest('.ai-link-task');
+    if (aiLink) { e.preventDefault(); showTaskDetail(aiLink.dataset.taskId); return; }
+    const noteLink = e.target.closest('.ai-link-note');
+    if (noteLink) { e.preventDefault(); switchView('notes'); openNote(noteLink.dataset.noteId); return; }
+    const fileLink = e.target.closest('.ai-link-file');
+    if (fileLink && fileLink.dataset.gcsPath) { e.preventDefault(); downloadFile(fileLink.dataset.gcsPath); return; }
+    // Search result clicks
+    const searchTask = e.target.closest('[data-search-task-id]');
+    if (searchTask) { document.getElementById('global-search').value = ''; switchView('tasks'); showTaskDetail(searchTask.dataset.searchTaskId); return; }
+    const searchNote = e.target.closest('[data-search-note-id]');
+    if (searchNote) { document.getElementById('global-search').value = ''; switchView('notes'); openNote(searchNote.dataset.searchNoteId); return; }
   });
 
   // Close modal on Escape
