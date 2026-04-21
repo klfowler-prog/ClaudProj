@@ -3253,15 +3253,13 @@ async function init() {
   document.getElementById('editor-title').addEventListener('input', scheduleAutoSave);
   document.getElementById('editor-content').addEventListener('input', scheduleAutoSave);
 
-  // Make links clickable in editor (Ctrl/Cmd+click when editing, regular click when read-only)
+  // Make links clickable in editor — always navigate on click
+  // (contentEditable normally swallows link clicks to place cursor)
   document.getElementById('editor-content').addEventListener('click', (e) => {
     const link = e.target.closest('a');
-    if (!link) return;
-    const isEditable = document.getElementById('editor-content').contentEditable === 'true';
-    if (!isEditable || e.metaKey || e.ctrlKey) {
-      e.preventDefault();
-      window.open(link.href, '_blank', 'noopener');
-    }
+    if (!link || !link.href) return;
+    e.preventDefault();
+    window.open(link.href, '_blank', 'noopener');
   });
 
   // AI buttons
