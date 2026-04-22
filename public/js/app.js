@@ -1384,11 +1384,11 @@ function showTaskDetail(id) {
     const items = task.attachments.map(a => {
       if (a.type === 'file') {
         if (a.gcsPath) {
-          return `<li><a href="#" onclick="event.preventDefault();downloadFile('${a.gcsPath.replace(/'/g, "\\'")}')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> ${escapeHtml(a.name)}</a></li>`;
+          return `<li><a href="#" class="file-download-link" data-gcs-path="${escapeHtml(a.gcsPath)}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> ${escapeHtml(a.name)}</a></li>`;
         }
         return `<li><a href="${a.data}" download="${escapeHtml(a.name)}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> ${escapeHtml(a.name)}</a></li>`;
       } else {
-        return `<li><a href="${escapeHtml(a.url)}" target="_blank" rel="noopener"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg> ${escapeHtml(a.name || a.url)}</a></li>`;
+        return `<li><a href="${escapeHtml(a.url)}" target="_blank" rel="noopener" class="external-link"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg> ${escapeHtml(a.name || a.url)}</a></li>`;
       }
     }).join('');
     attachmentsHtml = `
@@ -1406,9 +1406,9 @@ function showTaskDetail(id) {
     if (task.parentTaskAttachments && task.parentTaskAttachments.length > 0) {
       const items = task.parentTaskAttachments.map(a => {
         if (a.type === 'file' && a.gcsPath) {
-          return `<li><a href="#" onclick="event.preventDefault();downloadFile('${a.gcsPath.replace(/'/g, "\\'")}')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> ${escapeHtml(a.name)}</a></li>`;
+          return `<li><a href="#" class="file-download-link" data-gcs-path="${escapeHtml(a.gcsPath)}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> ${escapeHtml(a.name)}</a></li>`;
         } else if (a.url) {
-          return `<li><a href="${escapeHtml(a.url)}" target="_blank" rel="noopener">${escapeHtml(a.name || a.url)}</a></li>`;
+          return `<li><a href="${escapeHtml(a.url)}" target="_blank" rel="noopener" class="external-link">${escapeHtml(a.name || a.url)}</a></li>`;
         }
         return '';
       }).filter(Boolean).join('');
@@ -3034,13 +3034,25 @@ async function init() {
   // Global delegated click handler for dynamically rendered links
   // (iOS Safari doesn't always fire inline onclick on dynamic innerHTML)
   document.addEventListener('click', (e) => {
-    // AI task/note/file links
+    // File download links (task attachments, AI file links, anywhere with data-gcs-path)
+    const fileDownload = e.target.closest('.file-download-link[data-gcs-path], .ai-link-file[data-gcs-path]');
+    if (fileDownload) {
+      e.preventDefault();
+      downloadFile(fileDownload.dataset.gcsPath);
+      return;
+    }
+    // AI task/note links
     const aiLink = e.target.closest('.ai-link-task');
     if (aiLink) { e.preventDefault(); showTaskDetail(aiLink.dataset.taskId); return; }
     const noteLink = e.target.closest('.ai-link-note');
     if (noteLink) { e.preventDefault(); switchView('notes'); openNote(noteLink.dataset.noteId); return; }
-    const fileLink = e.target.closest('.ai-link-file');
-    if (fileLink && fileLink.dataset.gcsPath) { e.preventDefault(); downloadFile(fileLink.dataset.gcsPath); return; }
+    // External URL links — fallback in case native target="_blank" doesn't work
+    const extLink = e.target.closest('a.external-link, a.inline-link');
+    if (extLink && extLink.href && !extLink.href.endsWith('#')) {
+      e.preventDefault();
+      window.open(extLink.href, '_blank', 'noopener');
+      return;
+    }
     // Search result clicks
     const searchTask = e.target.closest('[data-search-task-id]');
     if (searchTask) { document.getElementById('global-search').value = ''; switchView('tasks'); showTaskDetail(searchTask.dataset.searchTaskId); return; }
