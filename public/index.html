@@ -91,12 +91,12 @@
       <!-- Workspaces section -->
       <div class="sidebar-section-label" id="sidebar-workspaces-label" style="display:none;">Workspaces</div>
       <div class="sidebar-section" id="sidebar-workspaces-section" style="display:none;">
-        <button class="sidebar-nav-item" id="btn-toggle-workspaces" style="display:none;">
+        <button class="sidebar-nav-item" onclick="toggleSidebarWorkspaces()">
           <span class="sidebar-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span>
           <span>Workspaces</span>
           <span class="sidebar-caret" id="workspaces-caret">&#9656;</span>
         </button>
-        <div class="sidebar-subnav" id="workspaces-subnav">
+        <div class="sidebar-subnav collapsed" id="workspaces-subnav">
           <div id="sidebar-workspaces"></div>
           <button class="sidebar-add-folder" id="btn-add-workspace">+ New Workspace</button>
         </div>

@@ -511,6 +511,14 @@ function toggleSection(listId, caretId) {
   if (caret) caret.classList.toggle('open', isHidden);
 }
 
+function toggleSidebarWorkspaces() {
+  const subnav = document.getElementById('workspaces-subnav');
+  const caret = document.getElementById('workspaces-caret');
+  const isCollapsed = subnav.classList.contains('collapsed');
+  subnav.classList.toggle('collapsed', !isCollapsed);
+  caret.innerHTML = isCollapsed ? '&#9662;' : '&#9656;';
+}
+
 function renderStats() {
   const filtered = getFilteredTasks();
   const today = new Date().toISOString().split('T')[0];
@@ -4076,11 +4084,6 @@ function renderSidebarWorkspaces() {
   document.getElementById('sidebar-workspaces-section').style.display = show ? 'block' : 'none';
   const wsLabel = document.getElementById('sidebar-workspaces-label');
   if (wsLabel) wsLabel.style.display = show ? 'block' : 'none';
-  // Auto-expand if user has workspaces
-  if (workspaces.length > 0) {
-    document.getElementById('workspaces-subnav').classList.remove('collapsed');
-    document.getElementById('workspaces-caret').innerHTML = '&#9662;';
-  }
   let html = '';
   for (const w of workspaces) {
     const dotColor = w.color || getTagColor(w.name).text;
