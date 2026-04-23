@@ -2209,6 +2209,21 @@ IMPORTANT — Linking: Tasks, notes, and files have special link tags in the dat
 - Notes: [notelink:NOTE_ID:Note Title] — user can click to open the note
 - Files: [filelink:GCS_PATH:File Name] — user can click to download the file
 Always include these link tags when mentioning a specific task, note, or file. Copy the exact tag from the data.
+
+ACTIONS: You can take actions on behalf of the user. Include action tags in your response and they will be executed automatically. Available actions:
+
+[ACTION:create_task:{"title":"Task title","department":"B2B Marketing","priority":"High","assignedTo":"userId or empty","dueDate":"YYYY-MM-DD or empty"}]
+[ACTION:update_task:{"taskId":"TASK_ID","status":"In Progress"}]
+[ACTION:update_task:{"taskId":"TASK_ID","assignedTo":"userId","status":"Delegated"}]
+[ACTION:update_task:{"taskId":"TASK_ID","dueDate":"YYYY-MM-DD"}]
+[ACTION:update_task:{"taskId":"TASK_ID","priority":"High"}]
+[ACTION:add_comment:{"taskId":"TASK_ID","text":"Comment text"}]
+
+Rules for actions:
+- Only take actions when the user explicitly asks you to (e.g. "create a task for...", "assign this to...", "mark it as complete", "add a comment")
+- Never take actions unprompted — always confirm what you're about to do in your response text
+- You can include multiple actions in one response
+- After each action tag, explain what you did in plain text
 ${orgContext ? `\nORGANIZATION CONTEXT:\n${orgContext}\n` : ''}
 ACTIVITY SUMMARY:
 This week: ${completedThisWeek} tasks completed, ${createdThisWeek} new tasks created, ${currentlyBlocked} currently blocked
@@ -2243,7 +2258,75 @@ ${allNotes.join('\n---\n')}`;
       contents
     });
 
-    res.json({ reply: result.response.text() });
+    let reply = result.response.text();
+
+    // Parse and execute actions
+    const actionRegex = /\[ACTION:(\w+):([\s\S]*?)\]/g;
+    const actions = [];
+    let match;
+    while ((match = actionRegex.exec(reply)) !== null) {
+      try {
+        const actionType = match[1];
+        const params = JSON.parse(match[2]);
+        actions.push({ type: actionType, params, raw: match[0] });
+      } catch (parseErr) {
+        console.error('Failed to parse AI action:', match[0]);
+      }
+    }
+
+    const actionResults = [];
+    for (const action of actions) {
+      try {
+        if (action.type === 'create_task') {
+          const p = action.params;
+          const newTask = {
+            title: p.title, department: p.department || 'Personal',
+            subDepartment: '', priority: p.priority || 'Medium',
+            notes: '', status: p.assignedTo && p.assignedTo !== req.userId ? 'Delegated' : 'Not Started',
+            completed: false, completedAt: '', createdAt: new Date().toISOString(),
+            source: 'ai', attachments: [], dueDate: p.dueDate || '',
+            emailMessageId: '', recurring: 'none',
+            createdBy: req.userId, assignedTo: p.assignedTo || req.userId,
+            sharedWith: [], parentTaskId: '', workspaceId: '', tags: []
+          };
+          const ref = await orgCol(req, 'tasks').add(newTask);
+          if (newTask.assignedTo !== req.userId) {
+            await createNotification(req.orgId, newTask.assignedTo, {
+              type: 'task_assigned', title: `${req.memberName} assigned you: ${newTask.title}`,
+              taskId: ref.id, dueDate: newTask.dueDate, fromUserId: req.userId, fromName: req.memberName
+            });
+          }
+          actionResults.push({ type: 'create_task', success: true, taskId: ref.id, title: newTask.title });
+          reply = reply.replace(action.raw, `[tasklink:${ref.id}:${newTask.title}]`);
+        } else if (action.type === 'update_task') {
+          const p = action.params;
+          if (!p.taskId) continue;
+          const updates = {};
+          if (p.status) { updates.status = p.status; updates.completed = p.status === 'Completed'; if (p.status === 'Completed') updates.completedAt = new Date().toISOString(); }
+          if (p.assignedTo) updates.assignedTo = p.assignedTo;
+          if (p.dueDate) updates.dueDate = p.dueDate;
+          if (p.priority) updates.priority = p.priority;
+          await orgCol(req, 'tasks').doc(p.taskId).update(updates);
+          actionResults.push({ type: 'update_task', success: true, taskId: p.taskId });
+          reply = reply.replace(action.raw, '');
+        } else if (action.type === 'add_comment') {
+          const p = action.params;
+          if (!p.taskId || !p.text) continue;
+          await orgCol(req, 'comments').add({
+            taskId: p.taskId, text: p.text.trim(),
+            authorId: req.userId, authorName: req.memberName,
+            createdAt: new Date().toISOString()
+          });
+          actionResults.push({ type: 'add_comment', success: true, taskId: p.taskId });
+          reply = reply.replace(action.raw, '');
+        }
+      } catch (actionErr) {
+        console.error('AI action failed:', action.type, actionErr.message);
+        actionResults.push({ type: action.type, success: false, error: actionErr.message });
+      }
+    }
+
+    res.json({ reply, actions: actionResults });
   } catch (err) {
     console.error('AI chat failed:', err); res.status(500).json({ error: 'AI chat failed. Please try again.' });
   }

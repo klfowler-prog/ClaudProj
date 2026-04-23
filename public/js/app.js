@@ -2972,7 +2972,23 @@ async function sendChatMessage(messageOverride) {
       history: chatHistory.slice(-10)
     });
     loadingDiv.classList.remove('loading');
-    loadingDiv.innerHTML = renderMarkdown(result.reply);
+    let replyHtml = renderMarkdown(result.reply);
+    // Show action results
+    if (result.actions && result.actions.length > 0) {
+      replyHtml += '<div style="margin-top:0.5rem;padding-top:0.5rem;border-top:1px solid var(--color-border);font-size:0.75rem;color:var(--color-text-muted);">';
+      result.actions.forEach(a => {
+        const icon = a.success ? '&#10003;' : '&#10007;';
+        const color = a.success ? 'var(--follett-sage)' : 'var(--follett-coral)';
+        const label = a.type === 'create_task' ? `Created task: ${a.title}` :
+                      a.type === 'update_task' ? 'Task updated' :
+                      a.type === 'add_comment' ? 'Comment added' : a.type;
+        replyHtml += `<div style="color:${color};"><span>${icon}</span> ${escapeHtml(label)}</div>`;
+      });
+      replyHtml += '</div>';
+      // Refresh task list if actions were taken
+      loadTasks().then(render);
+    }
+    loadingDiv.innerHTML = replyHtml;
     chatHistory.push({ role: 'model', text: result.reply });
   } catch (err) {
     loadingDiv.classList.remove('loading');
