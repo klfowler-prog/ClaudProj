@@ -1416,7 +1416,11 @@ function showTaskDetail(id) {
         }
         return `<li><a href="${a.data}" download="${escapeHtml(a.name)}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> ${escapeHtml(a.name)}</a></li>`;
       } else {
-        return `<li><a href="${escapeHtml(a.url)}" target="_blank" rel="noopener" class="external-link"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg> ${escapeHtml(a.name || a.url)}</a></li>`;
+        // Auto-repair protocol-less URLs at render time so old data still works
+        let url = a.url || '';
+        if (url && !/^https?:\/\//i.test(url) && !/^mailto:/i.test(url)) url = 'https://' + url;
+        const showUrl = (a.name && a.name !== a.url) ? `<div style="font-size:0.7rem;color:var(--color-text-muted);margin-left:1.25rem;word-break:break-all;">${escapeHtml(url)}</div>` : '';
+        return `<li><a href="${escapeHtml(url)}" target="_blank" rel="noopener" class="external-link"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg> ${escapeHtml(a.name || url)}</a>${showUrl}</li>`;
       }
     }).join('');
     attachmentsHtml = `
@@ -3704,8 +3708,13 @@ async function init() {
   // Add link
   document.getElementById('btn-add-link').addEventListener('click', () => {
     const name = document.getElementById('input-link-name').value.trim();
-    const url = document.getElementById('input-link-url').value.trim();
+    let url = document.getElementById('input-link-url').value.trim();
     if (!url) return;
+    // Auto-prepend https:// if missing a protocol (prevents links from being
+    // treated as relative paths and pointing to our own app's domain)
+    if (!/^https?:\/\//i.test(url) && !/^mailto:/i.test(url)) {
+      url = 'https://' + url;
+    }
     pendingLinks.push({ type: 'link', name: name || url, url });
     document.getElementById('input-link-name').value = '';
     document.getElementById('input-link-url').value = '';
