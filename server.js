@@ -601,9 +601,9 @@ app.put('/api/tasks/:id', auth, async (req, res) => {
       updates.approvedBy = req.userId;
     }
 
-    // When assigning to someone else, auto-set status to Delegated
-    // (unless a specific status was included in the update)
-    if (updates.assignedTo && updates.assignedTo !== oldTask.assignedTo && updates.assignedTo !== req.userId && !updates.status) {
+    // When assigning to someone else, always set status to Delegated
+    // The assignee will see this as "Not Started" via the view transform
+    if (updates.assignedTo && updates.assignedTo !== oldTask.assignedTo && updates.assignedTo !== req.userId) {
       updates.status = 'Delegated';
       updates.completed = false;
       updates.completedAt = '';
