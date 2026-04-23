@@ -3637,15 +3637,37 @@ app.post('/api/slack/events', express.raw({ type: 'application/json' }), async (
     const memberNames = {};
     membersAll.docs.forEach(d => { memberNames[d.data().userId] = d.data().displayName; });
 
-    const taskList = taskDocs.slice(0, 100).map(t =>
-      `[tasklink:${t.id}:${t.title}] [${t.status}] Assigned: ${memberNames[t.assignedTo] || 'Unknown'} | Dept: ${t.department}${t.dueDate ? ' | Due: ' + t.dueDate : ''}`
-    ).join('\n');
+    // Sort tasks: prioritize ones the user is involved with, then active status first, then recency
+    taskDocs.sort((a, b) => {
+      const aMine = (a.assignedTo === userId || a.createdBy === userId) ? 0 : 1;
+      const bMine = (b.assignedTo === userId || b.createdBy === userId) ? 0 : 1;
+      if (aMine !== bMine) return aMine - bMine;
+      const aDone = (a.status === 'Completed') ? 1 : 0;
+      const bDone = (b.status === 'Completed') ? 1 : 0;
+      if (aDone !== bDone) return aDone - bDone;
+      return (b.createdAt || '').localeCompare(a.createdAt || '');
+    });
+
+    // Include more tasks and richer context
+    const taskList = taskDocs.slice(0, 200).map(t => {
+      const notesSnippet = t.notes ? ` | Notes: ${t.notes.substring(0, 80).replace(/\n/g, ' ')}` : '';
+      return `ID:${t.id} | "${t.title}" | ${t.status} | Assigned: ${memberNames[t.assignedTo] || 'Unknown'} | Creator: ${memberNames[t.createdBy] || 'Unknown'} | Dept: ${t.department}${t.dueDate ? ' | Due: ' + t.dueDate : ''}${notesSnippet}`;
+    }).join('\n');
 
     const today = new Date().toISOString().split('T')[0];
 
     const model = getGeminiModel();
     const result = await model.generateContent({
       systemInstruction: { parts: [{ text: `You are Marketing Bot, the AI assistant for Follett Higher Education's marketing team. You're responding via Slack DM to ${member.displayName} (userId: ${userId}, role: ${member.role}). Today is ${today}.
+
+CRITICAL RULES FOR FINDING TASKS:
+1. When the user asks to update, complete, or comment on a task, ALWAYS search the TASKS list below for a match FIRST
+2. Match by keywords in the task title — look for loose matches (e.g. "Mizzou press release" matches "Press release for University of Missouri")
+3. Prioritize tasks the user is directly involved with (assignee or creator)
+4. If you find MULTIPLE potential matches, LIST them in your reply and ASK the user which one — DO NOT GUESS
+5. If you find NO matches, tell the user "I couldn't find a task matching that description" and list 2-3 closest candidates — DO NOT silently create a new task
+6. NEVER create a new task when the user says "mark ___ done", "complete ___", "update ___", or "comment on ___" — those are update actions, not create actions
+7. Only use create_task when the user explicitly says "create", "add a task", "new task", "make a task", or similar
 
 You can take actions. Include action tags and they will be executed:
 [ACTION:update_task:{"taskId":"TASK_ID","status":"Completed"}]
@@ -3680,7 +3702,9 @@ General rules:
 TEAM MEMBERS (for reference when assigning):
 ${Object.entries(memberNames).map(([uid, name]) => `${name}: ${uid}`).join('\n')}
 
-TASKS (${taskDocs.length}):
+TASKS (showing ${Math.min(200, taskDocs.length)} of ${taskDocs.length}, user's tasks listed first):
+Format: ID:task_id | "title" | status | assigned | creator | dept | due | notes
+
 ${taskList}` }] },
       contents: [{ role: 'user', parts: [{ text: messageText }] }]
     });
