@@ -3625,20 +3625,32 @@ app.post('/api/slack/events', express.raw({ type: 'application/json' }), async (
 
     const model = getGeminiModel();
     const result = await model.generateContent({
-      systemInstruction: { parts: [{ text: `You are Marketing Bot, the AI assistant for Follett Higher Education's marketing team. You're responding via Slack DM to ${member.displayName} (${member.role}). Today is ${today}.
+      systemInstruction: { parts: [{ text: `You are Marketing Bot, the AI assistant for Follett Higher Education's marketing team. You're responding via Slack DM to ${member.displayName} (userId: ${userId}, role: ${member.role}). Today is ${today}.
 
 You can take actions. Include action tags and they will be executed:
 [ACTION:update_task:{"taskId":"TASK_ID","status":"Completed"}]
 [ACTION:update_task:{"taskId":"TASK_ID","status":"In Progress"}]
 [ACTION:add_comment:{"taskId":"TASK_ID","text":"Comment text"}]
-[ACTION:create_task:{"title":"Title","department":"B2B Marketing","priority":"Medium","assignedTo":"userId","dueDate":"YYYY-MM-DD","links":["url"]}]
+[ACTION:create_task:{"title":"Title","department":"B2B Marketing","priority":"Medium","assignedTo":"userId","dueDate":"YYYY-MM-DD","status":"Not Started","links":["url"]}]
 
-Rules:
+IMPORTANT create_task rules:
+- ALWAYS set assignedTo to "${userId}" (the person asking) unless they explicitly say "assign to [name]" or "add a task FOR [name]"
+- ALWAYS set status to "Not Started" unless the user says otherwise
+- department must be one of: "B2B Marketing", "B2C Marketing", "Personal"
+- If user says "B2C folder" or "B2C" → department is "B2C Marketing"
+- If user says "B2B folder" or "B2B" → department is "B2B Marketing"
+- If user says "personal" or doesn't specify → department is "Personal"
+- Parse dates: "tomorrow" = ${new Date(Date.now()+86400000).toISOString().split('T')[0]}, "Friday" = next Friday, "next week" = 7 days from today
+
+General rules:
 - Match task names loosely (user may abbreviate or paraphrase)
 - Only take actions when clearly asked
 - Be concise — this is Slack, not a document
 - Use Slack formatting (*bold*, _italic_, bullet points)
 - Don't include [tasklink:...] tags in Slack responses — just use the task title in bold
+
+TEAM MEMBERS (for reference when assigning):
+${Object.entries(memberNames).map(([uid, name]) => `${name}: ${uid}`).join('\n')}
 
 TASKS (${taskDocs.length}):
 ${taskList}` }] },
@@ -3673,17 +3685,31 @@ ${taskList}` }] },
           actionResults.push(`✓ Comment added`);
         } else if (actionType === 'create_task') {
           const attachments = (params.links || []).map(url => ({ type: 'link', url, name: url }));
+          // Validate assignedTo is a real userId, else assign to requester
+          const validUserIds = new Set(Object.keys(memberNames));
+          let assignee = (params.assignedTo && validUserIds.has(params.assignedTo)) ? params.assignedTo : userId;
+          // Determine status: default Not Started unless truly delegating to someone else
+          const validStatuses = ['Not Started', 'In Progress', 'Blocked', 'Approved', 'Delegated', 'Completed', 'Backlog'];
+          let taskStatus;
+          if (assignee !== userId) {
+            taskStatus = 'Delegated';
+          } else if (params.status && validStatuses.includes(params.status)) {
+            taskStatus = params.status;
+          } else {
+            taskStatus = 'Not Started';
+          }
           const ref = await db.collection('orgs').doc(orgId).collection('tasks').add({
             title: params.title, department: params.department || 'Personal',
             subDepartment: '', priority: params.priority || 'Medium',
-            notes: '', status: params.assignedTo && params.assignedTo !== userId ? 'Delegated' : 'Not Started',
-            completed: false, completedAt: '', createdAt: new Date().toISOString(),
+            notes: '', status: taskStatus,
+            completed: taskStatus === 'Completed', completedAt: taskStatus === 'Completed' ? new Date().toISOString() : '',
+            createdAt: new Date().toISOString(),
             source: 'slack', attachments, dueDate: params.dueDate || '',
             emailMessageId: '', recurring: 'none',
-            createdBy: userId, assignedTo: params.assignedTo || userId,
+            createdBy: userId, assignedTo: assignee,
             sharedWith: [], parentTaskId: '', workspaceId: '', tags: []
           });
-          actionResults.push(`✓ Created: *${params.title}*`);
+          actionResults.push(`✓ Created: *${params.title}* (${taskStatus}${assignee !== userId ? ', assigned to ' + memberNames[assignee] : ''})`);
         }
         reply = reply.replace(actionMatch[0], '');
       } catch (actionErr) {
