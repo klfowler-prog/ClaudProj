@@ -3183,11 +3183,16 @@ async function init() {
     if (aiLink) { e.preventDefault(); showTaskDetail(aiLink.dataset.taskId); return; }
     const noteLink = e.target.closest('.ai-link-note');
     if (noteLink) { e.preventDefault(); switchView('notes'); openNote(noteLink.dataset.noteId); return; }
-    // External URL links — fallback in case native target="_blank" doesn't work
-    const extLink = e.target.closest('a.external-link, a.inline-link');
-    if (extLink && extLink.href && !extLink.href.endsWith('#')) {
+    // External URL links — catch all anchors with real hrefs in modals and dynamic content
+    const extLink = e.target.closest('a[href]');
+    if (extLink) {
+      const href = extLink.getAttribute('href');
+      // Skip internal anchors (#) and javascript: links
+      if (!href || href === '#' || href.startsWith('javascript:')) return;
+      // Skip links that are handled by other handlers above (ai-link, search, file-download)
+      if (extLink.classList.contains('ai-link-task') || extLink.classList.contains('ai-link-note') || extLink.classList.contains('file-download-link')) return;
       e.preventDefault();
-      window.open(extLink.href, '_blank', 'noopener');
+      window.open(href, '_blank', 'noopener');
       return;
     }
     // Search result clicks
