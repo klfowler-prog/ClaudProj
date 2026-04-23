@@ -3721,7 +3721,7 @@ async function loadProfile() {
 
 // === What's New Popup ===
 function showWhatsNewIfNeeded(uid) {
-  const key = 'whatsNewSeen_features_v2_' + uid;
+  const key = 'whatsNewSeen_features_v3_' + uid;
   if (localStorage.getItem(key)) return;
   const modal = document.getElementById('modal-whats-new');
   if (!modal) return;
