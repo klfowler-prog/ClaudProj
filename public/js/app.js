@@ -2975,17 +2975,21 @@ async function sendChatMessage(messageOverride) {
     let replyHtml = renderMarkdown(result.reply);
     // Show action results
     if (result.actions && result.actions.length > 0) {
-      replyHtml += '<div style="margin-top:0.5rem;padding-top:0.5rem;border-top:1px solid var(--color-border);font-size:0.75rem;color:var(--color-text-muted);">';
+      replyHtml += '<div style="margin-top:0.5rem;padding-top:0.5rem;border-top:1px solid var(--color-border);font-size:0.8rem;">';
       result.actions.forEach(a => {
-        const icon = a.success ? '&#10003;' : '&#10007;';
-        const color = a.success ? 'var(--follett-sage)' : 'var(--follett-coral)';
-        const label = a.type === 'create_task' ? `Created task: ${a.title}` :
-                      a.type === 'update_task' ? 'Task updated' :
-                      a.type === 'add_comment' ? 'Comment added' : a.type;
-        replyHtml += `<div style="color:${color};"><span>${icon}</span> ${escapeHtml(label)}</div>`;
+        if (a.success) {
+          if (a.type === 'create_task') {
+            replyHtml += `<div style="color:var(--follett-sage);margin-bottom:0.25rem;">&#10003; Created: <a href="#" class="ai-link ai-link-task" data-task-id="${a.taskId}" style="color:var(--follett-medium-blue);text-decoration:underline;cursor:pointer;">${escapeHtml(a.title)}</a></div>`;
+          } else if (a.type === 'update_task') {
+            replyHtml += `<div style="color:var(--follett-sage);">&#10003; Task updated</div>`;
+          } else if (a.type === 'add_comment') {
+            replyHtml += `<div style="color:var(--follett-sage);">&#10003; Comment added</div>`;
+          }
+        } else {
+          replyHtml += `<div style="color:var(--follett-coral);">&#10007; Failed: ${escapeHtml(a.error || a.type)}</div>`;
+        }
       });
       replyHtml += '</div>';
-      // Refresh task list if actions were taken
       loadTasks().then(render);
     }
     loadingDiv.innerHTML = replyHtml;

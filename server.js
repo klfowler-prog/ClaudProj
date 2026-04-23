@@ -2260,17 +2260,18 @@ ${allNotes.join('\n---\n')}`;
 
     let reply = result.response.text();
 
-    // Parse and execute actions
-    const actionRegex = /\[ACTION:(\w+):([\s\S]*?)\]/g;
+    // Parse and execute actions — handle multi-line JSON and various formatting
+    const actionRegex = /\[ACTION:(\w+):\{([\s\S]*?)\}\]/g;
     const actions = [];
-    let match;
-    while ((match = actionRegex.exec(reply)) !== null) {
+    let actionMatch;
+    while ((actionMatch = actionRegex.exec(reply)) !== null) {
       try {
-        const actionType = match[1];
-        const params = JSON.parse(match[2]);
-        actions.push({ type: actionType, params, raw: match[0] });
+        const actionType = actionMatch[1];
+        const jsonStr = '{' + actionMatch[2] + '}';
+        const params = JSON.parse(jsonStr);
+        actions.push({ type: actionType, params, raw: actionMatch[0] });
       } catch (parseErr) {
-        console.error('Failed to parse AI action:', match[0]);
+        console.error('Failed to parse AI action:', actionMatch[0], parseErr.message);
       }
     }
 
