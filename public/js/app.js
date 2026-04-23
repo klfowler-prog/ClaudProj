@@ -3350,8 +3350,16 @@ async function init() {
     try {
       await api('POST', '/api/notifications/read-all');
       await loadNotifications();
-      showNotifications();
+      renderNotifications();
     } catch (err) { showToast('Failed to mark all read', 'error'); }
+  });
+  document.getElementById('btn-notif-unread').addEventListener('click', () => {
+    notifShowAll = false;
+    renderNotifications();
+  });
+  document.getElementById('btn-notif-all').addEventListener('click', () => {
+    notifShowAll = true;
+    renderNotifications();
   });
 
   // Team (CMO only)
@@ -3848,67 +3856,81 @@ async function loadNotifications() {
   return allNotifications;
 }
 
+let notifShowAll = false;
+
+const NOTIF_META = {
+  task_assigned:   { icon: '&#8594;', label: 'Assigned to you', color: 'var(--follett-coral)', action: true },
+  task_blocked:    { icon: '&#9888;', label: 'Blocked', color: '#d4960a', action: true },
+  comment:         { icon: '&#128172;', label: 'Comment', color: 'var(--follett-medium-blue)', action: true },
+  task_approved:   { icon: '&#10003;', label: 'Approved', color: 'var(--follett-sage)', action: false },
+  task_completed:  { icon: '&#10003;', label: 'Completed', color: 'var(--follett-sage)', action: false },
+  task_completed_after_approval: { icon: '&#10003;', label: 'Completed', color: 'var(--follett-sage)', action: false },
+  subtask_completed: { icon: '&#10003;', label: 'Subtask done', color: 'var(--color-text-muted)', action: false },
+  subtasks_all_done: { icon: '&#9733;', label: 'All subtasks done', color: 'var(--follett-sage)', action: true },
+  workspace_added: { icon: '&#128101;', label: 'Workspace', color: 'var(--follett-medium-blue)', action: false },
+  announcement:    { icon: '&#128227;', label: 'Announcement', color: 'var(--follett-dark-blue)', action: false }
+};
+
 async function showNotifications() {
   switchView('notifications');
   await loadNotifications();
+  renderNotifications();
+}
+
+function renderNotifications() {
   const container = document.getElementById('notifications-list');
   const empty = document.getElementById('notifications-empty');
-  if (allNotifications.length === 0) { container.innerHTML = ''; empty.style.display = 'block'; return; }
-  empty.style.display = 'none';
-  const notifMeta = {
-    task_assigned:   { icon: '&#8594;', label: 'Assigned to you', color: 'var(--follett-coral)', action: true },
-    task_blocked:    { icon: '&#9888;', label: 'Blocked', color: '#d4960a', action: true },
-    comment:         { icon: '&#128172;', label: 'Comment', color: 'var(--follett-medium-blue)', action: true },
-    task_approved:   { icon: '&#10003;', label: 'Approved', color: 'var(--follett-sage)', action: false },
-    task_completed:  { icon: '&#10003;', label: 'Completed', color: 'var(--follett-sage)', action: false },
-    task_completed_after_approval: { icon: '&#10003;', label: 'Completed', color: 'var(--follett-sage)', action: false },
-    subtask_completed: { icon: '&#10003;', label: 'Subtask done', color: 'var(--color-text-muted)', action: false },
-    subtasks_all_done: { icon: '&#9733;', label: 'All subtasks done', color: 'var(--follett-sage)', action: true },
-    workspace_added: { icon: '&#128101;', label: 'Workspace', color: 'var(--follett-medium-blue)', action: false },
-    announcement:    { icon: '&#128227;', label: 'Announcement', color: 'var(--follett-dark-blue)', action: false }
-  };
 
-  // Group: action needed first, then FYI
-  const actionNotifs = allNotifications.filter(n => (notifMeta[n.type] || {}).action);
-  const fyi = allNotifications.filter(n => !(notifMeta[n.type] || {}).action);
+  const visible = notifShowAll ? allNotifications : allNotifications.filter(n => !n.read);
+
+  document.getElementById('btn-notif-unread').classList.toggle('active', !notifShowAll);
+  document.getElementById('btn-notif-all').classList.toggle('active', notifShowAll);
+
+  if (visible.length === 0) {
+    container.innerHTML = '';
+    empty.style.display = 'block';
+    empty.textContent = notifShowAll ? 'No notifications' : 'All caught up!';
+    return;
+  }
+  empty.style.display = 'none';
+
+  const actionNotifs = visible.filter(n => (NOTIF_META[n.type] || {}).action);
+  const fyi = visible.filter(n => !(NOTIF_META[n.type] || {}).action);
 
   let html = '';
   if (actionNotifs.length > 0) {
     html += `<div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--follett-coral);margin-bottom:0.375rem;">Action Needed (${actionNotifs.length})</div>`;
-    html += actionNotifs.map(n => renderNotifItem(n, notifMeta)).join('');
+    html += actionNotifs.map(renderNotifItem).join('');
   }
   if (fyi.length > 0) {
     html += `<div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--color-text-muted);margin:0.75rem 0 0.375rem;">Updates</div>`;
-    html += fyi.map(n => renderNotifItem(n, notifMeta)).join('');
+    html += fyi.map(renderNotifItem).join('');
   }
   container.innerHTML = html;
 
-  function renderNotifItem(n, meta) {
-    const ago = timeAgo(n.createdAt);
-    const unreadClass = n.read ? 'notif-read' : 'notif-unread';
-    const m = meta[n.type] || { icon: '&#8226;', label: '', color: 'var(--color-text-muted)' };
-    return `<div class="notif-item ${unreadClass}" data-notif-id="${n.id}" data-task-id="${n.taskId || ''}" style="border-left-color:${n.read ? '' : m.color};">
-      <div style="display:flex;align-items:center;gap:0.5rem;">
-        <span style="font-size:1rem;flex-shrink:0;width:20px;text-align:center;">${m.icon}</span>
-        <div style="flex:1;min-width:0;">
-          ${m.label ? `<div style="font-size:0.65rem;font-weight:600;text-transform:uppercase;letter-spacing:0.03em;color:${m.color};margin-bottom:0.1rem;">${m.label}</div>` : ''}
-          <div class="notif-item-title">${escapeHtml(n.title)}</div>
-          <div class="notif-item-time">${ago}</div>
-        </div>
-      </div>
-    </div>`;
-  }
   container.onclick = async (e) => {
+    // Dismiss button
+    const dismissBtn = e.target.closest('.notif-dismiss');
+    if (dismissBtn) {
+      e.stopPropagation();
+      const notifId = dismissBtn.dataset.notifId;
+      api('POST', `/api/notifications/${notifId}/read`).catch(() => {});
+      const n = allNotifications.find(x => x.id === notifId);
+      if (n) n.read = true;
+      loadNotifications();
+      renderNotifications();
+      return;
+    }
+    // Click notification to open task
     const item = e.target.closest('.notif-item');
     if (!item) return;
-    // Mark as read visually and in background
     if (item.classList.contains('notif-unread')) {
-      item.classList.remove('notif-unread');
-      item.classList.add('notif-read');
       api('POST', `/api/notifications/${item.dataset.notifId}/read`).catch(() => {});
+      const n = allNotifications.find(x => x.id === item.dataset.notifId);
+      if (n) n.read = true;
       loadNotifications();
+      if (!notifShowAll) renderNotifications();
     }
-    // Open task detail - fetch from server if not in local array
     const taskId = item.dataset.taskId;
     if (taskId) {
       let task = tasks.find(t => t.id === taskId);
@@ -3916,12 +3938,28 @@ async function showNotifications() {
         try { task = await api('GET', `/api/tasks/${taskId}`); } catch { return; }
       }
       if (task) {
-        // Temporarily add to tasks array so showTaskDetail can find it
         if (!tasks.find(t => t.id === taskId)) tasks.push(task);
         showTaskDetail(taskId);
       }
     }
   };
+}
+
+function renderNotifItem(n) {
+  const ago = timeAgo(n.createdAt);
+  const unreadClass = n.read ? 'notif-read' : 'notif-unread';
+  const m = NOTIF_META[n.type] || { icon: '&#8226;', label: '', color: 'var(--color-text-muted)' };
+  return `<div class="notif-item ${unreadClass}" data-notif-id="${n.id}" data-task-id="${n.taskId || ''}" style="border-left-color:${n.read ? '' : m.color};">
+    <div style="display:flex;align-items:center;gap:0.5rem;">
+      <span style="font-size:1rem;flex-shrink:0;width:20px;text-align:center;">${m.icon}</span>
+      <div style="flex:1;min-width:0;">
+        ${m.label ? `<div style="font-size:0.65rem;font-weight:600;text-transform:uppercase;letter-spacing:0.03em;color:${m.color};margin-bottom:0.1rem;">${m.label}</div>` : ''}
+        <div class="notif-item-title">${escapeHtml(n.title)}</div>
+        <div class="notif-item-time">${ago}</div>
+      </div>
+      ${!n.read ? `<button class="notif-dismiss" data-notif-id="${n.id}" title="Dismiss" style="background:none;border:none;color:var(--color-text-light);font-size:1.1rem;cursor:pointer;padding:0.25rem 0.375rem;flex-shrink:0;line-height:1;-webkit-tap-highlight-color:rgba(0,0,0,0.1);">&times;</button>` : ''}
+    </div>
+  </div>`;
 }
 
 function timeAgo(iso) {
