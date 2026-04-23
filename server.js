@@ -3536,6 +3536,183 @@ app.post('/api/slack/announce', auth, async (req, res) => {
   }
 });
 
+// POST /api/slack/events — Slack Events API endpoint (bot replies)
+app.post('/api/slack/events', express.raw({ type: 'application/json' }), async (req, res) => {
+  let body;
+  try {
+    body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+    if (Buffer.isBuffer(body)) body = JSON.parse(body.toString());
+  } catch { return res.status(400).send('Bad request'); }
+
+  // Slack URL verification challenge
+  if (body.type === 'url_verification') {
+    return res.json({ challenge: body.challenge });
+  }
+
+  // Acknowledge immediately (Slack requires response within 3s)
+  res.status(200).send('ok');
+
+  // Process message events
+  if (body.type !== 'event_callback' || !body.event) return;
+  const event = body.event;
+
+  // Only handle DM messages from users (not bot messages)
+  if (event.type !== 'message' || event.subtype || event.bot_id || !event.text || event.channel_type !== 'im') return;
+
+  try {
+    const slackUserId = event.user;
+    const messageText = event.text;
+
+    // Find the org with Slack connected
+    const orgsSnap = await db.collection('orgs').get();
+    let orgId, botToken, appUserId;
+    for (const orgDoc of orgsSnap.docs) {
+      const settingsDoc = await orgDoc.ref.collection('settings').doc('slack').get();
+      if (settingsDoc.exists && settingsDoc.data().botToken && settingsDoc.data().connected) {
+        orgId = orgDoc.id;
+        botToken = settingsDoc.data().botToken;
+        break;
+      }
+    }
+    if (!orgId || !botToken) return;
+
+    // Find the app user mapped to this Slack user
+    const membersSnap = await db.collection('orgs').doc(orgId).collection('members')
+      .where('slackUserId', '==', slackUserId).limit(1).get();
+    if (membersSnap.empty) {
+      await slackApiCall(botToken, 'chat.postMessage', {
+        channel: event.channel,
+        text: "I don't recognize your Slack account. Ask your admin to map your Slack user in Team Management > Slack settings."
+      });
+      return;
+    }
+
+    const member = membersSnap.docs[0].data();
+    const userId = member.userId;
+
+    // Send typing indicator
+    await slackApiCall(botToken, 'chat.postMessage', {
+      channel: event.channel,
+      text: ':hourglass_flowing_sand: Working on it...'
+    }).then(typingMsg => {
+      // We'll delete this after the real response
+      if (typingMsg.ok) member._typingTs = typingMsg.ts;
+      member._typingChannel = event.channel;
+    }).catch(() => {});
+
+    // Load user's tasks for AI context
+    const tasksSnap = await db.collection('orgs').doc(orgId).collection('tasks').get();
+    let taskDocs = tasksSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    // Filter to user's visible tasks
+    taskDocs = taskDocs.filter(t => !t.private || t.createdBy === userId);
+    if (member.role !== 'cmo') {
+      const memberDepts = (member.departments || []);
+      taskDocs = taskDocs.filter(t =>
+        memberDepts.includes(t.department) || t.assignedTo === userId ||
+        (t.sharedWith && t.sharedWith.includes(userId)) || t.createdBy === userId
+      );
+    }
+
+    const membersAll = await db.collection('orgs').doc(orgId).collection('members').get();
+    const memberNames = {};
+    membersAll.docs.forEach(d => { memberNames[d.data().userId] = d.data().displayName; });
+
+    const taskList = taskDocs.slice(0, 100).map(t =>
+      `[tasklink:${t.id}:${t.title}] [${t.status}] Assigned: ${memberNames[t.assignedTo] || 'Unknown'} | Dept: ${t.department}${t.dueDate ? ' | Due: ' + t.dueDate : ''}`
+    ).join('\n');
+
+    const today = new Date().toISOString().split('T')[0];
+
+    const model = getGeminiModel();
+    const result = await model.generateContent({
+      systemInstruction: { parts: [{ text: `You are Marketing Bot, the AI assistant for Follett Higher Education's marketing team. You're responding via Slack DM to ${member.displayName} (${member.role}). Today is ${today}.
+
+You can take actions. Include action tags and they will be executed:
+[ACTION:update_task:{"taskId":"TASK_ID","status":"Completed"}]
+[ACTION:update_task:{"taskId":"TASK_ID","status":"In Progress"}]
+[ACTION:add_comment:{"taskId":"TASK_ID","text":"Comment text"}]
+[ACTION:create_task:{"title":"Title","department":"B2B Marketing","priority":"Medium","assignedTo":"userId","dueDate":"YYYY-MM-DD","links":["url"]}]
+
+Rules:
+- Match task names loosely (user may abbreviate or paraphrase)
+- Only take actions when clearly asked
+- Be concise — this is Slack, not a document
+- Use Slack formatting (*bold*, _italic_, bullet points)
+- Don't include [tasklink:...] tags in Slack responses — just use the task title in bold
+
+TASKS (${taskDocs.length}):
+${taskList}` }] },
+      contents: [{ role: 'user', parts: [{ text: messageText }] }]
+    });
+
+    let reply = result.response.text();
+
+    // Parse and execute actions (same as AI chat endpoint)
+    const actionRegex = /\[ACTION:(\w+):\{([\s\S]*?)\}\]/g;
+    const actionResults = [];
+    let actionMatch;
+    while ((actionMatch = actionRegex.exec(reply)) !== null) {
+      try {
+        const actionType = actionMatch[1];
+        const params = JSON.parse('{' + actionMatch[2] + '}');
+        // Execute action
+        if (actionType === 'update_task' && params.taskId) {
+          const updates = {};
+          if (params.status) { updates.status = params.status; updates.completed = params.status === 'Completed'; if (params.status === 'Completed') updates.completedAt = new Date().toISOString(); }
+          if (params.assignedTo) updates.assignedTo = params.assignedTo;
+          if (params.dueDate) updates.dueDate = params.dueDate;
+          if (params.priority) updates.priority = params.priority;
+          await db.collection('orgs').doc(orgId).collection('tasks').doc(params.taskId).update(updates);
+          actionResults.push(`✓ Task updated`);
+        } else if (actionType === 'add_comment' && params.taskId && params.text) {
+          await db.collection('orgs').doc(orgId).collection('comments').add({
+            taskId: params.taskId, text: params.text.trim(),
+            authorId: userId, authorName: member.displayName,
+            createdAt: new Date().toISOString()
+          });
+          actionResults.push(`✓ Comment added`);
+        } else if (actionType === 'create_task') {
+          const attachments = (params.links || []).map(url => ({ type: 'link', url, name: url }));
+          const ref = await db.collection('orgs').doc(orgId).collection('tasks').add({
+            title: params.title, department: params.department || 'Personal',
+            subDepartment: '', priority: params.priority || 'Medium',
+            notes: '', status: params.assignedTo && params.assignedTo !== userId ? 'Delegated' : 'Not Started',
+            completed: false, completedAt: '', createdAt: new Date().toISOString(),
+            source: 'slack', attachments, dueDate: params.dueDate || '',
+            emailMessageId: '', recurring: 'none',
+            createdBy: userId, assignedTo: params.assignedTo || userId,
+            sharedWith: [], parentTaskId: '', workspaceId: '', tags: []
+          });
+          actionResults.push(`✓ Created: *${params.title}*`);
+        }
+        reply = reply.replace(actionMatch[0], '');
+      } catch (actionErr) {
+        actionResults.push(`✗ Action failed: ${actionErr.message}`);
+      }
+    }
+
+    // Clean up reply — remove any remaining action tags
+    reply = reply.replace(/\[ACTION:\w+:\{[\s\S]*?\}\]/g, '').trim();
+    if (actionResults.length > 0) {
+      reply += '\n\n' + actionResults.join('\n');
+    }
+
+    // Delete typing indicator
+    if (member._typingTs) {
+      await slackApiCall(botToken, 'chat.delete', { channel: member._typingChannel, ts: member._typingTs }).catch(() => {});
+    }
+
+    // Send response
+    await slackApiCall(botToken, 'chat.postMessage', {
+      channel: event.channel,
+      text: reply
+    });
+
+  } catch (err) {
+    console.error('Slack event processing failed:', err);
+  }
+});
+
 // GET /api/gmail/auth — Start OAuth flow for CMOtaskinbox Gmail
 app.get('/api/gmail/auth', auth, async (req, res) => {
   const oauth2Client = createOAuth2Client();
