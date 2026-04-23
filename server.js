@@ -2212,7 +2212,7 @@ Always include these link tags when mentioning a specific task, note, or file. C
 
 ACTIONS: You can take actions on behalf of the user. Include action tags in your response and they will be executed automatically. Available actions:
 
-[ACTION:create_task:{"title":"Task title","department":"B2B Marketing","priority":"High","assignedTo":"userId or empty","dueDate":"YYYY-MM-DD or empty"}]
+[ACTION:create_task:{"title":"Task title","department":"B2B Marketing","priority":"High","assignedTo":"userId or empty","dueDate":"YYYY-MM-DD or empty","links":["https://example.com"]}]
 [ACTION:update_task:{"taskId":"TASK_ID","status":"In Progress"}]
 [ACTION:update_task:{"taskId":"TASK_ID","assignedTo":"userId","status":"Delegated"}]
 [ACTION:update_task:{"taskId":"TASK_ID","dueDate":"YYYY-MM-DD"}]
@@ -2224,6 +2224,7 @@ Rules for actions:
 - Never take actions unprompted — always confirm what you're about to do in your response text
 - You can include multiple actions in one response
 - After each action tag, explain what you did in plain text
+- If the user's message contains URLs and they ask to create a task, include those URLs in the "links" array so they get attached to the task
 ${orgContext ? `\nORGANIZATION CONTEXT:\n${orgContext}\n` : ''}
 ACTIVITY SUMMARY:
 This week: ${completedThisWeek} tasks completed, ${createdThisWeek} new tasks created, ${currentlyBlocked} currently blocked
@@ -2280,12 +2281,13 @@ ${allNotes.join('\n---\n')}`;
       try {
         if (action.type === 'create_task') {
           const p = action.params;
+          const attachments = (p.links || []).map(url => ({ type: 'link', url, name: url }));
           const newTask = {
             title: p.title, department: p.department || 'Personal',
             subDepartment: '', priority: p.priority || 'Medium',
             notes: '', status: p.assignedTo && p.assignedTo !== req.userId ? 'Delegated' : 'Not Started',
             completed: false, completedAt: '', createdAt: new Date().toISOString(),
-            source: 'ai', attachments: [], dueDate: p.dueDate || '',
+            source: 'ai', attachments, dueDate: p.dueDate || '',
             emailMessageId: '', recurring: 'none',
             createdBy: req.userId, assignedTo: p.assignedTo || req.userId,
             sharedWith: [], parentTaskId: '', workspaceId: '', tags: []
