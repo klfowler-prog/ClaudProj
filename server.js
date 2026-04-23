@@ -1249,6 +1249,123 @@ app.delete('/api/workspaces/:id', authWrite, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Failed to archive workspace' }); }
 });
 
+// === Task Templates ===
+
+// GET /api/templates — List templates visible to the user
+app.get('/api/templates', auth, async (req, res) => {
+  try {
+    const snap = await orgCol(req, 'templates').get();
+    let templates = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    // CMO sees all; leads see org-wide + their dept + personal; members see org-wide + personal
+    if (req.memberRole !== 'cmo') {
+      templates = templates.filter(t =>
+        t.scope === 'org' ||
+        (t.scope === 'department' && req.memberDepts.includes(t.department)) ||
+        t.createdBy === req.userId
+      );
+    }
+    templates.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    res.json(templates);
+  } catch (err) { res.status(500).json({ error: 'Failed to fetch templates' }); }
+});
+
+// POST /api/templates — Create a template
+app.post('/api/templates', authWrite, async (req, res) => {
+  try {
+    const { name, subtasks, scope, department } = req.body;
+    if (!name || !name.trim()) return res.status(400).json({ error: 'Template name is required' });
+    if (!subtasks || !Array.isArray(subtasks) || subtasks.length === 0) {
+      return res.status(400).json({ error: 'At least one subtask is required' });
+    }
+    // Scope: 'org' (CMO only), 'department' (lead for their dept), 'personal'
+    let resolvedScope = scope || 'personal';
+    if (resolvedScope === 'org' && req.memberRole !== 'cmo') resolvedScope = 'personal';
+    if (resolvedScope === 'department' && req.memberRole !== 'cmo' && req.memberRole !== 'lead') resolvedScope = 'personal';
+
+    const template = {
+      name: name.trim(),
+      subtasks: subtasks.filter(s => s.title && s.title.trim()).map(s => ({
+        title: s.title.trim(),
+        priority: s.priority || 'Medium'
+      })),
+      scope: resolvedScope,
+      department: resolvedScope === 'department' ? (department || req.memberDepts[0] || '') : '',
+      createdBy: req.userId,
+      createdByName: req.memberName,
+      createdAt: new Date().toISOString()
+    };
+    const ref = await orgCol(req, 'templates').add(template);
+    res.status(201).json({ id: ref.id, ...template });
+  } catch (err) { res.status(500).json({ error: 'Failed to create template' }); }
+});
+
+// PUT /api/templates/:id — Update a template (creator or CMO)
+app.put('/api/templates/:id', authWrite, async (req, res) => {
+  try {
+    const doc = await orgCol(req, 'templates').doc(req.params.id).get();
+    if (!doc.exists) return res.status(404).json({ error: 'Template not found' });
+    if (req.memberRole !== 'cmo' && doc.data().createdBy !== req.userId) {
+      return res.status(403).json({ error: 'Only the template creator or CMO can edit' });
+    }
+    const updates = {};
+    if (req.body.name !== undefined) updates.name = req.body.name.trim();
+    if (req.body.subtasks !== undefined) {
+      updates.subtasks = req.body.subtasks.filter(s => s.title && s.title.trim()).map(s => ({
+        title: s.title.trim(), priority: s.priority || 'Medium'
+      }));
+    }
+    if (req.body.scope !== undefined) updates.scope = req.body.scope;
+    if (req.body.department !== undefined) updates.department = req.body.department;
+    await orgCol(req, 'templates').doc(req.params.id).update(updates);
+    res.json({ id: req.params.id, ...doc.data(), ...updates });
+  } catch (err) { res.status(500).json({ error: 'Failed to update template' }); }
+});
+
+// DELETE /api/templates/:id — Delete a template (creator or CMO)
+app.delete('/api/templates/:id', authWrite, async (req, res) => {
+  try {
+    const doc = await orgCol(req, 'templates').doc(req.params.id).get();
+    if (!doc.exists) return res.status(404).json({ error: 'Template not found' });
+    if (req.memberRole !== 'cmo' && doc.data().createdBy !== req.userId) {
+      return res.status(403).json({ error: 'Only the template creator or CMO can delete' });
+    }
+    await orgCol(req, 'templates').doc(req.params.id).delete();
+    res.json({ deleted: true });
+  } catch (err) { res.status(500).json({ error: 'Failed to delete template' }); }
+});
+
+// POST /api/templates/:id/apply/:taskId — Apply a template's subtasks to a task
+app.post('/api/templates/:id/apply/:taskId', authWrite, async (req, res) => {
+  try {
+    const templateDoc = await orgCol(req, 'templates').doc(req.params.id).get();
+    if (!templateDoc.exists) return res.status(404).json({ error: 'Template not found' });
+    const taskDoc = await orgCol(req, 'tasks').doc(req.params.taskId).get();
+    if (!taskDoc.exists) return res.status(404).json({ error: 'Task not found' });
+
+    const template = templateDoc.data();
+    const task = taskDoc.data();
+    const now = new Date().toISOString();
+
+    const created = [];
+    for (const sub of template.subtasks) {
+      const ref = await orgCol(req, 'tasks').add({
+        title: sub.title,
+        department: task.department,
+        subDepartment: task.subDepartment || '',
+        priority: sub.priority || 'Medium',
+        notes: '', status: 'Not Started', completed: false, completedAt: '',
+        createdAt: now, source: 'template', attachments: [],
+        dueDate: '', emailMessageId: '', recurring: 'none',
+        createdBy: req.userId, assignedTo: task.assignedTo || req.userId,
+        sharedWith: [], parentTaskId: req.params.taskId,
+        workspaceId: task.workspaceId || '', tags: task.tags || []
+      });
+      created.push({ id: ref.id, title: sub.title });
+    }
+    res.json({ applied: created.length, subtasks: created });
+  } catch (err) { res.status(500).json({ error: 'Failed to apply template: ' + err.message }); }
+});
+
 // === Folder Endpoints ===
 
 app.get('/api/folders', auth, async (req, res) => {

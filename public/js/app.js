@@ -1487,9 +1487,12 @@ function showTaskDetail(id) {
     ${task.completedAt ? `<div style="font-size:0.8rem;color:var(--color-text-light);margin-bottom:0.75rem;">Completed ${new Date(task.completedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>` : ''}
 
     <div class="detail-section" id="detail-subtasks">
-      <div class="detail-section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <div class="detail-section-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.25rem;">
         Sub-tasks
-        <button class="btn btn-ghost btn-sm" onclick="showSubtaskForm('${task.id}', '${escapeHtml(task.department)}')" id="btn-show-subtask-form" style="font-size:0.75rem;">+ Add Sub-task</button>
+        <div style="display:flex;gap:0.25rem;">
+          ${allTemplates.length > 0 ? `<select class="filter-select-compact" style="font-size:0.7rem;" onchange="if(this.value){applyTemplate(this.value,'${task.id}');this.value='';}" ><option value="">Use Template</option>${allTemplates.map(t => `<option value="${t.id}">${escapeHtml(t.name)} (${t.subtasks.length})</option>`).join('')}</select>` : ''}
+          <button class="btn btn-ghost btn-sm" onclick="showSubtaskForm('${task.id}', '${escapeHtml(task.department)}')" id="btn-show-subtask-form" style="font-size:0.75rem;">+ Add</button>
+        </div>
       </div>
       <div id="subtask-form" style="display:none;margin:0.5rem 0;padding:0.625rem;background:var(--follett-light-gray);border-radius:var(--radius);">
         <input type="text" id="subtask-title" placeholder="What needs to be done?" style="width:100%;padding:0.4rem 0.6rem;border:1px solid var(--color-border);border-radius:var(--radius);font-size:0.85rem;margin-bottom:0.375rem;">
@@ -2869,6 +2872,7 @@ async function init() {
   await loadTasks();
   await loadTeam();
   await loadWorkspaces();
+  await loadTemplates();
   await loadFolders();
   await migrateLocalStorage();
   setTaskViewMode(taskViewMode);
@@ -3314,6 +3318,8 @@ async function init() {
 
   // Team (CMO only)
   document.getElementById('btn-invite-member') && document.getElementById('btn-invite-member').addEventListener('click', inviteMember);
+  document.getElementById('btn-templates') && document.getElementById('btn-templates').addEventListener('click', showTemplatesModal);
+  document.getElementById('btn-save-template') && document.getElementById('btn-save-template').addEventListener('click', saveTemplate);
   document.getElementById('form-invite') && document.getElementById('form-invite').addEventListener('submit', submitInvite);
   document.getElementById('btn-slack-settings') && document.getElementById('btn-slack-settings').addEventListener('click', openSlackSettings);
   document.getElementById('btn-ai-context') && document.getElementById('btn-ai-context').addEventListener('click', openAiContext);
@@ -4044,6 +4050,23 @@ function showCreateWorkspaceModal(editId) {
       <input type="checkbox" class="ws-member-cb" value="${m.userId}" ${currentMembers.includes(m.userId) ? 'checked' : ''}> ${escapeHtml(m.displayName)}
     </label>`
   ).join('');
+  // Show/hide delete button
+  const deleteBtn = document.getElementById('btn-delete-workspace');
+  const canDelete = ws && myProfile && (myProfile.role === 'cmo' || ws.ownerId === myProfile.userId);
+  deleteBtn.style.display = canDelete ? '' : 'none';
+  if (canDelete) {
+    deleteBtn.onclick = async () => {
+      if (!confirm(`Delete workspace "${ws.name}"? Tasks in this workspace will remain but lose their workspace assignment.`)) return;
+      try {
+        await api('DELETE', `/api/workspaces/${editId}`);
+        closeModal('modal-workspace');
+        if (activeWorkspaceId === editId) closeWorkspace();
+        await loadWorkspaces();
+        renderSidebar();
+        showToast('Workspace deleted');
+      } catch (err) { showToast('Failed to delete workspace', 'error'); }
+    };
+  }
   openModal('modal-workspace');
 }
 
@@ -4078,6 +4101,83 @@ async function toggleShowOnMaster(taskId, current) {
     if (task) task.showOnMaster = !current;
     render();
   } catch (err) { showToast('Failed to update', 'error'); }
+}
+
+// === Task Templates ===
+let allTemplates = [];
+
+async function loadTemplates() {
+  try { allTemplates = await api('GET', '/api/templates'); } catch { allTemplates = []; }
+}
+
+function showTemplatesModal() {
+  loadTemplates().then(renderTemplatesList);
+  openModal('modal-templates');
+  const scopeSelect = document.getElementById('template-scope');
+  if (myProfile) {
+    const opts = scopeSelect.options;
+    for (let i = 0; i < opts.length; i++) {
+      if (opts[i].value === 'org') opts[i].disabled = myProfile.role !== 'cmo';
+      if (opts[i].value === 'department') opts[i].disabled = myProfile.role !== 'cmo' && myProfile.role !== 'lead';
+    }
+  }
+}
+
+function renderTemplatesList() {
+  const container = document.getElementById('templates-list');
+  if (allTemplates.length === 0) {
+    container.innerHTML = '<p style="font-size:0.85rem;color:var(--color-text-muted);padding:0.5rem 0;">No templates yet. Create one below.</p>';
+    return;
+  }
+  container.innerHTML = allTemplates.map(t => {
+    const scopeLabel = t.scope === 'org' ? 'Org-wide' : t.scope === 'department' ? t.department : 'Personal';
+    const canEdit = myProfile && (myProfile.role === 'cmo' || t.createdBy === myProfile.userId);
+    return `<div style="border:1px solid var(--color-border);border-radius:var(--radius);padding:0.625rem;margin-bottom:0.5rem;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div>
+          <strong style="font-size:0.9rem;">${escapeHtml(t.name)}</strong>
+          <span style="font-size:0.7rem;color:var(--color-text-muted);margin-left:0.375rem;">${scopeLabel} · ${t.subtasks.length} subtasks · by ${escapeHtml(t.createdByName || 'Unknown')}</span>
+        </div>
+        ${canEdit ? `<button class="btn btn-ghost btn-sm" style="color:var(--follett-coral);font-size:0.75rem;" onclick="deleteTemplate('${t.id}')">Delete</button>` : ''}
+      </div>
+      <div style="font-size:0.8rem;color:var(--color-text-muted);margin-top:0.25rem;">${t.subtasks.map(s => escapeHtml(s.title)).join(' · ')}</div>
+    </div>`;
+  }).join('');
+}
+
+async function saveTemplate() {
+  const name = document.getElementById('template-name').value.trim();
+  const scope = document.getElementById('template-scope').value;
+  const text = document.getElementById('template-subtasks-text').value.trim();
+  if (!name) { showToast('Template name is required', 'error'); return; }
+  if (!text) { showToast('Add at least one subtask', 'error'); return; }
+  const subtasks = text.split('\n').filter(l => l.trim()).map(l => ({ title: l.trim(), priority: 'Medium' }));
+  try {
+    await api('POST', '/api/templates', { name, scope, subtasks });
+    document.getElementById('template-name').value = '';
+    document.getElementById('template-subtasks-text').value = '';
+    await loadTemplates();
+    renderTemplatesList();
+    showToast('Template created');
+  } catch (err) { showToast('Failed to create template: ' + err.message, 'error'); }
+}
+
+async function deleteTemplate(id) {
+  if (!confirm('Delete this template?')) return;
+  try {
+    await api('DELETE', `/api/templates/${id}`);
+    await loadTemplates();
+    renderTemplatesList();
+    showToast('Template deleted');
+  } catch (err) { showToast('Failed to delete', 'error'); }
+}
+
+async function applyTemplate(templateId, taskId) {
+  try {
+    const result = await api('POST', `/api/templates/${templateId}/apply/${taskId}`);
+    showToast(`Added ${result.applied} subtasks`);
+    loadSubtasks(taskId);
+  } catch (err) { showToast('Failed to apply template: ' + err.message, 'error'); }
 }
 
 // === AI Context Settings ===
