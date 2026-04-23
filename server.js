@@ -2523,7 +2523,7 @@ async function notifyWatchers(orgId, task, type, title, fromUserId, fromName, ex
 }
 
 // === Notification System ===
-async function createNotification(orgId, toUserId, data) {
+async function createNotification(orgId, toUserId, data, { skipSlack = false } = {}) {
   await db.collection('orgs').doc(orgId).collection('notifications').add({
     toUserId,
     ...data,
@@ -2531,10 +2531,12 @@ async function createNotification(orgId, toUserId, data) {
     createdAt: new Date().toISOString()
   });
 
-  // Send Slack notification (non-blocking)
-  sendSlackNotification(orgId, toUserId, data).catch(err =>
-    console.error('Slack notification error:', err)
-  );
+  // Send Slack notification (non-blocking) unless caller handles Slack separately
+  if (!skipSlack) {
+    sendSlackNotification(orgId, toUserId, data).catch(err =>
+      console.error('Slack notification error:', err)
+    );
+  }
 
   // Send email notification
   try {
@@ -3500,14 +3502,14 @@ app.post('/api/slack/announce', auth, async (req, res) => {
     for (const doc of activeMembers) {
       const m = doc.data();
 
-      // In-app notification
+      // In-app notification (skip Slack here — we send Slack DM separately below)
       await createNotification(req.orgId, m.userId, {
         type: 'announcement',
         title: `Announcement from ${req.memberName}: ${message.trim().substring(0, 200)}`,
         taskId: '',
         fromUserId: req.userId,
         fromName: req.memberName
-      });
+      }, { skipSlack: true });
       notifSent++;
 
       // Slack DM
@@ -3515,10 +3517,9 @@ app.post('/api/slack/announce', auth, async (req, res) => {
         try {
           await slackApiCall(botToken, 'chat.postMessage', {
             channel: m.slackUserId,
-            text: `*Announcement from ${req.memberName}:*\n${message.trim()}`,
+            text: `Announcement from ${req.memberName}`,
             blocks: [
-              { type: 'section', text: { type: 'mrkdwn', text: `:mega: *Announcement from ${req.memberName}*` } },
-              { type: 'section', text: { type: 'mrkdwn', text: message.trim() } }
+              { type: 'section', text: { type: 'mrkdwn', text: `:mega: *Announcement from ${req.memberName}*\n\n${message.trim()}` } }
             ]
           });
           slackSent++;
