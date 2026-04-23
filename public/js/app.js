@@ -1551,6 +1551,10 @@ function showTaskDetail(id) {
         <button class="btn btn-ghost btn-sm" onclick="toggleWatch('${task.id}')" style="font-size:0.75rem;">
           ${myProfile && (task.watchers || []).includes(myProfile.userId) ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> Watching' : '+ Watch'}
         </button>
+        <select class="filter-select-compact" style="font-size:0.7rem;" onchange="if(this.value){addWatcher('${task.id}',this.value);this.value='';}">
+          <option value="">+ Add watcher</option>
+          ${teamMembers.filter(m => (m.status === 'active' || !m.status) && !(task.watchers || []).includes(m.userId)).map(m => `<option value="${m.userId}">${escapeHtml(m.displayName)}</option>`).join('')}
+        </select>
       </div>
     </div>
 
@@ -1643,6 +1647,17 @@ async function toggleTaskPrivate(taskId, isPrivate) {
   try {
     await api('PUT', `/api/tasks/${taskId}`, { private: isPrivate });
   } catch (err) { showToast('Failed to update', 'error'); }
+}
+
+async function addWatcher(taskId, userId) {
+  try {
+    const task = tasks.find(t => t.id === taskId);
+    const current = task ? [...(task.watchers || [])] : [];
+    if (!current.includes(userId)) current.push(userId);
+    await api('PUT', `/api/tasks/${taskId}`, { watchers: current });
+    if (task) task.watchers = current;
+    showTaskDetail(taskId);
+  } catch (err) { showToast('Failed to add watcher', 'error'); }
 }
 
 async function toggleWatch(taskId) {
