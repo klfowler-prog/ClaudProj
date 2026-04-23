@@ -3855,14 +3855,49 @@ async function showNotifications() {
   const empty = document.getElementById('notifications-empty');
   if (allNotifications.length === 0) { container.innerHTML = ''; empty.style.display = 'block'; return; }
   empty.style.display = 'none';
-  container.innerHTML = allNotifications.map(n => {
+  const notifMeta = {
+    task_assigned:   { icon: '&#8594;', label: 'Assigned to you', color: 'var(--follett-coral)', action: true },
+    task_blocked:    { icon: '&#9888;', label: 'Blocked', color: '#d4960a', action: true },
+    comment:         { icon: '&#128172;', label: 'Comment', color: 'var(--follett-medium-blue)', action: true },
+    task_approved:   { icon: '&#10003;', label: 'Approved', color: 'var(--follett-sage)', action: false },
+    task_completed:  { icon: '&#10003;', label: 'Completed', color: 'var(--follett-sage)', action: false },
+    task_completed_after_approval: { icon: '&#10003;', label: 'Completed', color: 'var(--follett-sage)', action: false },
+    subtask_completed: { icon: '&#10003;', label: 'Subtask done', color: 'var(--color-text-muted)', action: false },
+    subtasks_all_done: { icon: '&#9733;', label: 'All subtasks done', color: 'var(--follett-sage)', action: true },
+    workspace_added: { icon: '&#128101;', label: 'Workspace', color: 'var(--follett-medium-blue)', action: false },
+    announcement:    { icon: '&#128227;', label: 'Announcement', color: 'var(--follett-dark-blue)', action: false }
+  };
+
+  // Group: action needed first, then FYI
+  const actionNotifs = allNotifications.filter(n => (notifMeta[n.type] || {}).action);
+  const fyi = allNotifications.filter(n => !(notifMeta[n.type] || {}).action);
+
+  let html = '';
+  if (actionNotifs.length > 0) {
+    html += `<div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--follett-coral);margin-bottom:0.375rem;">Action Needed (${actionNotifs.length})</div>`;
+    html += actionNotifs.map(n => renderNotifItem(n, notifMeta)).join('');
+  }
+  if (fyi.length > 0) {
+    html += `<div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--color-text-muted);margin:0.75rem 0 0.375rem;">Updates</div>`;
+    html += fyi.map(n => renderNotifItem(n, notifMeta)).join('');
+  }
+  container.innerHTML = html;
+
+  function renderNotifItem(n, meta) {
     const ago = timeAgo(n.createdAt);
     const unreadClass = n.read ? 'notif-read' : 'notif-unread';
-    return `<div class="notif-item ${unreadClass}" data-notif-id="${n.id}" data-task-id="${n.taskId || ''}">
-      <div class="notif-item-title">${escapeHtml(n.title)}</div>
-      <div class="notif-item-time">${ago}</div>
+    const m = meta[n.type] || { icon: '&#8226;', label: '', color: 'var(--color-text-muted)' };
+    return `<div class="notif-item ${unreadClass}" data-notif-id="${n.id}" data-task-id="${n.taskId || ''}" style="border-left-color:${n.read ? '' : m.color};">
+      <div style="display:flex;align-items:center;gap:0.5rem;">
+        <span style="font-size:1rem;flex-shrink:0;width:20px;text-align:center;">${m.icon}</span>
+        <div style="flex:1;min-width:0;">
+          ${m.label ? `<div style="font-size:0.65rem;font-weight:600;text-transform:uppercase;letter-spacing:0.03em;color:${m.color};margin-bottom:0.1rem;">${m.label}</div>` : ''}
+          <div class="notif-item-title">${escapeHtml(n.title)}</div>
+          <div class="notif-item-time">${ago}</div>
+        </div>
+      </div>
     </div>`;
-  }).join('');
+  }
   container.onclick = async (e) => {
     const item = e.target.closest('.notif-item');
     if (!item) return;
