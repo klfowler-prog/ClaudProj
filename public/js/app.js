@@ -1570,6 +1570,10 @@ function showTaskDetail(id) {
   loadSubtasks(task.id);
   loadComments(task.id);
 
+  // @mention autocomplete on comment textarea
+  const commentBox = document.getElementById('comment-input');
+  if (commentBox) setupMentionAutocomplete(commentBox);
+
   // Detail tag handlers
   document.querySelectorAll('#detail-tags .note-tag-remove').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -1608,10 +1612,73 @@ async function loadComments(taskId) {
           <span style="font-weight:500;font-size:0.8rem;">${escapeHtml(c.authorName)}${subtaskLabel}</span>
           <span style="font-size:0.7rem;color:var(--color-text-light);">${ago}</span>
         </div>
-        <div style="margin-top:0.25rem;font-size:0.85rem;line-height:1.5;white-space:pre-wrap;">${escapeHtmlWithLinks(c.text)}</div>
+        <div style="margin-top:0.25rem;font-size:0.85rem;line-height:1.5;white-space:pre-wrap;">${renderMentions(escapeHtmlWithLinks(c.text))}</div>
       </div>`;
     }).join('');
   } catch { document.getElementById('comments-list').innerHTML = '<span style="color:var(--color-text-light);font-size:0.8rem;">Failed to load comments</span>'; }
+}
+
+function renderMentions(html) {
+  const names = teamMembers.map(m => m.displayName).filter(Boolean);
+  const firstNames = teamMembers.map(m => (m.displayName || '').split(' ')[0]).filter(Boolean);
+  const all = [...new Set([...names, ...firstNames])].sort((a, b) => b.length - a.length);
+  all.forEach(name => {
+    const regex = new RegExp(`@${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=[\\s,;.!?]|$)`, 'gi');
+    html = html.replace(regex, `<span style="background:var(--color-b2b-light);color:var(--follett-dark-blue);font-weight:500;padding:0.05em 0.3em;border-radius:3px;">@${name}</span>`);
+  });
+  return html;
+}
+
+let mentionDropdown = null;
+
+function setupMentionAutocomplete(textarea) {
+  if (mentionDropdown) { mentionDropdown.remove(); mentionDropdown = null; }
+
+  textarea.addEventListener('input', () => {
+    const val = textarea.value;
+    const cursor = textarea.selectionStart;
+    const before = val.substring(0, cursor);
+    const atMatch = before.match(/@(\w*)$/);
+
+    if (!atMatch) { if (mentionDropdown) { mentionDropdown.remove(); mentionDropdown = null; } return; }
+
+    const query = atMatch[1].toLowerCase();
+    const matches = teamMembers.filter(m =>
+      (m.status === 'active' || !m.status) &&
+      (m.displayName || '').toLowerCase().includes(query)
+    ).slice(0, 6);
+
+    if (matches.length === 0) { if (mentionDropdown) { mentionDropdown.remove(); mentionDropdown = null; } return; }
+
+    if (!mentionDropdown) {
+      mentionDropdown = document.createElement('div');
+      mentionDropdown.className = 'mention-dropdown';
+      mentionDropdown.style.cssText = 'position:absolute;background:#fff;border:1px solid var(--color-border);border-radius:var(--radius);box-shadow:var(--shadow-lg);z-index:100;max-height:180px;overflow-y:auto;width:200px;';
+      textarea.parentElement.style.position = 'relative';
+      textarea.parentElement.appendChild(mentionDropdown);
+    }
+    mentionDropdown.style.bottom = (textarea.offsetHeight + 4) + 'px';
+    mentionDropdown.style.left = '0';
+    mentionDropdown.innerHTML = matches.map(m =>
+      `<div class="mention-option" data-name="${escapeHtml(m.displayName)}" style="padding:0.4rem 0.6rem;cursor:pointer;font-size:0.85rem;border-bottom:1px solid var(--color-border);">${escapeHtml(m.displayName)}</div>`
+    ).join('');
+    mentionDropdown.querySelectorAll('.mention-option').forEach(opt => {
+      opt.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        const name = opt.dataset.name;
+        const atStart = before.lastIndexOf('@');
+        textarea.value = val.substring(0, atStart) + '@' + name + ' ' + val.substring(cursor);
+        textarea.selectionStart = textarea.selectionEnd = atStart + name.length + 2;
+        textarea.focus();
+        mentionDropdown.remove();
+        mentionDropdown = null;
+      });
+    });
+  });
+
+  textarea.addEventListener('blur', () => {
+    setTimeout(() => { if (mentionDropdown) { mentionDropdown.remove(); mentionDropdown = null; } }, 200);
+  });
 }
 
 async function addComment(taskId) {

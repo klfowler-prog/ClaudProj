@@ -45,8 +45,18 @@ const VALID_ROLES = ['cmo', 'lead', 'member', 'viewer'];
 const MAX_TITLE_LENGTH = 500;
 const MAX_NOTES_LENGTH = 50000;
 
-// Serve static frontend files
-app.use(express.static(path.join(__dirname, 'public')));
+// Cache-busting: version stamp set at server start
+const BUILD_VERSION = Date.now().toString(36);
+const fs = require('fs');
+let indexHtml = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf-8')
+  .replace(/__BUILD_VERSION__/g, BUILD_VERSION);
+
+// Serve static frontend files (CSS/JS cached normally, index.html served dynamically)
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
+  }
+}));
 
 // === Auth Middleware ===
 async function authenticate(req, res, next) {
@@ -879,6 +889,31 @@ app.post('/api/tasks/:id/comments', auth, async (req, res) => {
           commentExclude.push(parentDoc.data().createdBy);
         }
       }
+      // Notify @mentioned users
+      const membersSnap = await orgCol(req, 'members').get();
+      const membersByName = {};
+      membersSnap.docs.forEach(d => {
+        const m = d.data();
+        if (m.displayName) membersByName[m.displayName.toLowerCase()] = m;
+        const firstName = (m.displayName || '').split(' ')[0].toLowerCase();
+        if (firstName) membersByName[firstName] = m;
+      });
+      const mentionRegex = /@([\w\s]+?)(?=[\s,;.!?]|$)/g;
+      let match;
+      while ((match = mentionRegex.exec(text)) !== null) {
+        const mentioned = membersByName[match[1].trim().toLowerCase()];
+        if (mentioned && mentioned.userId !== req.userId && !commentExclude.includes(mentioned.userId)) {
+          await createNotification(req.orgId, mentioned.userId, {
+            type: 'comment',
+            title: `${req.memberName} mentioned you on "${task.title}"`,
+            taskId: req.params.id,
+            fromUserId: req.userId,
+            fromName: req.memberName
+          });
+          commentExclude.push(mentioned.userId);
+        }
+      }
+
       // Notify watchers about the comment
       const taskWithId = { ...task, id: req.params.id };
       await notifyWatchers(req.orgId, taskWithId, 'comment', `${req.memberName} commented on "${task.title}"`, req.userId, req.memberName, commentExclude);
@@ -3495,9 +3530,11 @@ app.post('/api/sync', auth, async (req, res) => {
   }
 });
 
-// Fallback: serve index.html for any non-API route
+// Fallback: serve index.html with cache-busting version
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.setHeader('Content-Type', 'text/html');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.send(indexHtml);
 });
 
 app.listen(PORT, () => {
