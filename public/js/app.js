@@ -3552,7 +3552,7 @@ async function init() {
   });
   document.getElementById('btn-send-chat').addEventListener('click', () => sendChatMessage());
   document.getElementById('chat-input').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') sendChatMessage();
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); }
   });
   // Suggestion button clicks
   document.querySelectorAll('.ai-suggestion').forEach(btn => {
