@@ -1391,6 +1391,26 @@ function showTaskDetail(id) {
   const task = tasks.find(t => t.id === id);
   if (!task) return;
 
+  // Fill in parent task context from local tasks array if missing (for subtasks)
+  if (task.parentTaskId && !task.parentTaskTitle) {
+    const parent = tasks.find(t => t.id === task.parentTaskId);
+    if (parent) {
+      task.parentTaskTitle = parent.title || '';
+      task.parentTaskNotes = parent.notes || '';
+      task.parentTaskAttachments = parent.attachments || [];
+      task.parentTaskDueDate = parent.dueDate || '';
+    } else {
+      // Parent not in local array — fetch it async and re-render
+      api('GET', `/api/tasks/${task.parentTaskId}`).then(parent => {
+        task.parentTaskTitle = parent.title || '';
+        task.parentTaskNotes = parent.notes || '';
+        task.parentTaskAttachments = parent.attachments || [];
+        task.parentTaskDueDate = parent.dueDate || '';
+        showTaskDetail(id);
+      }).catch(() => {});
+    }
+  }
+
   const deptKey = DEPT_KEYS[task.department] || 'b2b';
   const prioKey = task.priority.toLowerCase();
   const date = new Date(task.createdAt);

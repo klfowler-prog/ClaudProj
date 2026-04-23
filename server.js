@@ -797,7 +797,19 @@ app.get('/api/tasks/:id', auth, async (req, res) => {
   try {
     const doc = await orgCol(req, 'tasks').doc(req.params.id).get();
     if (!doc.exists) return res.status(404).json({ error: 'Task not found' });
-    res.json({ id: doc.id, ...doc.data() });
+    const task = { id: doc.id, ...doc.data() };
+    // Enrich with parent task context if this is a subtask
+    if (task.parentTaskId) {
+      const parentDoc = await orgCol(req, 'tasks').doc(task.parentTaskId).get();
+      if (parentDoc.exists) {
+        const parent = parentDoc.data();
+        task.parentTaskTitle = parent.title || '';
+        task.parentTaskNotes = parent.notes || '';
+        task.parentTaskAttachments = parent.attachments || [];
+        task.parentTaskDueDate = parent.dueDate || '';
+      }
+    }
+    res.json(task);
   } catch (err) { res.status(500).json({ error: 'Failed to fetch task' }); }
 });
 
