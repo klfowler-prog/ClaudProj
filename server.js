@@ -2218,8 +2218,10 @@ ACTIONS: You can take actions on behalf of the user. Include action tags in your
 [ACTION:update_task:{"taskId":"TASK_ID","dueDate":"YYYY-MM-DD"}]
 [ACTION:update_task:{"taskId":"TASK_ID","priority":"High"}]
 [ACTION:add_comment:{"taskId":"TASK_ID","text":"Comment text"}]
+[ACTION:create_note:{"title":"Note Title","content":"Note content here","folder":"All Team"}]
 
 Rules for actions:
+- For create_note: use the user's exact words as content, don't summarize. Folder options: "All Team", "B2B Marketing", "B2C Marketing", "Personal". Default to "Personal" if not specified.
 - Only take actions when the user explicitly asks you to (e.g. "create a task for...", "assign this to...", "mark it as complete", "add a comment")
 - Never take actions unprompted — always confirm what you're about to do in your response text
 - You can include multiple actions in one response
@@ -2321,6 +2323,24 @@ ${allNotes.join('\n---\n')}`;
             createdAt: new Date().toISOString()
           });
           actionResults.push({ type: 'add_comment', success: true, taskId: p.taskId });
+          reply = reply.replace(action.raw, '');
+        } else if (action.type === 'create_note') {
+          const p = action.params;
+          const folderName = p.folder || 'Personal';
+          const foldersSnap = await orgCol(req, 'folders').get();
+          let folderId = '';
+          for (const fd of foldersSnap.docs) {
+            if (fd.data().name.toLowerCase() === folderName.toLowerCase()) { folderId = fd.id; break; }
+          }
+          const now = new Date().toISOString();
+          const noteContent = (p.content || '').replace(/\n/g, '<br>');
+          await orgCol(req, 'notes').add({
+            title: p.title || 'Untitled', content: noteContent,
+            folderId, source: 'ai', createdAt: now, updatedAt: now,
+            aiSummary: '', createdBy: req.userId, links: [],
+            pinned: false, private: false, allowEditing: false
+          });
+          actionResults.push({ type: 'create_note', success: true, title: p.title, folder: folderName });
           reply = reply.replace(action.raw, '');
         }
       } catch (actionErr) {
@@ -3632,6 +3652,7 @@ You can take actions. Include action tags and they will be executed:
 [ACTION:update_task:{"taskId":"TASK_ID","status":"In Progress"}]
 [ACTION:add_comment:{"taskId":"TASK_ID","text":"Comment text"}]
 [ACTION:create_task:{"title":"Title","department":"B2B Marketing","priority":"Medium","assignedTo":"userId","dueDate":"YYYY-MM-DD","status":"Not Started","links":["url"]}]
+[ACTION:create_note:{"title":"Note Title","content":"Note content here","folder":"All Team"}]
 
 IMPORTANT create_task rules:
 - ALWAYS set assignedTo to "${userId}" (the person asking) unless they explicitly say "assign to [name]" or "add a task FOR [name]"
@@ -3641,6 +3662,13 @@ IMPORTANT create_task rules:
 - If user says "B2B folder" or "B2B" → department is "B2B Marketing"
 - If user says "personal" or doesn't specify → department is "Personal"
 - Parse dates: "tomorrow" = ${new Date(Date.now()+86400000).toISOString().split('T')[0]}, "Friday" = next Friday, "next week" = 7 days from today
+
+IMPORTANT create_note rules:
+- Use the user's exact words as the content — don't summarize or restructure unless asked
+- Format content with markdown: use **bold** for headers, bullet points for lists
+- folder must match a folder name: "All Team", "B2B Marketing", "B2C Marketing", "Personal", or any workspace/department name
+- If user doesn't specify a folder, default to "Personal"
+- If the user says "save this" or "note this down" with content, create a note
 
 General rules:
 - Match task names loosely (user may abbreviate or paraphrase)
@@ -3712,6 +3740,23 @@ ${taskList}` }] },
             sharedWith: [], parentTaskId: '', workspaceId: '', tags: []
           });
           actionResults.push(`✓ Created: <${APP_BASE_URL}/?task=${ref.id}|*${params.title}*> (${taskStatus}${assignee !== userId ? ', assigned to ' + memberNames[assignee] : ''})`);
+        } else if (actionType === 'create_note') {
+          // Find the target folder
+          const folderName = params.folder || 'Personal';
+          const foldersSnap = await db.collection('orgs').doc(orgId).collection('folders').get();
+          let folderId = '';
+          for (const fd of foldersSnap.docs) {
+            if (fd.data().name.toLowerCase() === folderName.toLowerCase()) { folderId = fd.id; break; }
+          }
+          const now = new Date().toISOString();
+          const noteContent = (params.content || '').replace(/\n/g, '<br>');
+          const noteRef = await db.collection('orgs').doc(orgId).collection('notes').add({
+            title: params.title || 'Untitled', content: noteContent,
+            folderId, source: 'slack', createdAt: now, updatedAt: now,
+            aiSummary: '', createdBy: userId, links: [],
+            pinned: false, private: false, allowEditing: false
+          });
+          actionResults.push(`✓ Note saved: *${params.title || 'Untitled'}* in ${folderName}`);
         }
         reply = reply.replace(actionMatch[0], '');
       } catch (actionErr) {

@@ -2984,6 +2984,8 @@ async function sendChatMessage(messageOverride) {
             replyHtml += `<div style="color:var(--follett-sage);">&#10003; Task updated</div>`;
           } else if (a.type === 'add_comment') {
             replyHtml += `<div style="color:var(--follett-sage);">&#10003; Comment added</div>`;
+          } else if (a.type === 'create_note') {
+            replyHtml += `<div style="color:var(--follett-sage);">&#10003; Note saved: ${escapeHtml(a.title)} in ${escapeHtml(a.folder)}</div>`;
           }
         } else {
           replyHtml += `<div style="color:var(--follett-coral);">&#10007; Failed: ${escapeHtml(a.error || a.type)}</div>`;
