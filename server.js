@@ -3625,6 +3625,50 @@ app.get('*', (req, res) => {
   res.send(indexHtml);
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`CMO Task Manager running on port ${PORT}`);
+
+  // One-time Granola meeting import
+  try {
+    const seedFlag = await db.collection('system').doc('seeds').get();
+    if (seedFlag.exists && seedFlag.data().granolaMeetings) {
+      console.log('[Seed] Granola meetings already imported');
+      return;
+    }
+    const meetingsPath = path.join(__dirname, 'data', 'granola-meetings.json');
+    if (!fs.existsSync(meetingsPath)) return;
+    const meetings = JSON.parse(fs.readFileSync(meetingsPath, 'utf-8'));
+    const orgsSnap = await db.collection('orgs').get();
+    if (orgsSnap.empty) return;
+    const orgId = orgsSnap.docs[0].id;
+    const orgRef = db.collection('orgs').doc(orgId);
+    // Find the All Team folder
+    const foldersSnap = await orgRef.collection('folders').where('name', '==', 'All Team').get();
+    const folderId = foldersSnap.empty ? '' : foldersSnap.docs[0].id;
+    // Find the CMO user
+    const membersSnap = await orgRef.collection('members').where('role', '==', 'cmo').get();
+    const cmoId = membersSnap.empty ? '' : membersSnap.docs[0].data().userId;
+    let count = 0;
+    for (const m of meetings) {
+      await orgRef.collection('notes').add({
+        title: m.title,
+        content: m.summary.replace(/\n/g, '<br>').replace(/### /g, '<h3>').replace(/<br>/g, '</h3>', 1),
+        folderId,
+        source: 'granola',
+        createdAt: new Date(m.date + 'T12:00:00Z').toISOString(),
+        updatedAt: new Date(m.date + 'T12:00:00Z').toISOString(),
+        aiSummary: '',
+        createdBy: cmoId,
+        links: [],
+        pinned: false,
+        private: false,
+        allowEditing: false
+      });
+      count++;
+    }
+    await db.collection('system').doc('seeds').set({ granolaMeetings: true }, { merge: true });
+    console.log(`[Seed] Imported ${count} Granola meetings as notes`);
+  } catch (err) {
+    console.error('[Seed] Granola import failed:', err.message);
+  }
 });
