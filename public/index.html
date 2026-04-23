@@ -285,6 +285,7 @@
           <div style="display: flex; gap: 0.375rem; align-items: center;">
             <button class="stat-toggle active" id="btn-all-notes" style="font-size: 0.65rem;">All</button>
             <button class="stat-toggle" id="btn-my-notes" style="font-size: 0.65rem;">Mine</button>
+            <button class="btn btn-ghost btn-sm" id="btn-import-meeting" style="font-size:0.65rem;">Import Meeting</button>
             <button class="btn btn-primary btn-sm" id="btn-new-note">+ New</button>
           </div>
         </div>
@@ -556,6 +557,48 @@
           <div class="modal-actions">
             <button class="btn btn-ghost" data-close="modal-announce">Cancel</button>
             <button class="btn btn-primary" id="btn-send-announce">Send to Team</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Import Meeting Modal -->
+    <div class="modal-overlay" id="modal-import-meeting" style="display: none;">
+      <div class="modal modal-wide">
+        <div class="modal-header">
+          <h2>Import Meeting Notes</h2>
+          <button class="modal-close" data-close="modal-import-meeting">&times;</button>
+        </div>
+        <div style="padding: 0.75rem 1.5rem 1.5rem;">
+          <div class="form-group">
+            <label>Meeting Title</label>
+            <input type="text" id="meeting-import-title" class="form-input" placeholder="e.g. Katie | Leann 1:1">
+          </div>
+          <div class="form-group">
+            <label>Notes / Summary</label>
+            <textarea id="meeting-import-content" rows="8" class="form-input" placeholder="Paste your meeting notes or Granola summary here..." style="resize:vertical;font-family:'Roboto',sans-serif;"></textarea>
+          </div>
+          <div class="form-group" style="display:flex;gap:0.5rem;">
+            <div style="flex:1;">
+              <label>Save to Folder</label>
+              <select id="meeting-import-folder" class="filter-select-compact" style="width:100%;"></select>
+            </div>
+            <div style="flex:1;">
+              <label>Date</label>
+              <input type="date" id="meeting-import-date" class="filter-select-compact" style="width:100%;">
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button class="btn btn-ghost" data-close="modal-import-meeting">Cancel</button>
+            <button class="btn btn-primary" id="btn-submit-meeting-import">Import &amp; Suggest Tasks</button>
+          </div>
+          <div id="meeting-import-results" style="display:none;margin-top:1rem;border-top:1px solid var(--color-border);padding-top:0.75rem;">
+            <div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;color:var(--follett-dark-blue);margin-bottom:0.5rem;">Suggested Tasks</div>
+            <div id="meeting-suggested-tasks"></div>
+            <div class="modal-actions" style="margin-top:0.75rem;">
+              <button class="btn btn-ghost" onclick="closeModal('modal-import-meeting')">Done</button>
+              <button class="btn btn-primary" id="btn-approve-suggested">Create Selected Tasks</button>
+            </div>
           </div>
         </div>
       </div>

@@ -1401,6 +1401,94 @@ app.post('/api/templates/:id/apply/:taskId', authWrite, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Failed to apply template: ' + err.message }); }
 });
 
+// === Meeting Import ===
+
+// POST /api/meetings/import — Import a meeting note and suggest tasks
+app.post('/api/meetings/import', authWrite, async (req, res) => {
+  try {
+    const { title, content, date, source } = req.body;
+    if (!title || !content) return res.status(400).json({ error: 'Title and content are required' });
+
+    const now = new Date().toISOString();
+
+    // Find the All Team folder (default) or use provided folderId
+    let folderId = req.body.folderId || '';
+    if (!folderId) {
+      const foldersSnap = await orgCol(req, 'folders').where('name', '==', 'All Team').get();
+      if (!foldersSnap.empty) folderId = foldersSnap.docs[0].id;
+    }
+
+    // Create the note
+    const note = {
+      title: title.trim(),
+      content: content.trim(),
+      folderId,
+      source: source || 'granola',
+      createdAt: date || now,
+      updatedAt: now,
+      aiSummary: '',
+      createdBy: req.userId,
+      links: [],
+      pinned: false,
+      private: false,
+      allowEditing: false
+    };
+    const noteRef = await orgCol(req, 'notes').add(note);
+
+    // Use AI to suggest tasks from the meeting content
+    let suggestedTasks = [];
+    try {
+      const model = getGeminiModel();
+      const text = stripHtml(content);
+
+      const membersSnap = await orgCol(req, 'members').get();
+      const memberList = membersSnap.docs.filter(d => d.data().status === 'active' || !d.data().status)
+        .map(d => `${d.data().displayName} (userId: ${d.data().userId}, dept: ${(d.data().departments || []).join(',')})`)
+        .join('\n');
+
+      const result = await model.generateContent({
+        contents: [{ role: 'user', parts: [{ text: `You are a marketing task extraction assistant. Extract action items from this meeting note and return them as a JSON array.
+
+Meeting title: ${title}
+
+Meeting content:
+${text}
+
+Team members:
+${memberList}
+
+Return ONLY a JSON array (no markdown, no code fences) of action items:
+[
+  { "title": "Action item description", "assignee": "userId or empty string", "priority": "High|Medium|Low", "department": "B2B Marketing|B2C Marketing|Personal" }
+]
+
+Rules:
+- Only extract clear action items, not discussion points
+- Match assignees to team members by name if mentioned
+- If no clear assignee, leave assignee empty
+- Be concise — task titles should be actionable
+- Return an empty array [] if no action items found` }] }]
+      });
+
+      const responseText = result.response.text().trim();
+      const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        suggestedTasks = JSON.parse(jsonMatch[0]);
+      }
+    } catch (aiErr) {
+      console.error('AI task suggestion failed:', aiErr.message);
+    }
+
+    res.status(201).json({
+      noteId: noteRef.id,
+      note: { id: noteRef.id, ...note },
+      suggestedTasks
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to import meeting: ' + err.message });
+  }
+});
+
 // === Folder Endpoints ===
 
 app.get('/api/folders', auth, async (req, res) => {

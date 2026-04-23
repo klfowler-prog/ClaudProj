@@ -3271,6 +3271,8 @@ async function init() {
 
   // Notes event listeners
   document.getElementById('btn-new-note').addEventListener('click', createNote);
+  document.getElementById('btn-import-meeting').addEventListener('click', showImportMeetingModal);
+  document.getElementById('btn-submit-meeting-import').addEventListener('click', submitMeetingImport);
   document.getElementById('btn-notes-back').addEventListener('click', () => {
     document.getElementById('view-notes').classList.remove('note-open');
     document.getElementById('notes-editor-panel').style.display = 'none';
@@ -4279,6 +4281,89 @@ async function toggleShowOnMaster(taskId, current) {
     if (task) task.showOnMaster = !current;
     render();
   } catch (err) { showToast('Failed to update', 'error'); }
+}
+
+// === Meeting Import ===
+function showImportMeetingModal() {
+  document.getElementById('meeting-import-title').value = '';
+  document.getElementById('meeting-import-content').value = '';
+  document.getElementById('meeting-import-date').value = new Date().toISOString().split('T')[0];
+  document.getElementById('meeting-import-results').style.display = 'none';
+  // Populate folder dropdown
+  const folderSelect = document.getElementById('meeting-import-folder');
+  folderSelect.innerHTML = folders.map(f =>
+    `<option value="${f.id}" ${f.name === 'All Team' ? 'selected' : ''}>${escapeHtml(f.name)}</option>`
+  ).join('');
+  openModal('modal-import-meeting');
+}
+
+async function submitMeetingImport() {
+  const title = document.getElementById('meeting-import-title').value.trim();
+  const content = document.getElementById('meeting-import-content').value.trim();
+  const folderId = document.getElementById('meeting-import-folder').value;
+  const date = document.getElementById('meeting-import-date').value;
+  if (!title || !content) { showToast('Title and notes are required', 'error'); return; }
+
+  const btn = document.getElementById('btn-submit-meeting-import');
+  btn.disabled = true;
+  btn.textContent = 'Importing...';
+
+  try {
+    const result = await api('POST', '/api/meetings/import', {
+      title, content, folderId, date: date ? new Date(date).toISOString() : undefined
+    });
+    showToast(`Meeting note saved to ${folders.find(f => f.id === folderId)?.name || 'notes'}`);
+
+    // Show suggested tasks
+    const resultsDiv = document.getElementById('meeting-import-results');
+    const tasksDiv = document.getElementById('meeting-suggested-tasks');
+    if (result.suggestedTasks && result.suggestedTasks.length > 0) {
+      resultsDiv.style.display = 'block';
+      tasksDiv.innerHTML = result.suggestedTasks.map((t, i) => {
+        const assignee = t.assignee ? teamMembers.find(m => m.userId === t.assignee) : null;
+        const assigneeName = assignee ? assignee.displayName : 'Unassigned';
+        return `<label style="display:flex;align-items:flex-start;gap:0.5rem;padding:0.4rem 0;font-size:0.85rem;border-bottom:1px solid var(--color-border);">
+          <input type="checkbox" checked class="suggested-task-cb" data-idx="${i}" style="margin-top:0.2rem;">
+          <div style="flex:1;">
+            <div style="font-weight:500;">${escapeHtml(t.title)}</div>
+            <div style="font-size:0.75rem;color:var(--color-text-muted);">${escapeHtml(assigneeName)} · ${escapeHtml(t.priority || 'Medium')} · ${escapeHtml(t.department || 'B2B Marketing')}</div>
+          </div>
+        </label>`;
+      }).join('');
+
+      document.getElementById('btn-approve-suggested').onclick = async () => {
+        const selected = [];
+        document.querySelectorAll('.suggested-task-cb:checked').forEach(cb => {
+          selected.push(result.suggestedTasks[parseInt(cb.dataset.idx)]);
+        });
+        if (selected.length === 0) { showToast('No tasks selected'); return; }
+        try {
+          for (const t of selected) {
+            await api('POST', '/api/tasks', {
+              title: t.title,
+              department: t.department || 'B2B Marketing',
+              priority: t.priority || 'Medium',
+              assignedTo: t.assignee || undefined,
+              status: t.assignee ? 'Delegated' : 'Not Started',
+              notes: `From meeting: ${title}`
+            });
+          }
+          showToast(`Created ${selected.length} tasks from meeting`);
+          closeModal('modal-import-meeting');
+          await loadTasks();
+          render();
+        } catch (err) { showToast('Failed to create tasks', 'error'); }
+      };
+    } else {
+      resultsDiv.style.display = 'block';
+      tasksDiv.innerHTML = '<p style="font-size:0.85rem;color:var(--color-text-muted);">No action items detected. Note was saved.</p>';
+    }
+  } catch (err) {
+    showToast('Import failed: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Import & Suggest Tasks';
+  }
 }
 
 // === Task Templates ===
