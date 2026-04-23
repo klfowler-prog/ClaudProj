@@ -3628,11 +3628,11 @@ app.get('*', (req, res) => {
 app.listen(PORT, async () => {
   console.log(`CMO Task Manager running on port ${PORT}`);
 
-  // One-time Granola meeting import
+  // One-time Granola meeting import (update existing notes with full content)
   try {
     const seedFlag = await db.collection('system').doc('seeds').get();
-    if (seedFlag.exists && seedFlag.data().granolaMeetings) {
-      console.log('[Seed] Granola meetings already imported');
+    if (seedFlag.exists && seedFlag.data().granolaMeetingsV2) {
+      console.log('[Seed] Granola meetings v2 already imported');
       return;
     }
     const meetingsPath = path.join(__dirname, 'data', 'granola-meetings.json');
@@ -3642,32 +3642,33 @@ app.listen(PORT, async () => {
     if (orgsSnap.empty) return;
     const orgId = orgsSnap.docs[0].id;
     const orgRef = db.collection('orgs').doc(orgId);
-    // Find the All Team folder
     const foldersSnap = await orgRef.collection('folders').where('name', '==', 'All Team').get();
-    const folderId = foldersSnap.empty ? '' : foldersSnap.docs[0].id;
-    // Find the CMO user
+    const defaultFolderId = foldersSnap.empty ? '' : foldersSnap.docs[0].id;
     const membersSnap = await orgRef.collection('members').where('role', '==', 'cmo').get();
     const cmoId = membersSnap.empty ? '' : membersSnap.docs[0].data().userId;
-    let count = 0;
+    // Get existing granola notes to update in place
+    const existingSnap = await orgRef.collection('notes').where('source', '==', 'granola').get();
+    const existingByTitle = {};
+    existingSnap.docs.forEach(d => { existingByTitle[d.data().title] = d; });
+    let updated = 0, created = 0;
     for (const m of meetings) {
-      await orgRef.collection('notes').add({
-        title: m.title,
-        content: m.summary.replace(/\n/g, '<br>').replace(/### /g, '<h3>').replace(/<br>/g, '</h3>', 1),
-        folderId,
-        source: 'granola',
-        createdAt: new Date(m.date + 'T12:00:00Z').toISOString(),
-        updatedAt: new Date(m.date + 'T12:00:00Z').toISOString(),
-        aiSummary: '',
-        createdBy: cmoId,
-        links: [],
-        pinned: false,
-        private: false,
-        allowEditing: false
-      });
-      count++;
+      const content = m.summary.replace(/### (.*)/g, '<h3>$1</h3>').replace(/\n/g, '<br>');
+      const existing = existingByTitle[m.title];
+      if (existing) {
+        await existing.ref.update({ content, updatedAt: new Date().toISOString() });
+        updated++;
+      } else {
+        await orgRef.collection('notes').add({
+          title: m.title, content, folderId: defaultFolderId,
+          source: 'granola', createdAt: new Date(m.date + 'T12:00:00Z').toISOString(),
+          updatedAt: new Date().toISOString(), aiSummary: '', createdBy: cmoId,
+          links: [], pinned: false, private: false, allowEditing: false
+        });
+        created++;
+      }
     }
-    await db.collection('system').doc('seeds').set({ granolaMeetings: true }, { merge: true });
-    console.log(`[Seed] Imported ${count} Granola meetings as notes`);
+    await db.collection('system').doc('seeds').set({ granolaMeetingsV2: true }, { merge: true });
+    console.log(`[Seed] Granola meetings: ${updated} updated, ${created} new`);
   } catch (err) {
     console.error('[Seed] Granola import failed:', err.message);
   }
