@@ -3170,8 +3170,18 @@ async function init() {
     });
   });
 
-  // Global delegated click handler for dynamically rendered links
-  // (iOS Safari doesn't always fire inline onclick on dynamic innerHTML)
+  // Global delegated click handler for INTERNAL app actions only.
+  //
+  // LINK HANDLING RULES (see LINK-HANDLING.md for the full policy):
+  // - We only intercept links that call app functions (file downloads, AI
+  //   task/note links, search results).
+  // - Regular external URL links (<a href="https://..." target="_blank">) are
+  //   NEVER intercepted. Native anchor behavior handles them reliably on all
+  //   browsers including iOS Safari. Calling window.open() on these causes
+  //   silent failures on iOS because mobile browsers block popups that
+  //   aren't direct user gestures.
+  // - Therefore: DO NOT add a catch-all `a[href]` interceptor to this handler.
+  //
   document.addEventListener('click', (e) => {
     // File download links (task attachments, AI file links, anywhere with data-gcs-path)
     const fileDownload = e.target.closest('.file-download-link[data-gcs-path], .ai-link-file[data-gcs-path]');
@@ -3180,23 +3190,11 @@ async function init() {
       downloadFile(fileDownload.dataset.gcsPath);
       return;
     }
-    // AI task/note links
+    // AI task/note links (internal app navigation)
     const aiLink = e.target.closest('.ai-link-task');
     if (aiLink) { e.preventDefault(); showTaskDetail(aiLink.dataset.taskId); return; }
     const noteLink = e.target.closest('.ai-link-note');
     if (noteLink) { e.preventDefault(); switchView('notes'); openNote(noteLink.dataset.noteId); return; }
-    // External URL links — catch all anchors with real hrefs in modals and dynamic content
-    const extLink = e.target.closest('a[href]');
-    if (extLink) {
-      const href = extLink.getAttribute('href');
-      // Skip internal anchors (#) and javascript: links
-      if (!href || href === '#' || href.startsWith('javascript:')) return;
-      // Skip links that are handled by other handlers above (ai-link, search, file-download)
-      if (extLink.classList.contains('ai-link-task') || extLink.classList.contains('ai-link-note') || extLink.classList.contains('file-download-link')) return;
-      e.preventDefault();
-      window.open(href, '_blank', 'noopener');
-      return;
-    }
     // Search result clicks
     const searchTask = e.target.closest('[data-search-task-id]');
     if (searchTask) { document.getElementById('global-search').value = ''; switchView('tasks'); showTaskDetail(searchTask.dataset.searchTaskId); return; }
