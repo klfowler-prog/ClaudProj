@@ -1531,9 +1531,11 @@ function showTaskDetail(id) {
     <div class="detail-section" id="detail-comments">
       <div class="detail-section-title">Comments</div>
       <div id="comments-list" style="font-size: 0.85rem;">Loading...</div>
-      <div style="display:flex;gap:0.375rem;margin-top:0.5rem;">
-        <input type="text" id="comment-input" placeholder="Add a comment or link..." style="flex:1;padding:0.4rem 0.6rem;border:1px solid var(--color-border);border-radius:var(--radius);font-size:0.85rem;font-family:'Roboto',sans-serif;">
-        <button class="btn btn-primary btn-sm" onclick="addComment('${task.id}')">Post</button>
+      <div style="margin-top:0.5rem;">
+        <textarea id="comment-input" placeholder="Add a comment, copy edit, or feedback..." rows="3" style="width:100%;padding:0.5rem 0.6rem;border:1px solid var(--color-border);border-radius:var(--radius);font-size:0.85rem;font-family:'Roboto',sans-serif;resize:vertical;min-height:60px;line-height:1.5;"></textarea>
+        <div style="display:flex;justify-content:flex-end;margin-top:0.375rem;">
+          <button class="btn btn-primary btn-sm" onclick="addComment('${task.id}')">Post Comment</button>
+        </div>
       </div>
     </div>
 
@@ -1606,7 +1608,7 @@ async function loadComments(taskId) {
           <span style="font-weight:500;font-size:0.8rem;">${escapeHtml(c.authorName)}${subtaskLabel}</span>
           <span style="font-size:0.7rem;color:var(--color-text-light);">${ago}</span>
         </div>
-        <div style="margin-top:0.25rem;font-size:0.85rem;line-height:1.5;">${escapeHtmlWithLinks(c.text)}</div>
+        <div style="margin-top:0.25rem;font-size:0.85rem;line-height:1.5;white-space:pre-wrap;">${escapeHtmlWithLinks(c.text)}</div>
       </div>`;
     }).join('');
   } catch { document.getElementById('comments-list').innerHTML = '<span style="color:var(--color-text-light);font-size:0.8rem;">Failed to load comments</span>'; }
@@ -1623,9 +1625,10 @@ async function addComment(taskId) {
   } catch (err) { showToast('Failed to post comment', 'error'); }
 }
 
-// Enter key to post comment
+// Cmd/Ctrl+Enter to post comment (plain Enter inserts new line)
 document.addEventListener('keydown', (e) => {
-  if (e.target.id === 'comment-input' && e.key === 'Enter') {
+  if (e.target.id === 'comment-input' && e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault();
     const commentBtn = document.querySelector('[onclick*="addComment"]');
     const match = commentBtn ? commentBtn.getAttribute('onclick').match(/'([^']+)'/) : null;
     if (match && match[1]) addComment(match[1]);
