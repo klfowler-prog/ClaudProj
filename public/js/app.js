@@ -29,7 +29,17 @@ const TAG_PALETTE = [
   { bg: '#fbe9e7', text: '#bf360c', border: '#bf360c' },
   { bg: '#f1f8e9', text: '#558b2f', border: '#558b2f' }
 ];
-const TAG_PRESETS = ['Biz Dev', 'Growth & Brand', 'Rev Ops', 'Internal Comms', 'Social Media', 'PR', 'Conferences'];
+const TAG_PRESETS = ['Biz Dev', 'Growth & Brand', 'Rev Ops', 'Internal Comms', 'Social Media', 'PR', 'Conferences', 'Strategy', 'Campaign'];
+
+function getAllKnownTags() {
+  const known = new Set(TAG_PRESETS);
+  tasks.forEach(t => (t.tags || []).forEach(tag => known.add(tag)));
+  return [...known].sort();
+}
+
+function buildTagDatalist(id) {
+  return `<datalist id="${id}">${getAllKnownTags().map(t => `<option value="${t}">`).join('')}</datalist>`;
+}
 
 function getTagColor(tag) {
   if (TAG_COLORS[tag]) return TAG_COLORS[tag];
@@ -454,9 +464,19 @@ function render() {
   renderStats();
   renderSidebarSpaces();
   renderTaskTagFilter();
+  refreshTagSuggestions();
   renderTaskList();
   if (taskViewMode === 'calendar') renderCalendar();
   if (taskViewMode === 'kanban') renderKanban();
+}
+
+function refreshTagSuggestions() {
+  const tags = getAllKnownTags();
+  const options = tags.map(t => `<option value="${t}">`).join('');
+  ['task-tag-suggestions', 'tag-suggestions'].forEach(id => {
+    const dl = document.getElementById(id);
+    if (dl) dl.innerHTML = options;
+  });
 }
 
 function renderTaskTagFilter() {
@@ -1478,7 +1498,7 @@ function showTaskDetail(id) {
       <div style="display:flex;gap:0.25rem;flex-wrap:wrap;align-items:center;" id="detail-tags">
         ${(task.tags || []).map(t => renderTagChip(t, { removable: true })).join('')}
         <input type="text" class="note-tag-input" id="detail-tag-input" placeholder="Add tag..." list="detail-tag-suggestions" style="width:80px;">
-        <datalist id="detail-tag-suggestions">${TAG_PRESETS.map(t => `<option value="${t}">`).join('')}</datalist>
+        ${buildTagDatalist('detail-tag-suggestions')}
       </div>
     </div>
     ${task.blockedReason ? `<div style="background:var(--color-medium-light);border-radius:var(--radius);padding:0.625rem 0.875rem;margin-bottom:0.75rem;font-size:0.85rem;"><strong style="color:#a17508;">Blocked:</strong> ${escapeHtml(task.blockedReason)}</div>` : ''}
