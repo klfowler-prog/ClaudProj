@@ -481,6 +481,7 @@ app.post('/api/tasks', authWrite, async (req, res) => {
         type: 'task_assigned',
         title: `${req.memberName} assigned you: ${task.title}`,
         taskId: docRef.id,
+        dueDate: task.dueDate || '',
         fromUserId: req.userId,
         fromName: req.memberName
       });
@@ -619,6 +620,7 @@ app.put('/api/tasks/:id', auth, async (req, res) => {
         type: 'task_assigned',
         title: `${req.memberName} assigned you: ${oldTask.title}`,
         taskId: req.params.id,
+        dueDate: updates.dueDate || oldTask.dueDate || '',
         fromUserId: req.userId,
         fromName: req.memberName
       });
@@ -632,6 +634,7 @@ app.put('/api/tasks/:id', auth, async (req, res) => {
         type: 'task_blocked',
         title: `${req.memberName} is blocked on: ${oldTask.title}${reason}`,
         taskId: req.params.id,
+        dueDate: oldTask.dueDate || '',
         fromUserId: req.userId,
         fromName: req.memberName
       });
@@ -644,6 +647,7 @@ app.put('/api/tasks/:id', auth, async (req, res) => {
         type: 'task_approved',
         title: `${req.memberName} approved: ${oldTask.title}`,
         taskId: req.params.id,
+        dueDate: oldTask.dueDate || '',
         fromUserId: req.userId,
         fromName: req.memberName
       });
@@ -656,6 +660,7 @@ app.put('/api/tasks/:id', auth, async (req, res) => {
         type: 'task_completed_after_approval',
         title: `${req.memberName} completed: ${oldTask.title}`,
         taskId: req.params.id,
+        dueDate: oldTask.dueDate || '',
         fromUserId: req.userId,
         fromName: req.memberName
       });

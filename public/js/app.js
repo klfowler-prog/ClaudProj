@@ -4024,7 +4024,7 @@ function renderNotifItem(n) {
       <div style="flex:1;min-width:0;">
         ${m.label ? `<div style="font-size:0.65rem;font-weight:600;text-transform:uppercase;letter-spacing:0.03em;color:${m.color};margin-bottom:0.1rem;">${m.label}</div>` : ''}
         <div class="notif-item-title">${escapeHtml(n.title)}</div>
-        <div class="notif-item-time">${ago}</div>
+        <div class="notif-item-time">${ago}${n.dueDate ? ` · Due ${new Date(n.dueDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}</div>
       </div>
       ${!n.read ? `<button class="notif-dismiss" data-notif-id="${n.id}" title="Dismiss" style="background:none;border:none;color:var(--color-text-light);font-size:1.1rem;cursor:pointer;padding:0.25rem 0.375rem;flex-shrink:0;line-height:1;-webkit-tap-highlight-color:rgba(0,0,0,0.1);">&times;</button>` : ''}
     </div>
