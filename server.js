@@ -3675,14 +3675,16 @@ ${taskList}` }] },
           if (params.dueDate) updates.dueDate = params.dueDate;
           if (params.priority) updates.priority = params.priority;
           await db.collection('orgs').doc(orgId).collection('tasks').doc(params.taskId).update(updates);
-          actionResults.push(`✓ Task updated`);
+          const updTask = taskDocs.find(t => t.id === params.taskId);
+          actionResults.push(`✓ Updated: <${APP_BASE_URL}/?task=${params.taskId}|*${updTask ? updTask.title : 'Task'}*>`);
         } else if (actionType === 'add_comment' && params.taskId && params.text) {
           await db.collection('orgs').doc(orgId).collection('comments').add({
             taskId: params.taskId, text: params.text.trim(),
             authorId: userId, authorName: member.displayName,
             createdAt: new Date().toISOString()
           });
-          actionResults.push(`✓ Comment added`);
+          const cmtTask = taskDocs.find(t => t.id === params.taskId);
+          actionResults.push(`✓ Comment added to <${APP_BASE_URL}/?task=${params.taskId}|*${cmtTask ? cmtTask.title : 'task'}*>`);
         } else if (actionType === 'create_task') {
           const attachments = (params.links || []).map(url => ({ type: 'link', url, name: url }));
           // Validate assignedTo is a real userId, else assign to requester
@@ -3709,7 +3711,7 @@ ${taskList}` }] },
             createdBy: userId, assignedTo: assignee,
             sharedWith: [], parentTaskId: '', workspaceId: '', tags: []
           });
-          actionResults.push(`✓ Created: *${params.title}* (${taskStatus}${assignee !== userId ? ', assigned to ' + memberNames[assignee] : ''})`);
+          actionResults.push(`✓ Created: <${APP_BASE_URL}/?task=${ref.id}|*${params.title}*> (${taskStatus}${assignee !== userId ? ', assigned to ' + memberNames[assignee] : ''})`);
         }
         reply = reply.replace(actionMatch[0], '');
       } catch (actionErr) {
