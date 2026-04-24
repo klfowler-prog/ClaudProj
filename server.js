@@ -403,10 +403,12 @@ app.get('/api/tasks', auth, async (req, res) => {
       s.parentTaskDueDate = parent ? (parent.dueDate || '') : '';
     });
 
-    // For assignees: "Delegated" tasks show as "Not Started" from their perspective
+    // For assignees: "Delegated" and "Backlog" are creator-side states. Show them
+    // as "Not Started" to the person the task was assigned to.
     const allResults = [...parentTasks, ...mySubtasks];
     allResults.forEach(t => {
-      if (t.status === 'Delegated' && t.assignedTo === req.userId && t.createdBy !== req.userId) {
+      const isAssigneeOnly = t.assignedTo === req.userId && t.createdBy !== req.userId;
+      if (isAssigneeOnly && (t.status === 'Delegated' || t.status === 'Backlog')) {
         t.status = 'Not Started';
         t.displayStatus = 'Not Started'; // The assignee's view
         t.delegatedByOther = true; // Flag so we know it was delegated
@@ -437,14 +439,21 @@ app.post('/api/tasks', authWrite, async (req, res) => {
     if (req.body.notes && req.body.notes.length > MAX_NOTES_LENGTH) {
       return res.status(400).json({ error: 'Notes too long' });
     }
+    const initialAssignee = req.body.assignedTo || req.userId;
+    let initialStatus = req.body.status || 'Not Started';
+    // Backlog is a creator-side planning state — not valid for a task assigned
+    // to someone else, where it would surface in the assignee's queue.
+    if (initialStatus === 'Backlog' && initialAssignee !== req.userId) {
+      initialStatus = 'Delegated';
+    }
     const task = {
       title,
       department: req.body.department || 'Personal',
       subDepartment: req.body.subDepartment || '',
       priority: req.body.priority || 'Medium',
       notes: req.body.notes || '',
-      status: req.body.status || 'Not Started',
-      completed: req.body.status === 'Completed',
+      status: initialStatus,
+      completed: initialStatus === 'Completed',
       completedAt: req.body.completedAt || '',
       createdAt: req.body.createdAt || new Date().toISOString(),
       source: req.body.source || 'manual',
@@ -454,7 +463,7 @@ app.post('/api/tasks', authWrite, async (req, res) => {
       emailMessageId: req.body.emailMessageId || '',
       recurring: req.body.recurring || 'none',
       createdBy: req.userId,
-      assignedTo: req.body.assignedTo || req.userId,
+      assignedTo: initialAssignee,
       sharedWith: req.body.sharedWith || [],
       parentTaskId: req.body.parentTaskId || '',
       private: req.body.private || false,
@@ -607,6 +616,17 @@ app.put('/api/tasks/:id', auth, async (req, res) => {
       updates.status = 'Delegated';
       updates.completed = false;
       updates.completedAt = '';
+    }
+
+    // Backlog is a creator-side planning state. If the task is (or is becoming)
+    // assigned to someone else, a Backlog status would show up in the assignee's
+    // queue — redirect to Delegated instead.
+    if (updates.status === 'Backlog') {
+      const effectiveAssignee = updates.assignedTo !== undefined ? updates.assignedTo : oldTask.assignedTo;
+      const effectiveCreator = oldTask.createdBy;
+      if (effectiveAssignee && effectiveCreator && effectiveAssignee !== effectiveCreator) {
+        updates.status = 'Delegated';
+      }
     }
 
     await taskRef.update(updates);

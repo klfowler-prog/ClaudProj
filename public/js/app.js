@@ -6,7 +6,7 @@ const SUB_DEPARTMENTS = {
 };
 const ALL_SUB_DEPTS = Object.values(SUB_DEPARTMENTS).flat();
 const PRIORITIES = ['High', 'Medium', 'Low'];
-const STATUSES = ['Backlog', 'Not Started', 'In Progress', 'Blocked', 'Approved', 'Delegated', 'Completed'];
+const STATUSES = ['Not Started', 'In Progress', 'Blocked', 'Approved', 'Delegated', 'Backlog', 'Completed'];
 const STORAGE_KEY = 'cmo_tasks';
 
 // === Unified Tag Color System ===
@@ -719,9 +719,12 @@ function renderTaskItem(task) {
   const prioClass = task.priority === 'High' ? 'prio-high' : task.priority === 'Low' ? 'prio-low' : 'prio-medium';
   const prioDot = `<span class="prio-dot ${prioClass}"></span>`;
 
-  const statusOptions = STATUSES.filter(s => s !== 'Delegated').map(s =>
-    `<option value="${s}" ${s === task.status ? 'selected' : ''}>${s}</option>`
-  ).join('');
+  const statusOptions = STATUSES.map(s => {
+    if (s === 'Delegated' && task.status !== 'Delegated') return '';
+    const sel = s === task.status ? 'selected' : '';
+    const dis = s === 'Delegated' ? 'disabled' : '';
+    return `<option value="${s}" ${sel} ${dis}>${s}</option>`;
+  }).filter(Boolean).join('');
 
   // Assignee avatar — show when viewing team or all tasks
   let avatarHtml = '';
@@ -1482,7 +1485,12 @@ function showTaskDetail(id) {
       <div>
         <div class="detail-section-title">Status</div>
         <select class="filter-select-compact" onchange="setTaskStatusFromDetail('${task.id}', this.value)" style="font-size:0.8rem;">
-          ${STATUSES.filter(s => s !== 'Delegated').map(s => `<option value="${s}" ${s === task.status ? 'selected' : ''}>${s}</option>`).join('')}
+          ${STATUSES.map(s => {
+            if (s === 'Delegated' && task.status !== 'Delegated') return '';
+            const sel = s === task.status ? 'selected' : '';
+            const dis = s === 'Delegated' ? 'disabled' : '';
+            return `<option value="${s}" ${sel} ${dis}>${s}</option>`;
+          }).filter(Boolean).join('')}
         </select>
         ${task.recurring && task.recurring !== 'none' ? `<span style="font-size:0.75rem;color:var(--follett-medium-blue);margin-left:0.375rem;">&#8635; ${task.recurring}</span>` : ''}
       </div>
