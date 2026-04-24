@@ -3849,6 +3849,74 @@ async function showBriefingIfNeeded() {
   document.getElementById('briefing-close').onclick = markDone;
 }
 
+// === Daily Briefing Dashboard Card ===
+async function showBriefingCard() {
+  if (!myProfile || !currentUser) return;
+  const card = document.getElementById('briefing-card');
+  if (!card) return;
+
+  // Dismissed for today?
+  const today = new Date().toISOString().split('T')[0];
+  const dismissKey = `briefing_dismissed_${currentUser.uid}`;
+  if (localStorage.getItem(dismissKey) === today) {
+    card.style.display = 'none';
+    return;
+  }
+
+  try {
+    const b = await api('GET', '/api/briefing');
+    const firstName = (b.name || 'there').split(' ')[0];
+    const hour = new Date().getHours();
+    const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+
+    document.getElementById('briefing-card-greeting').textContent = `${greeting}, ${firstName}`;
+
+    // Stats line
+    const statsEl = document.getElementById('briefing-card-stats');
+    const parts = [];
+    parts.push(`<span${b.dueToday.length > 0 ? '' : ' style="opacity:0.6"'}>${b.dueToday.length} due today</span>`);
+    parts.push(`<span${b.overdue.length > 0 ? ' class="stat-urgent"' : ' style="opacity:0.6"'}>${b.overdue.length} overdue</span>`);
+    parts.push(`<span style="opacity:0.8">${b.completedCount} done this week</span>`);
+    statsEl.innerHTML = parts.join('<span class="stat-sep">·</span>');
+
+    // AI narrative
+    document.getElementById('briefing-card-narrative').textContent = b.narrative || '';
+
+    // Action chips — only show if there's something to do
+    const actionsEl = document.getElementById('briefing-card-actions');
+    const actions = [];
+    if (b.dueToday.length > 0) actions.push(`<button data-briefing-filter="due-today">See due today</button>`);
+    if (b.overdue.length > 0) actions.push(`<button data-briefing-filter="overdue">See overdue</button>`);
+    actionsEl.innerHTML = actions.join('');
+    actionsEl.querySelectorAll('[data-briefing-filter]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const filter = btn.dataset.briefingFilter;
+        if (filter === 'overdue') {
+          const pill = document.getElementById('pill-overdue');
+          if (pill) pill.click();
+        } else if (filter === 'due-today') {
+          // Scroll to task list and show all active tasks (no status filter)
+          filters.statFilter = 'none';
+          document.querySelectorAll('.stat-pill-clickable').forEach(p => p.classList.remove('active'));
+          render();
+          document.getElementById('task-list-container')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      });
+    });
+
+    card.style.display = 'block';
+
+    // Dismiss handler
+    document.getElementById('briefing-card-dismiss').onclick = () => {
+      localStorage.setItem(dismissKey, today);
+      card.style.display = 'none';
+    };
+  } catch (err) {
+    console.error('Failed to load briefing card:', err);
+    card.style.display = 'none';
+  }
+}
+
 let allNotifications = [];
 
 async function loadNotifications() {
@@ -5302,6 +5370,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       loadNotifications();
       try { await showBriefingIfNeeded(); } catch (e) { console.error('[Briefing] Error:', e); }
+      try { await showBriefingCard(); } catch (e) { console.error('[BriefingCard] Error:', e); }
       // Show What's New popup on first login after sidebar restructure
       showWhatsNewIfNeeded(user.uid);
       // Poll notifications every 60 seconds
