@@ -2503,6 +2503,31 @@ body {
   .briefing-card-greeting { font-size: 1rem; }
   .briefing-card-narrative { font-size: 0.85rem; }
 }
+.kb-col-toggles {
+  display: flex;
+  gap: 0.25rem;
+  align-items: center;
+}
+.kb-col-toggle {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 0.2rem 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--color-text-light);
+  cursor: pointer;
+  transition: var(--transition);
+}
+.kb-col-toggle:hover {
+  border-color: var(--follett-medium-blue);
+  color: var(--color-text);
+}
+.kb-col-toggle.active {
+  background: var(--color-b2b-light);
+  border-color: var(--follett-medium-blue);
+  color: var(--follett-dark-blue);
+}
 .workspace-header-name {
   font-family: 'IBM Plex Serif', Georgia, serif;
   font-size: 1.1rem;
