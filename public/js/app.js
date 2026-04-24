@@ -1027,6 +1027,9 @@ function sortTasks(taskList) {
 // === Filtering ===
 function getFilteredTasks() {
   const today = new Date().toISOString().split('T')[0];
+  // Always sync department from DOM to prevent stale filter state
+  const deptEl = document.getElementById('filter-department');
+  if (deptEl) filters.department = deptEl.value;
   return tasks.filter(t => {
     if (filters.department !== 'all') {
       if (filters.department === 'All Marketing') {
@@ -3261,6 +3264,7 @@ async function init() {
     document.querySelectorAll('.stat-pill-clickable').forEach(p => p.classList.remove('active'));
     if (typeof activeTaskTagFilter !== 'undefined') activeTaskTagFilter = '';
     document.getElementById('filter-department').value = 'all';
+    filters.department = 'all';
     document.getElementById('btn-my-tasks').classList.add('active');
     document.getElementById('btn-my-team').classList.remove('active');
     document.getElementById('btn-all-tasks').classList.remove('active');
@@ -3530,6 +3534,8 @@ async function init() {
     }
     filters.statFilter = 'none';
     activeTaskTagFilter = '';
+    // Sync department filter from DOM in case it was set by sidebar navigation
+    filters.department = document.getElementById('filter-department').value;
     document.querySelectorAll('.stat-pill-clickable').forEach(p => p.classList.remove('active'));
     document.getElementById('btn-my-tasks').classList.toggle('active', mode === 'mine');
     document.getElementById('btn-my-team').classList.toggle('active', mode === 'team');
