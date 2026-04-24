@@ -213,6 +213,7 @@ function setTaskViewMode(mode) {
 
 // === Kanban View ===
 const KANBAN_COLUMNS = [
+  { status: 'Backlog', label: 'Backlog', color: '#7398A9' },
   { status: 'Not Started', label: 'Not Started', color: 'var(--color-text-muted)' },
   { status: 'In Progress', label: 'In Progress', color: 'var(--follett-medium-blue)' },
   { status: 'Blocked', label: 'Blocked', color: 'var(--follett-coral)' },
@@ -222,13 +223,9 @@ const KANBAN_COLUMNS = [
 
 function renderKanban() {
   let filtered = getFilteredTasks();
-  // In normal view, hide delegated and backlog tasks
-  // But show them when their specific pill is active
+  // Hide delegated tasks (they're tracked elsewhere) unless the Delegated pill is active
   if (filters.statFilter !== 'delegated') {
     filtered = filtered.filter(t => t.status !== 'Delegated' || t.assignedTo === (myProfile && myProfile.userId));
-  }
-  if (filters.statFilter !== 'backlog') {
-    filtered = filtered.filter(t => t.status !== 'Backlog');
   }
   const today = new Date().toISOString().split('T')[0];
   const board = document.getElementById('kanban-board');
@@ -530,19 +527,9 @@ function renderStats() {
   const mondayStr = monday.toISOString().split('T')[0];
   const twoWeeksAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-  const backlog = filtered.filter(t => t.status === 'Backlog').length;
-  const notStarted = filtered.filter(t => t.status === 'Not Started').length;
-  const inProgress = filtered.filter(t => t.status === 'In Progress').length;
-  const blocked = filtered.filter(t => t.status === 'Blocked').length;
-  const approved = filtered.filter(t => t.status === 'Approved' && t.createdAt && t.createdAt.split('T')[0] >= twoWeeksAgo).length;
   const delegated = filtered.filter(t => t.status === 'Delegated').length;
   const overdue = filtered.filter(t => t.status !== 'Completed' && t.status !== 'Delegated' && t.status !== 'Backlog' && t.dueDate && t.dueDate < today).length;
   const completed = filtered.filter(t => t.status === 'Completed' && t.completedAt && t.completedAt.split('T')[0] >= mondayStr).length;
-  document.getElementById('stat-backlog').textContent = backlog;
-  document.getElementById('stat-not-started').textContent = notStarted;
-  document.getElementById('stat-in-progress').textContent = inProgress;
-  document.getElementById('stat-blocked').textContent = blocked;
-  document.getElementById('stat-approved').textContent = approved;
   document.getElementById('stat-delegated').textContent = delegated;
   document.getElementById('stat-overdue').textContent = overdue;
   document.getElementById('stat-completed').textContent = completed;
