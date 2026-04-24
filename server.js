@@ -2447,28 +2447,24 @@ async function fetchAllSlackUsers(botToken) {
 // Build Slack Block Kit message for a notification
 function buildSlackBlocks(type, title, taskId, fromName) {
   const icon = SLACK_NOTIFICATION_ICONS[type] || ':bell:';
-  const color = SLACK_NOTIFICATION_COLORS[type] || '#1a73e8';
   const taskUrl = `${APP_BASE_URL}/?task=${taskId}`;
 
   return {
-    attachments: [{
-      color,
-      blocks: [
-        {
-          type: 'section',
-          text: { type: 'mrkdwn', text: `${icon} *${title}*` }
-        },
-        {
-          type: 'actions',
-          elements: [{
-            type: 'button',
-            text: { type: 'plain_text', text: 'View Task' },
-            url: taskUrl,
-            style: 'primary'
-          }]
-        }
-      ]
-    }]
+    blocks: [
+      {
+        type: 'section',
+        text: { type: 'mrkdwn', text: `${icon} ${title}` }
+      },
+      {
+        type: 'actions',
+        elements: [{
+          type: 'button',
+          text: { type: 'plain_text', text: 'View Task' },
+          url: taskUrl,
+          style: 'primary'
+        }]
+      }
+    ]
   };
 }
 
