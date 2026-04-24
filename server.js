@@ -2382,19 +2382,6 @@ const SLACK_NOTIFICATION_ICONS = {
   feature_request: ':bulb:'
 };
 
-const SLACK_NOTIFICATION_COLORS = {
-  task_assigned: '#1a73e8',
-  task_blocked: '#d93025',
-  task_approved: '#188038',
-  task_completed: '#188038',
-  task_completed_after_approval: '#188038',
-  subtask_completed: '#1a73e8',
-  subtasks_all_done: '#f9ab00',
-  comment: '#5f6368',
-  note_shared: '#1a73e8',
-  feature_request: '#f9ab00'
-};
-
 // Make a Slack API call using the org's bot token
 async function slackApiCall(botToken, method, body, useGet) {
   const controller = new AbortController();
@@ -2453,7 +2440,7 @@ function buildSlackBlocks(type, title, taskId, fromName) {
     blocks: [
       {
         type: 'section',
-        text: { type: 'mrkdwn', text: `${icon} ${title}` }
+        text: { type: 'mrkdwn', text: `${icon} *${title}*` }
       },
       {
         type: 'actions',
