@@ -2907,7 +2907,7 @@ app.get('/api/briefing', auth, async (req, res) => {
       );
     }
 
-    const myTasks = allTasks.filter(t => t.assignedTo === req.userId || t.createdBy === req.userId);
+    const myTasks = allTasks.filter(t => t.assignedTo === req.userId || (t.createdBy === req.userId && !t.assignedTo));
 
     const dueToday = myTasks.filter(t => t.dueDate === today && t.status !== 'Completed');
     const overdue = myTasks.filter(t => t.dueDate && t.dueDate < today && t.status !== 'Completed' && t.status !== 'Delegated' && t.status !== 'Backlog');

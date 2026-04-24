@@ -252,7 +252,7 @@ function renderKanban() {
     columns = KANBAN_COLUMNS.filter(c => c.status === 'Blocked');
   } else if (sf === 'approved') {
     columns = KANBAN_COLUMNS.filter(c => c.status === 'Approved');
-  } else if (sf === 'completed' || sf === 'overdue') {
+  } else if (sf === 'completed' || sf === 'overdue' || sf === 'due-today') {
     columns = KANBAN_COLUMNS; // Show all columns, filtered tasks will land in correct ones
   }
 
@@ -806,6 +806,8 @@ function renderTaskList() {
     activeTasks = approvedTasks;
   } else if (sf === 'overdue') {
     activeTasks = activeTasks.filter(t => t.dueDate && t.dueDate < today);
+  } else if (sf === 'due-today') {
+    activeTasks = activeTasks.filter(t => t.dueDate === today);
   } else if (sf === 'delegated') {
     activeTasks = delegatedTasks;
   } else if (sf === 'completed') {
@@ -1052,6 +1054,7 @@ function getFilteredTasks() {
       if (sf === 'approved' && t.status !== 'Approved') return false;
       if (sf === 'delegated' && t.status !== 'Delegated') return false;
       if (sf === 'overdue' && !(t.status !== 'Completed' && t.status !== 'Delegated' && t.status !== 'Backlog' && t.dueDate && t.dueDate < today)) return false;
+      if (sf === 'due-today' && !(t.dueDate === today && t.status !== 'Completed')) return false;
       if (sf === 'completed' && t.status !== 'Completed') return false;
     }
     return true;
@@ -3911,11 +3914,9 @@ async function showBriefingCard() {
           const pill = document.getElementById('pill-overdue');
           if (pill) pill.click();
         } else if (filter === 'due-today') {
-          // Scroll to task list and show all active tasks (no status filter)
-          filters.statFilter = 'none';
+          filters.statFilter = 'due-today';
           document.querySelectorAll('.stat-pill-clickable').forEach(p => p.classList.remove('active'));
           render();
-          document.getElementById('task-list-container')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
       });
     });
