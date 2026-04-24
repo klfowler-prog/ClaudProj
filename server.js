@@ -2996,6 +2996,71 @@ app.get('/api/briefing', auth, async (req, res) => {
       briefing.teamCompletedCount = teamCompletedThisWeek.length;
     }
 
+    // Generate AI narrative summary (1-3 sentences, actionable)
+    try {
+      const firstName = (req.memberName || '').split(' ')[0];
+      const membersSnap = await orgCol(req, 'members').get();
+      const nameMap = {};
+      membersSnap.docs.forEach(d => { nameMap[d.data().userId] = d.data().displayName; });
+
+      // Build a compact data blob for the AI
+      const overdueWithAge = briefing.overdue.map(t => {
+        const daysOld = Math.floor((Date.now() - new Date(t.dueDate + 'T00:00:00').getTime()) / 86400000);
+        return `"${t.title}" (${daysOld} days overdue)`;
+      }).join(', ');
+      const dueTodayList = briefing.dueToday.map(t => `"${t.title}"`).join(', ');
+      const blockedStr = (briefing.weeklyDigest?.blocked || []).map(b =>
+        `"${b.title}" (${b.assignee}${b.reason ? ': ' + b.reason : ''})`
+      ).join(', ');
+      const teamOverdueStr = (briefing.teamOverdue || []).filter(p => p.count > 0)
+        .sort((a, b) => b.count - a.count)
+        .map(p => `${p.name}: ${p.count}`).join(', ');
+
+      const prompt = `You are writing a friendly 1-3 sentence morning briefing for ${firstName}, who is a ${req.memberRole === 'cmo' ? 'CMO' : req.memberRole === 'lead' ? 'dept lead' : 'team member'} at Follett Higher Education's marketing team. Today is ${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}.
+
+Data:
+- Due today: ${dueTodayList || 'none'}
+- Overdue: ${overdueWithAge || 'none'}
+- Completed this week: ${briefing.completedCount}
+- Coming this week (next 7 days): ${briefing.comingThisWeek.length}
+${blockedStr ? '- Blocked items: ' + blockedStr : ''}
+${teamOverdueStr ? '- Team overdue counts: ' + teamOverdueStr : ''}
+${briefing.teamCompletedCount ? '- Team completed this week: ' + briefing.teamCompletedCount : ''}
+
+Tone: warm but concise, like a helpful colleague. Not corporate. Not robotic.
+
+Rules:
+- Lead with what needs attention TODAY. If nothing urgent, say so warmly.
+- If overdue items exist, mention the oldest one by name (with age).
+- If a CMO or lead has team overdue data, call out the person with the most overdue items if it's 3+.
+- Celebrate completions only if notable (5+ for individual, 10+ for team).
+- NEVER list everything — pick the 1-2 most important signals.
+- Max 3 sentences. Prefer 2. Ideally 1 if the day is quiet.
+- Do not greet by name or say "good morning" — the card already does that.
+- Write in plain text, no markdown.
+
+Examples of good output:
+- "Nothing due today and no overdue items. Three tasks coming up later this week."
+- "The Q3 budget review is 5 days past due — tackle that first. 2 other items due today."
+- "Katie has 4 overdue items including the Slack audit from last week. Otherwise a quiet morning."
+- "Big finish — your team closed 14 tasks this week. 1 due today, nothing overdue."
+
+Output only the narrative text, nothing else.`;
+
+      const model = getGeminiModel();
+      const result = await model.generateContent({ contents: [{ role: 'user', parts: [{ text: prompt }] }] });
+      briefing.narrative = result.response.text().trim();
+    } catch (aiErr) {
+      // Fallback narrative if AI fails
+      if (briefing.overdue.length > 0) {
+        briefing.narrative = `You have ${briefing.overdue.length} overdue ${briefing.overdue.length === 1 ? 'task' : 'tasks'} and ${briefing.dueToday.length} due today.`;
+      } else if (briefing.dueToday.length > 0) {
+        briefing.narrative = `${briefing.dueToday.length} ${briefing.dueToday.length === 1 ? 'task' : 'tasks'} due today.`;
+      } else {
+        briefing.narrative = `Nothing urgent today. ${briefing.comingThisWeek.length} tasks coming up this week.`;
+      }
+    }
+
     res.json(briefing);
   } catch (err) {
     console.error('Briefing failed:', err); res.status(500).json({ error: 'Failed to generate briefing.' });
@@ -4023,44 +4088,45 @@ app.listen(PORT, async () => {
   // One-time Granola meeting import (update existing notes with full content)
   try {
     const seedFlag = await db.collection('system').doc('seeds').get();
+    const meetingsPath = path.join(__dirname, 'data', 'granola-meetings.json');
     if (seedFlag.exists && seedFlag.data().granolaMeetingsV2) {
       console.log('[Seed] Granola meetings v2 already imported');
-      return;
-    }
-    const meetingsPath = path.join(__dirname, 'data', 'granola-meetings.json');
-    if (!fs.existsSync(meetingsPath)) return;
-    const meetings = JSON.parse(fs.readFileSync(meetingsPath, 'utf-8'));
-    const orgsSnap = await db.collection('orgs').get();
-    if (orgsSnap.empty) return;
-    const orgId = orgsSnap.docs[0].id;
-    const orgRef = db.collection('orgs').doc(orgId);
-    const foldersSnap = await orgRef.collection('folders').where('name', '==', 'All Team').get();
-    const defaultFolderId = foldersSnap.empty ? '' : foldersSnap.docs[0].id;
-    const membersSnap = await orgRef.collection('members').where('role', '==', 'cmo').get();
-    const cmoId = membersSnap.empty ? '' : membersSnap.docs[0].data().userId;
-    // Get existing granola notes to update in place
-    const existingSnap = await orgRef.collection('notes').where('source', '==', 'granola').get();
-    const existingByTitle = {};
-    existingSnap.docs.forEach(d => { existingByTitle[d.data().title] = d; });
-    let updated = 0, created = 0;
-    for (const m of meetings) {
-      const content = m.summary.replace(/### (.*)/g, '<h3>$1</h3>').replace(/\n/g, '<br>');
-      const existing = existingByTitle[m.title];
-      if (existing) {
-        await existing.ref.update({ content, updatedAt: new Date().toISOString() });
-        updated++;
-      } else {
-        await orgRef.collection('notes').add({
-          title: m.title, content, folderId: defaultFolderId,
-          source: 'granola', createdAt: new Date(m.date + 'T12:00:00Z').toISOString(),
-          updatedAt: new Date().toISOString(), aiSummary: '', createdBy: cmoId,
-          links: [], pinned: false, private: false, allowEditing: false
-        });
-        created++;
+    } else if (!fs.existsSync(meetingsPath)) {
+      // no-op: data file missing
+    } else {
+      const meetings = JSON.parse(fs.readFileSync(meetingsPath, 'utf-8'));
+      const orgsSnap = await db.collection('orgs').get();
+      if (!orgsSnap.empty) {
+        const orgId = orgsSnap.docs[0].id;
+        const orgRef = db.collection('orgs').doc(orgId);
+        const foldersSnap = await orgRef.collection('folders').where('name', '==', 'All Team').get();
+        const defaultFolderId = foldersSnap.empty ? '' : foldersSnap.docs[0].id;
+        const membersSnap = await orgRef.collection('members').where('role', '==', 'cmo').get();
+        const cmoId = membersSnap.empty ? '' : membersSnap.docs[0].data().userId;
+        const existingSnap = await orgRef.collection('notes').where('source', '==', 'granola').get();
+        const existingByTitle = {};
+        existingSnap.docs.forEach(d => { existingByTitle[d.data().title] = d; });
+        let updated = 0, created = 0;
+        for (const m of meetings) {
+          const content = m.summary.replace(/### (.*)/g, '<h3>$1</h3>').replace(/\n/g, '<br>');
+          const existing = existingByTitle[m.title];
+          if (existing) {
+            await existing.ref.update({ content, updatedAt: new Date().toISOString() });
+            updated++;
+          } else {
+            await orgRef.collection('notes').add({
+              title: m.title, content, folderId: defaultFolderId,
+              source: 'granola', createdAt: new Date(m.date + 'T12:00:00Z').toISOString(),
+              updatedAt: new Date().toISOString(), aiSummary: '', createdBy: cmoId,
+              links: [], pinned: false, private: false, allowEditing: false
+            });
+            created++;
+          }
+        }
+        await db.collection('system').doc('seeds').set({ granolaMeetingsV2: true }, { merge: true });
+        console.log(`[Seed] Granola meetings: ${updated} updated, ${created} new`);
       }
     }
-    await db.collection('system').doc('seeds').set({ granolaMeetingsV2: true }, { merge: true });
-    console.log(`[Seed] Granola meetings: ${updated} updated, ${created} new`);
   } catch (err) {
     console.error('[Seed] Granola import failed:', err.message);
   }
@@ -4070,20 +4136,21 @@ app.listen(PORT, async () => {
   // members (invited after this deploy) will see it.
   try {
     const seedFlag = await db.collection('system').doc('seeds').get();
-    if (seedFlag.exists && seedFlag.data().onboardingMigration) return;
-    const orgsSnap = await db.collection('orgs').get();
-    let count = 0;
-    for (const orgDoc of orgsSnap.docs) {
-      const membersSnap = await orgDoc.ref.collection('members').get();
-      for (const memberDoc of membersSnap.docs) {
-        if (memberDoc.data().onboardingShown === undefined) {
-          await memberDoc.ref.update({ onboardingShown: true });
-          count++;
+    if (!(seedFlag.exists && seedFlag.data().onboardingMigration)) {
+      const orgsSnap = await db.collection('orgs').get();
+      let count = 0;
+      for (const orgDoc of orgsSnap.docs) {
+        const membersSnap = await orgDoc.ref.collection('members').get();
+        for (const memberDoc of membersSnap.docs) {
+          if (memberDoc.data().onboardingShown === undefined) {
+            await memberDoc.ref.update({ onboardingShown: true });
+            count++;
+          }
         }
       }
+      await db.collection('system').doc('seeds').set({ onboardingMigration: true }, { merge: true });
+      console.log(`[Seed] Marked ${count} existing members as having seen onboarding`);
     }
-    await db.collection('system').doc('seeds').set({ onboardingMigration: true }, { merge: true });
-    console.log(`[Seed] Marked ${count} existing members as having seen onboarding`);
   } catch (err) {
     console.error('[Seed] Onboarding migration failed:', err.message);
   }
