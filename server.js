@@ -2625,6 +2625,11 @@ app.post('/api/notifications/:id/read', auth, async (req, res) => {
 
 // GET /api/me — Get current user's profile and role
 app.get('/api/me', auth, async (req, res) => {
+  let onboardingShown = false;
+  try {
+    const memberDoc = await orgCol(req, 'members').doc(req.userId).get();
+    if (memberDoc.exists) onboardingShown = !!memberDoc.data().onboardingShown;
+  } catch {}
   res.json({
     userId: req.userId,
     email: req.userEmail,
@@ -2633,8 +2638,17 @@ app.get('/api/me', auth, async (req, res) => {
     departments: req.memberDepts,
     reportsTo: req.memberReportsTo,
     subDepartments: req.memberSubDepts,
-    orgId: req.orgId
+    orgId: req.orgId,
+    onboardingShown
   });
+});
+
+// POST /api/me/onboarding-shown — Mark the current user as having seen onboarding
+app.post('/api/me/onboarding-shown', auth, async (req, res) => {
+  try {
+    await orgCol(req, 'members').doc(req.userId).update({ onboardingShown: true });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: 'Failed to update' }); }
 });
 
 // GET /api/team — List team members (full details for CMO, limited for others)
@@ -4049,5 +4063,28 @@ app.listen(PORT, async () => {
     console.log(`[Seed] Granola meetings: ${updated} updated, ${created} new`);
   } catch (err) {
     console.error('[Seed] Granola import failed:', err.message);
+  }
+
+  // One-time migration: mark all existing members as having seen onboarding
+  // so they don't get the welcome popup after this deploy. Only brand new
+  // members (invited after this deploy) will see it.
+  try {
+    const seedFlag = await db.collection('system').doc('seeds').get();
+    if (seedFlag.exists && seedFlag.data().onboardingMigration) return;
+    const orgsSnap = await db.collection('orgs').get();
+    let count = 0;
+    for (const orgDoc of orgsSnap.docs) {
+      const membersSnap = await orgDoc.ref.collection('members').get();
+      for (const memberDoc of membersSnap.docs) {
+        if (memberDoc.data().onboardingShown === undefined) {
+          await memberDoc.ref.update({ onboardingShown: true });
+          count++;
+        }
+      }
+    }
+    await db.collection('system').doc('seeds').set({ onboardingMigration: true }, { merge: true });
+    console.log(`[Seed] Marked ${count} existing members as having seen onboarding`);
+  } catch (err) {
+    console.error('[Seed] Onboarding migration failed:', err.message);
   }
 });

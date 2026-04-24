@@ -3817,161 +3817,36 @@ async function showBriefingIfNeeded() {
   const content = document.getElementById('briefing-content');
   if (!overlay || !content) return;
 
-  // First-time onboarding: show once ever
-  const onboardingKey = `onboarding_complete_${currentUser.uid}`;
-  if (!localStorage.getItem(onboardingKey)) {
-    const firstName = (myProfile.name || myProfile.displayName || 'there').split(' ')[0];
-    content.innerHTML = `
-      <div class="briefing-greeting">Welcome to Follett Marketing, ${escapeHtml(firstName)}!</div>
-      <p style="font-size:0.9rem;color:var(--color-text-muted);margin-bottom:1.25rem;">This is our home base for tracking work, sharing notes, and staying on top of priorities across the marketing team.</p>
-      <div class="briefing-onboarding-step">
-        <span class="briefing-step-num">1</span>
-        <span class="briefing-step-text"><strong>Check your tasks</strong> &mdash; Your assigned tasks appear under Tasks in the sidebar. Use <em>My Tasks</em> to focus on what&rsquo;s yours.</span>
-      </div>
-      <div class="briefing-onboarding-step">
-        <span class="briefing-step-num">2</span>
-        <span class="briefing-step-text"><strong>Quick Add</strong> &mdash; Paste an email or Slack message and let AI turn it into a task instantly.</span>
-      </div>
-      <div class="briefing-onboarding-step">
-        <span class="briefing-step-num">3</span>
-        <span class="briefing-step-text"><strong>Read the Welcome note</strong> &mdash; Open <em>Strategy &amp; Notes</em> &rarr; <em>All Team</em> folder &rarr; <strong>Welcome</strong> for the full guide on features, statuses, and tips.</span>
-      </div>
-      <button class="briefing-dismiss" id="briefing-got-it">Got it, let&rsquo;s go!</button>
-    `;
-    overlay.style.display = 'flex';
-    document.getElementById('briefing-got-it').onclick = () => {
-      localStorage.setItem(onboardingKey, '1');
-      overlay.style.display = 'none';
-    };
-    document.getElementById('briefing-close').onclick = () => {
-      localStorage.setItem(onboardingKey, '1');
-      overlay.style.display = 'none';
-    };
-    return;
-  }
+  // Only show onboarding for TRULY new users — server tracks onboardingShown
+  // on the member doc. Existing users (migrated) have onboardingShown: true already.
+  if (myProfile.onboardingShown) return;
 
-  // Daily briefing: show once per day
-  const briefingKey = `briefing_last_shown_${currentUser.uid}`;
-  const today = new Date().toISOString().split('T')[0];
-  if (localStorage.getItem(briefingKey) === today) return;
-
-  try {
-    const b = await api('GET', '/api/briefing');
-    const firstName = (b.name || 'there').split(' ')[0];
-    const hour = new Date().getHours();
-    const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
-    const dateStr = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
-
-    let html = `<div class="briefing-greeting">${greeting}, ${escapeHtml(firstName)}!</div>`;
-    html += `<div class="briefing-date">${dateStr}</div>`;
-
-    // Stats row
-    html += `<div class="briefing-stats">`;
-    html += `<div class="briefing-stat"><div class="briefing-stat-num">${b.dueToday.length}</div><div class="briefing-stat-label">Due Today</div></div>`;
-    html += `<div class="briefing-stat"><div class="briefing-stat-num" style="color:${b.overdue.length > 0 ? 'var(--follett-coral)' : ''}">${b.overdue.length}</div><div class="briefing-stat-label">Overdue</div></div>`;
-    html += `<div class="briefing-stat"><div class="briefing-stat-num">${b.completedCount}</div><div class="briefing-stat-label">Done This Week</div></div>`;
-    html += `</div>`;
-
-    // Due today
-    if (b.dueToday.length > 0) {
-      html += `<div class="briefing-section"><div class="briefing-section-title">Due Today</div>`;
-      b.dueToday.forEach(t => {
-        html += `<div class="briefing-task" data-task-id="${t.id}"><span class="dot-due"></span> ${escapeHtml(t.title)}</div>`;
-      });
-      html += `</div>`;
-    }
-
-    // Overdue
-    if (b.overdue.length > 0) {
-      html += `<div class="briefing-section"><div class="briefing-section-title">Overdue</div>`;
-      b.overdue.forEach(t => {
-        const dueFmt = t.dueDate ? new Date(t.dueDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
-        html += `<div class="briefing-task" data-task-id="${t.id}"><span class="dot-overdue"></span> ${escapeHtml(t.title)}<span class="briefing-task-due">${dueFmt}</span></div>`;
-      });
-      html += `</div>`;
-    }
-
-    // Coming this week
-    if (b.comingThisWeek.length > 0) {
-      html += `<div class="briefing-section"><div class="briefing-section-title">Coming Up</div>`;
-      b.comingThisWeek.forEach(t => {
-        const dueFmt = t.dueDate ? new Date(t.dueDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : '';
-        html += `<div class="briefing-task" data-task-id="${t.id}"><span class="dot-upcoming"></span> ${escapeHtml(t.title)}<span class="briefing-task-due">${dueFmt}</span></div>`;
-      });
-      html += `</div>`;
-    }
-
-    // Empty state
-    if (b.dueToday.length === 0 && b.overdue.length === 0 && b.comingThisWeek.length === 0) {
-      html += `<div class="briefing-section"><p class="briefing-empty">No upcoming tasks — your schedule is clear!</p></div>`;
-    }
-
-    // CMO team stats
-    if (b.teamOverdue && b.teamOverdue.length > 0) {
-      html += `<div class="briefing-team-section">`;
-      html += `<div class="briefing-section-title">Team Overview</div>`;
-      html += `<div class="briefing-team-row"><span>Team completed this week</span><strong>${b.teamCompletedCount || 0}</strong></div>`;
-      html += `<div class="briefing-section-title" style="margin-top:0.5rem;">Overdue by Person</div>`;
-      b.teamOverdue.sort((a, c) => c.count - a.count).forEach(p => {
-        html += `<div class="briefing-team-row"><span>${escapeHtml(p.name)}</span><span class="overdue-count">${p.count} overdue</span></div>`;
-      });
-      html += `</div>`;
-    } else if (b.teamCompletedCount !== undefined) {
-      html += `<div class="briefing-team-section">`;
-      html += `<div class="briefing-section-title">Team Overview</div>`;
-      html += `<div class="briefing-team-row"><span>Team completed this week</span><strong>${b.teamCompletedCount || 0}</strong></div>`;
-      html += `<div class="briefing-team-row" style="color:var(--follett-sage);"><span>No overdue items across the team</span></div>`;
-      html += `</div>`;
-    }
-
-    // Monday weekly digest
-    if (b.weeklyDigest) {
-      const wd = b.weeklyDigest;
-      html += `<div class="briefing-team-section">`;
-      html += `<div class="briefing-greeting" style="font-size:1.1rem;margin-bottom:0.5rem;">Weekly Recap</div>`;
-      html += `<div class="briefing-stats" style="margin-bottom:0.75rem;">`;
-      html += `<div class="briefing-stat"><div class="briefing-stat-num">${wd.completedByPerson.reduce((s, p) => s + p.tasks.length, 0)}</div><div class="briefing-stat-label">Completed</div></div>`;
-      html += `<div class="briefing-stat"><div class="briefing-stat-num">${wd.newTasksCount}</div><div class="briefing-stat-label">New Tasks</div></div>`;
-      html += `<div class="briefing-stat"><div class="briefing-stat-num">${wd.totalOpen}</div><div class="briefing-stat-label">Open</div></div>`;
-      html += `<div class="briefing-stat"><div class="briefing-stat-num" style="color:${wd.blocked.length > 0 ? 'var(--follett-coral)' : ''}">${wd.blocked.length}</div><div class="briefing-stat-label">Blocked</div></div>`;
-      html += `</div>`;
-
-      if (wd.completedByPerson.length > 0) {
-        html += `<div class="briefing-section-title">Completed by Person</div>`;
-        wd.completedByPerson.sort((a, c) => c.tasks.length - a.tasks.length).forEach(p => {
-          html += `<div class="briefing-team-row"><span>${escapeHtml(p.name)}</span><strong>${p.tasks.length}</strong></div>`;
-        });
-      }
-
-      if (wd.blocked.length > 0) {
-        html += `<div class="briefing-section-title" style="margin-top:0.5rem;">Currently Blocked</div>`;
-        wd.blocked.forEach(t => {
-          html += `<div style="font-size:0.8rem;padding:0.25rem 0;"><strong>${escapeHtml(t.assignee)}</strong>: ${escapeHtml(t.title)}${t.reason ? ` &mdash; <em>${escapeHtml(t.reason)}</em>` : ''}</div>`;
-        });
-      }
-      html += `</div>`;
-    }
-
-    html += `<button class="briefing-dismiss" id="briefing-got-it">Let&rsquo;s get to work</button>`;
-    content.innerHTML = html;
-    overlay.style.display = 'flex';
-
-    // Mark shown for today
-    localStorage.setItem(briefingKey, today);
-
-    // Clickable tasks
-    content.querySelectorAll('.briefing-task[data-task-id]').forEach(el => {
-      el.addEventListener('click', () => {
-        overlay.style.display = 'none';
-        showTaskDetail(el.dataset.taskId);
-      });
-    });
-
-    document.getElementById('briefing-got-it').onclick = () => { overlay.style.display = 'none'; };
-    document.getElementById('briefing-close').onclick = () => { overlay.style.display = 'none'; };
-  } catch (err) {
-    console.error('Failed to load briefing:', err);
-  }
+  const firstName = (myProfile.name || myProfile.displayName || 'there').split(' ')[0];
+  content.innerHTML = `
+    <div class="briefing-greeting">Welcome to Follett Marketing, ${escapeHtml(firstName)}!</div>
+    <p style="font-size:0.9rem;color:var(--color-text-muted);margin-bottom:1.25rem;">This is our home base for tracking work, sharing notes, and staying on top of priorities across the marketing team.</p>
+    <div class="briefing-onboarding-step">
+      <span class="briefing-step-num">1</span>
+      <span class="briefing-step-text"><strong>Check your tasks</strong> &mdash; Your assigned tasks appear under Tasks in the sidebar. Use <em>My Tasks</em> to focus on what&rsquo;s yours.</span>
+    </div>
+    <div class="briefing-onboarding-step">
+      <span class="briefing-step-num">2</span>
+      <span class="briefing-step-text"><strong>Quick Add</strong> &mdash; Paste an email or Slack message and let AI turn it into a task instantly.</span>
+    </div>
+    <div class="briefing-onboarding-step">
+      <span class="briefing-step-num">3</span>
+      <span class="briefing-step-text"><strong>Read the Welcome note</strong> &mdash; Open <em>Strategy &amp; Notes</em> &rarr; <em>All Team</em> folder &rarr; <strong>Welcome</strong> for the full guide on features, statuses, and tips.</span>
+    </div>
+    <button class="briefing-dismiss" id="briefing-got-it">Got it, let&rsquo;s go!</button>
+  `;
+  overlay.style.display = 'flex';
+  const markDone = () => {
+    myProfile.onboardingShown = true;
+    overlay.style.display = 'none';
+    api('POST', '/api/me/onboarding-shown').catch(() => {});
+  };
+  document.getElementById('briefing-got-it').onclick = markDone;
+  document.getElementById('briefing-close').onclick = markDone;
 }
 
 let allNotifications = [];
