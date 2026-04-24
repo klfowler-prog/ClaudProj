@@ -4088,44 +4088,45 @@ app.listen(PORT, async () => {
   // One-time Granola meeting import (update existing notes with full content)
   try {
     const seedFlag = await db.collection('system').doc('seeds').get();
+    const meetingsPath = path.join(__dirname, 'data', 'granola-meetings.json');
     if (seedFlag.exists && seedFlag.data().granolaMeetingsV2) {
       console.log('[Seed] Granola meetings v2 already imported');
-      return;
-    }
-    const meetingsPath = path.join(__dirname, 'data', 'granola-meetings.json');
-    if (!fs.existsSync(meetingsPath)) return;
-    const meetings = JSON.parse(fs.readFileSync(meetingsPath, 'utf-8'));
-    const orgsSnap = await db.collection('orgs').get();
-    if (orgsSnap.empty) return;
-    const orgId = orgsSnap.docs[0].id;
-    const orgRef = db.collection('orgs').doc(orgId);
-    const foldersSnap = await orgRef.collection('folders').where('name', '==', 'All Team').get();
-    const defaultFolderId = foldersSnap.empty ? '' : foldersSnap.docs[0].id;
-    const membersSnap = await orgRef.collection('members').where('role', '==', 'cmo').get();
-    const cmoId = membersSnap.empty ? '' : membersSnap.docs[0].data().userId;
-    // Get existing granola notes to update in place
-    const existingSnap = await orgRef.collection('notes').where('source', '==', 'granola').get();
-    const existingByTitle = {};
-    existingSnap.docs.forEach(d => { existingByTitle[d.data().title] = d; });
-    let updated = 0, created = 0;
-    for (const m of meetings) {
-      const content = m.summary.replace(/### (.*)/g, '<h3>$1</h3>').replace(/\n/g, '<br>');
-      const existing = existingByTitle[m.title];
-      if (existing) {
-        await existing.ref.update({ content, updatedAt: new Date().toISOString() });
-        updated++;
-      } else {
-        await orgRef.collection('notes').add({
-          title: m.title, content, folderId: defaultFolderId,
-          source: 'granola', createdAt: new Date(m.date + 'T12:00:00Z').toISOString(),
-          updatedAt: new Date().toISOString(), aiSummary: '', createdBy: cmoId,
-          links: [], pinned: false, private: false, allowEditing: false
-        });
-        created++;
+    } else if (!fs.existsSync(meetingsPath)) {
+      // no-op: data file missing
+    } else {
+      const meetings = JSON.parse(fs.readFileSync(meetingsPath, 'utf-8'));
+      const orgsSnap = await db.collection('orgs').get();
+      if (!orgsSnap.empty) {
+        const orgId = orgsSnap.docs[0].id;
+        const orgRef = db.collection('orgs').doc(orgId);
+        const foldersSnap = await orgRef.collection('folders').where('name', '==', 'All Team').get();
+        const defaultFolderId = foldersSnap.empty ? '' : foldersSnap.docs[0].id;
+        const membersSnap = await orgRef.collection('members').where('role', '==', 'cmo').get();
+        const cmoId = membersSnap.empty ? '' : membersSnap.docs[0].data().userId;
+        const existingSnap = await orgRef.collection('notes').where('source', '==', 'granola').get();
+        const existingByTitle = {};
+        existingSnap.docs.forEach(d => { existingByTitle[d.data().title] = d; });
+        let updated = 0, created = 0;
+        for (const m of meetings) {
+          const content = m.summary.replace(/### (.*)/g, '<h3>$1</h3>').replace(/\n/g, '<br>');
+          const existing = existingByTitle[m.title];
+          if (existing) {
+            await existing.ref.update({ content, updatedAt: new Date().toISOString() });
+            updated++;
+          } else {
+            await orgRef.collection('notes').add({
+              title: m.title, content, folderId: defaultFolderId,
+              source: 'granola', createdAt: new Date(m.date + 'T12:00:00Z').toISOString(),
+              updatedAt: new Date().toISOString(), aiSummary: '', createdBy: cmoId,
+              links: [], pinned: false, private: false, allowEditing: false
+            });
+            created++;
+          }
+        }
+        await db.collection('system').doc('seeds').set({ granolaMeetingsV2: true }, { merge: true });
+        console.log(`[Seed] Granola meetings: ${updated} updated, ${created} new`);
       }
     }
-    await db.collection('system').doc('seeds').set({ granolaMeetingsV2: true }, { merge: true });
-    console.log(`[Seed] Granola meetings: ${updated} updated, ${created} new`);
   } catch (err) {
     console.error('[Seed] Granola import failed:', err.message);
   }
@@ -4135,20 +4136,21 @@ app.listen(PORT, async () => {
   // members (invited after this deploy) will see it.
   try {
     const seedFlag = await db.collection('system').doc('seeds').get();
-    if (seedFlag.exists && seedFlag.data().onboardingMigration) return;
-    const orgsSnap = await db.collection('orgs').get();
-    let count = 0;
-    for (const orgDoc of orgsSnap.docs) {
-      const membersSnap = await orgDoc.ref.collection('members').get();
-      for (const memberDoc of membersSnap.docs) {
-        if (memberDoc.data().onboardingShown === undefined) {
-          await memberDoc.ref.update({ onboardingShown: true });
-          count++;
+    if (!(seedFlag.exists && seedFlag.data().onboardingMigration)) {
+      const orgsSnap = await db.collection('orgs').get();
+      let count = 0;
+      for (const orgDoc of orgsSnap.docs) {
+        const membersSnap = await orgDoc.ref.collection('members').get();
+        for (const memberDoc of membersSnap.docs) {
+          if (memberDoc.data().onboardingShown === undefined) {
+            await memberDoc.ref.update({ onboardingShown: true });
+            count++;
+          }
         }
       }
+      await db.collection('system').doc('seeds').set({ onboardingMigration: true }, { merge: true });
+      console.log(`[Seed] Marked ${count} existing members as having seen onboarding`);
     }
-    await db.collection('system').doc('seeds').set({ onboardingMigration: true }, { merge: true });
-    console.log(`[Seed] Marked ${count} existing members as having seen onboarding`);
   } catch (err) {
     console.error('[Seed] Onboarding migration failed:', err.message);
   }
