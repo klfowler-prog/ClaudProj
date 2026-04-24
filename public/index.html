@@ -827,6 +827,13 @@
             <option value="">Me (default)</option>
             <!-- Populated by JS with team members -->
           </select>
+          <label style="display:flex;align-items:center;gap:0.4rem;margin-top:0.4rem;font-weight:normal;font-size:0.85rem;cursor:pointer;">
+            <input type="checkbox" id="input-multi-assign-toggle" style="margin:0;">
+            Assign to multiple people (one task per person)
+          </label>
+          <div id="multi-assign-picker" style="display:none;margin-top:0.4rem;border:1px solid var(--color-border);border-radius:var(--radius);padding:0.5rem;max-height:180px;overflow-y:auto;">
+            <!-- Populated by JS with checkbox list -->
+          </div>
         </div>
         <div class="form-group">
           <label for="input-notes">Notes</label>

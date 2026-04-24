@@ -280,6 +280,33 @@ function orgCol(req, collection) {
   return db.collection('orgs').doc(req.orgId).collection(collection);
 }
 
+// Helper: compute the set of userIds a given user is allowed to assign tasks to.
+// - CMO: everyone in the org
+// - Manager (has direct reports): themselves + transitive reports
+// - Individual contributor: themselves only
+async function getAssignableUserIds(req, actorUserId, actorRole) {
+  const snap = await orgCol(req, 'members').get();
+  const members = snap.docs.map(d => d.data()).filter(m => m.status === 'active' || !m.status);
+  if (actorRole === 'cmo') return new Set(members.map(m => m.userId));
+  const byManager = new Map(); // managerId -> [reportUserId]
+  for (const m of members) {
+    const mgr = m.reportsTo || '';
+    if (!mgr) continue;
+    if (!byManager.has(mgr)) byManager.set(mgr, []);
+    byManager.get(mgr).push(m.userId);
+  }
+  const allowed = new Set([actorUserId]);
+  const queue = [actorUserId];
+  while (queue.length) {
+    const mgr = queue.shift();
+    const reports = byManager.get(mgr) || [];
+    for (const r of reports) {
+      if (!allowed.has(r)) { allowed.add(r); queue.push(r); }
+    }
+  }
+  return allowed;
+}
+
 // Shorthand middleware chain
 const auth = [authenticate, resolveOrg, applyViewAs];
 
@@ -439,6 +466,86 @@ app.post('/api/tasks', authWrite, async (req, res) => {
     if (req.body.notes && req.body.notes.length > MAX_NOTES_LENGTH) {
       return res.status(400).json({ error: 'Notes too long' });
     }
+
+    // Group task (fan-out): same task assigned to multiple people as independent subtasks.
+    if (Array.isArray(req.body.assignees) && req.body.assignees.length > 0) {
+      const rawAssignees = Array.from(new Set(req.body.assignees.filter(Boolean)));
+      const allowed = await getAssignableUserIds(req, req.userId, req.memberRole);
+      const assignees = rawAssignees.filter(uid => allowed.has(uid));
+      if (assignees.length === 0) {
+        return res.status(403).json({ error: 'Not allowed to assign to any of the selected users' });
+      }
+      const now = new Date().toISOString();
+      const commonFields = {
+        department: req.body.department || 'Personal',
+        subDepartment: req.body.subDepartment || '',
+        priority: req.body.priority || 'Medium',
+        notes: req.body.notes || '',
+        source: req.body.source || 'manual',
+        attachments: req.body.attachments || [],
+        startDate: req.body.startDate || '',
+        dueDate: req.body.dueDate || '',
+        emailMessageId: '',
+        recurring: 'none',
+        workspaceId: req.body.workspaceId || '',
+        showOnMaster: req.body.showOnMaster || false,
+        tags: Array.isArray(req.body.tags) ? req.body.tags.slice(0, 20).map(t => String(t).substring(0, 50)) : [],
+        watchers: []
+      };
+      // Parent is a tracker owned by the creator — "Not Started" until they
+      // mark it complete (the N/M subtask rollup shows the real progress).
+      const parentRef = await orgCol(req, 'tasks').add({
+        title,
+        ...commonFields,
+        status: 'Not Started',
+        completed: false,
+        completedAt: '',
+        createdAt: now,
+        createdBy: req.userId,
+        assignedTo: req.userId,
+        sharedWith: [],
+        parentTaskId: '',
+        private: req.body.private || false,
+        groupTask: true
+      });
+      const createdChildren = [];
+      for (const uid of assignees) {
+        const isSelf = uid === req.userId;
+        const childRef = await orgCol(req, 'tasks').add({
+          title,
+          ...commonFields,
+          status: isSelf ? 'Not Started' : 'Delegated',
+          completed: false,
+          completedAt: '',
+          createdAt: now,
+          createdBy: req.userId,
+          assignedTo: uid,
+          sharedWith: [],
+          parentTaskId: parentRef.id,
+          private: req.body.private || false
+        });
+        createdChildren.push({ id: childRef.id, assignedTo: uid });
+        if (!isSelf) {
+          await createNotification(req.orgId, uid, {
+            type: 'task_assigned',
+            title: `${req.memberName} assigned you: ${title}`,
+            taskId: childRef.id,
+            dueDate: commonFields.dueDate,
+            fromUserId: req.userId,
+            fromName: req.memberName
+          });
+        }
+      }
+      return res.json({
+        id: parentRef.id,
+        groupTask: true,
+        assignees,
+        children: createdChildren,
+        subtaskCount: createdChildren.length,
+        subtasksCompleted: 0
+      });
+    }
+
     const initialAssignee = req.body.assignedTo || req.userId;
     let initialStatus = req.body.status || 'Not Started';
     // Backlog is a creator-side planning state — not valid for a task assigned
@@ -630,6 +737,23 @@ app.put('/api/tasks/:id', auth, async (req, res) => {
     }
 
     await taskRef.update(updates);
+
+    // Group task: cascade title/dueDate/department changes from the parent to
+    // each child that isn't already completed. Only runs for group-task parents.
+    if (oldTask.groupTask && !oldTask.parentTaskId) {
+      const cascadeFields = {};
+      if (updates.title !== undefined && updates.title !== oldTask.title) cascadeFields.title = updates.title;
+      if (updates.dueDate !== undefined && updates.dueDate !== oldTask.dueDate) cascadeFields.dueDate = updates.dueDate;
+      if (updates.department !== undefined && updates.department !== oldTask.department) cascadeFields.department = updates.department;
+      if (Object.keys(cascadeFields).length > 0) {
+        const childSnap = await orgCol(req, 'tasks').where('parentTaskId', '==', req.params.id).get();
+        const batch = db.batch();
+        childSnap.docs.forEach(d => {
+          if (d.data().status !== 'Completed') batch.update(d.ref, cascadeFields);
+        });
+        await batch.commit();
+      }
+    }
 
     // Build task object with id for watcher notifications
     const taskWithId = { ...oldTask, ...updates, id: req.params.id };

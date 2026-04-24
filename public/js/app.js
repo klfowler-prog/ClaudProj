@@ -756,7 +756,7 @@ function renderTaskItem(task) {
           ${isRecurring ? `<span class="task-recurring" title="${recurringLabel}">&#8635; ${recurringLabel}</span>` : ''}
           ${myProfile && (task.watchers || []).includes(myProfile.userId) && task.assignedTo !== myProfile.userId ? '<span class="task-watch-icon" title="Watching"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></span>' : ''}
           ${isCompleted && task.completedAt ? `<span class="task-source">Done ${new Date(task.completedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>` : ''}
-          ${task.subtaskCount > 0 ? `<span class="task-source" style="color: var(--follett-medium-blue);"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg> ${task.subtasksCompleted}/${task.subtaskCount}</span>` : ''}
+          ${task.groupTask ? `<span class="task-source" title="Assigned to multiple people" style="color: var(--follett-medium-blue);font-weight:600;">Group${task.subtaskCount > 0 ? ` &middot; ${task.subtasksCompleted}/${task.subtaskCount}` : ''}</span>` : (task.subtaskCount > 0 ? `<span class="task-source" style="color: var(--follett-medium-blue);"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg> ${task.subtasksCompleted}/${task.subtaskCount}</span>` : '')}
         </div>
       </div>
       ${hasAttachments ? '<span class="task-attachment-icon" title="Has attachments"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></span>' : ''}
@@ -1286,6 +1286,14 @@ function resetAddForm() {
   pendingLinks = [];
   renderPendingAttachments();
   renderPendingLinks();
+  // Multi-assign: reset toggle + picker
+  const toggle = document.getElementById('input-multi-assign-toggle');
+  const picker = document.getElementById('multi-assign-picker');
+  if (toggle) toggle.checked = false;
+  if (picker) {
+    picker.style.display = 'none';
+    picker.querySelectorAll('input[type="checkbox"]').forEach(cb => { cb.checked = false; });
+  }
 
   // Context-aware: pre-fill department from user's profile
   const deptSelect = document.getElementById('input-department');
@@ -3162,6 +3170,24 @@ async function init() {
   // (Old import form handlers removed — replaced by AI Quick Add above)
 
   // Add/Edit task form submit
+  // Multi-assign toggle: show/hide picker, disable single-assignee controls while active
+  const multiToggle = document.getElementById('input-multi-assign-toggle');
+  if (multiToggle) {
+    multiToggle.addEventListener('change', () => {
+      const on = multiToggle.checked;
+      const picker = document.getElementById('multi-assign-picker');
+      const singleSelect = document.getElementById('input-assign-to');
+      const recurring = document.getElementById('input-recurring');
+      if (picker) picker.style.display = on ? 'block' : 'none';
+      if (singleSelect) singleSelect.disabled = on;
+      // Recurring doesn't make sense on a group task — disable while multi-assign is on.
+      if (recurring) {
+        if (on) { recurring.dataset.prev = recurring.value; recurring.value = 'none'; recurring.disabled = true; }
+        else { recurring.disabled = false; if (recurring.dataset.prev !== undefined) recurring.value = recurring.dataset.prev; }
+      }
+    });
+  }
+
   document.getElementById('form-add-task').addEventListener('submit', async (e) => {
     e.preventDefault();
     const submitBtn = document.getElementById('btn-submit-task');
@@ -3176,10 +3202,41 @@ async function init() {
     const assignTo = document.getElementById('input-assign-to').value || undefined;
     const wsSelect = document.getElementById('input-workspace');
     const selectedWorkspaceId = wsSelect ? wsSelect.value : '';
+    const multiOn = document.getElementById('input-multi-assign-toggle').checked;
+    const multiAssignees = multiOn
+      ? Array.from(document.querySelectorAll('#multi-assign-picker .multi-assign-cb:checked')).map(cb => cb.value)
+      : [];
 
-    if (!title || !department) return;
+    if (!title || !department) { submitBtn.disabled = false; return; }
+    if (multiOn && multiAssignees.length === 0) {
+      showToast('Pick at least one person to assign to', 'error');
+      submitBtn.disabled = false;
+      return;
+    }
 
     const allAttachments = [...pendingAttachments, ...pendingLinks];
+
+    if (multiOn && !editingTaskId) {
+      try {
+        await api('POST', '/api/tasks', {
+          title, department, priority, notes,
+          startDate, dueDate,
+          attachments: allAttachments,
+          tags: currentTaskTags,
+          workspaceId: selectedWorkspaceId,
+          assignees: multiAssignees
+        });
+        await loadTasks();
+        render();
+        showToast(`Created for ${multiAssignees.length} ${multiAssignees.length === 1 ? 'person' : 'people'}`, 'success');
+      } catch (err) {
+        showToast('Failed to create group task: ' + err.message, 'error');
+      }
+      closeModal('modal-add');
+      resetAddForm();
+      submitBtn.disabled = false;
+      return;
+    }
 
     if (editingTaskId) {
       const updates = { title, department, priority, notes, startDate, dueDate, recurring, attachments: allAttachments, tags: currentTaskTags, workspaceId: selectedWorkspaceId };
@@ -4090,6 +4147,56 @@ function populateAssignToDropdown() {
     teamMembers.filter(m => (m.status === 'active' || !m.status) && m.userId !== myId).map(m =>
       `<option value="${m.userId}">${escapeHtml(m.displayName)} (${(m.departments || [m.department]).join(', ')})</option>`
     ).join('');
+  populateMultiAssignPicker();
+}
+
+// Compute userIds the current user can assign tasks to (for multi-assign).
+// - CMO: everyone in the org (active)
+// - Manager (has direct reports): self + transitive reports
+// - IC: self only
+function getAssignableMemberIds() {
+  const myId = myProfile ? myProfile.userId : '';
+  const myRole = myProfile ? myProfile.role : '';
+  const active = teamMembers.filter(m => m.status === 'active' || !m.status);
+  if (myRole === 'cmo') return new Set(active.map(m => m.userId));
+  const byManager = new Map();
+  for (const m of active) {
+    if (!m.reportsTo) continue;
+    if (!byManager.has(m.reportsTo)) byManager.set(m.reportsTo, []);
+    byManager.get(m.reportsTo).push(m.userId);
+  }
+  const allowed = new Set([myId]);
+  const queue = [myId];
+  while (queue.length) {
+    const mgr = queue.shift();
+    for (const r of byManager.get(mgr) || []) {
+      if (!allowed.has(r)) { allowed.add(r); queue.push(r); }
+    }
+  }
+  return allowed;
+}
+
+function populateMultiAssignPicker() {
+  const picker = document.getElementById('multi-assign-picker');
+  if (!picker) return;
+  const myId = myProfile ? myProfile.userId : '';
+  const allowed = getAssignableMemberIds();
+  // Exclude self — the creator typically picks "also assign to me" via a separate checkbox if ever wanted.
+  // For now we include self so managers can include themselves in e.g. a survey wave.
+  const candidates = teamMembers
+    .filter(m => allowed.has(m.userId) && (m.status === 'active' || !m.status))
+    .sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
+  if (candidates.length === 0) {
+    picker.innerHTML = '<div style="color:var(--color-text-muted);font-size:0.8rem;">No teammates available to assign to.</div>';
+    return;
+  }
+  picker.innerHTML = candidates.map(m => {
+    const label = m.userId === myId ? `${escapeHtml(m.displayName)} (you)` : escapeHtml(m.displayName);
+    return `<label style="display:flex;align-items:center;gap:0.4rem;padding:0.15rem 0;font-weight:normal;font-size:0.85rem;cursor:pointer;">
+      <input type="checkbox" class="multi-assign-cb" value="${m.userId}" style="margin:0;">
+      ${label}
+    </label>`;
+  }).join('');
 }
 
 // === Workspaces ===
