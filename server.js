@@ -48,8 +48,24 @@ const MAX_NOTES_LENGTH = 50000;
 // Cache-busting: version stamp set at server start
 const BUILD_VERSION = Date.now().toString(36);
 const fs = require('fs');
-let indexHtml = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf-8')
+const INDEX_HTML_PATH = path.join(__dirname, 'public', 'index.html');
+let indexHtml = fs.readFileSync(INDEX_HTML_PATH, 'utf-8')
   .replace(/__BUILD_VERSION__/g, BUILD_VERSION);
+let indexHtmlMtime = fs.statSync(INDEX_HTML_PATH).mtimeMs;
+
+// Re-read index.html from disk if it changed — avoids needing a server restart
+// to pick up HTML edits. Cheap: one stat call per request to the fallback route.
+function getIndexHtml() {
+  try {
+    const mtime = fs.statSync(INDEX_HTML_PATH).mtimeMs;
+    if (mtime !== indexHtmlMtime) {
+      indexHtml = fs.readFileSync(INDEX_HTML_PATH, 'utf-8')
+        .replace(/__BUILD_VERSION__/g, BUILD_VERSION);
+      indexHtmlMtime = mtime;
+    }
+  } catch (_) { /* fall through to cached copy */ }
+  return indexHtml;
+}
 
 // Serve static frontend files (CSS/JS cached normally, index.html served dynamically)
 app.use(express.static(path.join(__dirname, 'public'), {
@@ -4206,7 +4222,7 @@ app.post('/api/sync', auth, async (req, res) => {
 app.get('*', (req, res) => {
   res.setHeader('Content-Type', 'text/html');
   res.setHeader('Cache-Control', 'no-cache');
-  res.send(indexHtml);
+  res.send(getIndexHtml());
 });
 
 app.listen(PORT, async () => {
