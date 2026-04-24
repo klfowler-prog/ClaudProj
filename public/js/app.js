@@ -207,19 +207,22 @@ function setTaskViewMode(mode) {
   document.getElementById('kanban-view').style.display = mode === 'kanban' ? 'block' : 'none';
   document.getElementById('calendar-view').style.display = mode === 'calendar' ? 'block' : 'none';
   document.getElementById('filter-sort').style.display = mode === 'list' ? '' : 'none';
+  document.getElementById('kb-col-toggles').style.display = mode === 'kanban' ? 'flex' : 'none';
   if (mode === 'calendar') renderCalendar();
   if (mode === 'kanban') renderKanban();
 }
 
 // === Kanban View ===
 const KANBAN_COLUMNS = [
-  { status: 'Backlog', label: 'Backlog', color: '#7398A9' },
+  { status: 'Backlog', label: 'Backlog', color: '#7398A9', toggleable: true },
   { status: 'Not Started', label: 'Not Started', color: 'var(--color-text-muted)' },
   { status: 'In Progress', label: 'In Progress', color: 'var(--follett-medium-blue)' },
   { status: 'Blocked', label: 'Blocked', color: 'var(--follett-coral)' },
   { status: 'Approved', label: 'Approved', color: 'var(--follett-sage)' },
-  { status: 'Completed', label: 'Completed', color: 'var(--color-text-light)' }
+  { status: 'Completed', label: 'Completed', color: 'var(--color-text-light)', toggleable: true }
 ];
+let showBacklogCol = false;
+let showCompletedCol = true;
 
 function renderKanban() {
   let filtered = getFilteredTasks();
@@ -230,8 +233,12 @@ function renderKanban() {
   const today = new Date().toISOString().split('T')[0];
   const board = document.getElementById('kanban-board');
 
-  // When a stat filter is active, only show the relevant column(s)
-  let columns = KANBAN_COLUMNS;
+  // Apply column toggles (Backlog/Completed) unless a specific stat filter overrides
+  let columns = KANBAN_COLUMNS.filter(col => {
+    if (col.status === 'Backlog' && !showBacklogCol) return false;
+    if (col.status === 'Completed' && !showCompletedCol) return false;
+    return true;
+  });
   const sf = filters.statFilter;
   if (sf === 'backlog') {
     columns = [{ status: 'Backlog', label: 'Backlog', color: '#7398A9' }];
@@ -3034,10 +3041,32 @@ async function init() {
   document.getElementById('btn-edit-workspace').addEventListener('click', () => showCreateWorkspaceModal(activeWorkspaceId));
   document.getElementById('form-workspace').addEventListener('submit', submitWorkspace);
 
-  // Calendar view toggle
+  // View mode toggles
   document.getElementById('btn-view-list').addEventListener('click', () => setTaskViewMode('list'));
   document.getElementById('btn-view-kanban').addEventListener('click', () => setTaskViewMode('kanban'));
   document.getElementById('btn-view-calendar').addEventListener('click', () => setTaskViewMode('calendar'));
+
+  // Kanban column toggles (Backlog / Completed)
+  if (currentUser) {
+    showBacklogCol = localStorage.getItem(`kb_backlog_${currentUser.uid}`) === '1';
+    showCompletedCol = localStorage.getItem(`kb_completed_${currentUser.uid}`) !== '0';
+  }
+  const bkBtn = document.getElementById('kb-toggle-backlog');
+  const cpBtn = document.getElementById('kb-toggle-completed');
+  bkBtn.classList.toggle('active', showBacklogCol);
+  cpBtn.classList.toggle('active', showCompletedCol);
+  bkBtn.addEventListener('click', () => {
+    showBacklogCol = !showBacklogCol;
+    bkBtn.classList.toggle('active', showBacklogCol);
+    if (currentUser) localStorage.setItem(`kb_backlog_${currentUser.uid}`, showBacklogCol ? '1' : '0');
+    renderKanban();
+  });
+  cpBtn.addEventListener('click', () => {
+    showCompletedCol = !showCompletedCol;
+    cpBtn.classList.toggle('active', showCompletedCol);
+    if (currentUser) localStorage.setItem(`kb_completed_${currentUser.uid}`, showCompletedCol ? '1' : '0');
+    renderKanban();
+  });
   document.getElementById('btn-cal-prev').addEventListener('click', () => {
     calendarDate.setMonth(calendarDate.getMonth() - 1);
     renderCalendar();
