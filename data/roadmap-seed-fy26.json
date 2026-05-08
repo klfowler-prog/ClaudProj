@@ -1,0 +1,323 @@
+{
+  "version": "fy26-offsite-2026-04",
+  "summary": "Initiatives and tasks captured from the April 2026 marketing leadership offsite (Fishers, IN, April 29–May 1).",
+  "initiatives": [
+    {
+      "name": "CharacterQuilt persona library for RFPs",
+      "lane": "prospecting_bd",
+      "fiscalYear": "FY26",
+      "quarter": "Q4",
+      "ownerName": "Georgia",
+      "contributorsNames": ["Beth", "Emily"],
+      "supportingFunctions": [],
+      "goal": "Scale persona / pitch personalization across RFP responses and ABM motions",
+      "metric": "Used in 100% of new-business RFPs by end of Q4 FY26",
+      "description": "Build the CharacterQuilt-driven persona library — President / CFO / Provost / Aux Services — used to personalize RFP responses, BAFOs, and ABM email sequences. Share with B2B leaders.",
+      "theme": "",
+      "tasks": [
+        { "title": "Define persona structure for President / CFO / Provost / Aux Services", "priority": "High" },
+        { "title": "Build first-pass templates per persona", "priority": "Medium" },
+        { "title": "Integrate with active RFP workflow", "priority": "Medium" },
+        { "title": "Persona email sequences (Pres/CFO/Provost/Aux); add lists to Salesforce + HubSpot at kickoff", "priority": "Medium" }
+      ]
+    },
+    {
+      "name": "Bid / no-bid matrix and RFP scoring",
+      "lane": "prospecting_bd",
+      "fiscalYear": "FY26",
+      "quarter": "Q4",
+      "ownerName": "Georgia",
+      "contributorsNames": [],
+      "supportingFunctions": ["Rev Ops"],
+      "goal": "Standardize go / no-go decisions; reduce wasted RFP cycles",
+      "metric": "Bid/no-bid scoring applied to 100% of RFPs from Q4 FY26 forward",
+      "description": "Stand up the bid/no-bid matrix and best-fit RFP scoring guide in Salesforce. Apply to pipeline review. Audit the 84 'bid' RFPs from this cycle to identify which should have been no-bid; feed the scoring matrix.",
+      "tasks": [
+        { "title": "Build bid/no-bid matrix in Salesforce", "priority": "High" },
+        { "title": "Define best-fit scoring criteria with BDVPs", "priority": "High" },
+        { "title": "Audit 84 bid RFPs to seed the model (May 7 debrief)", "priority": "Medium" }
+      ]
+    },
+    {
+      "name": "T-24 renewal RFP framework",
+      "lane": "prospecting_bd",
+      "fiscalYear": "FY26",
+      "quarter": "Q4",
+      "ownerName": "Georgia",
+      "contributorsNames": ["Beth"],
+      "supportingFunctions": ["Rev Ops", "Internal Comms"],
+      "goal": "Cut renewal 'surprises' significantly from current ~40%",
+      "metric": "Renewal surprise rate < 20% by FY27 Q3",
+      "description": "Implement the T-24 renewal RFP framework. Use Slack to compile wins, examples, and base content well in advance of each cycle. RM/GVP actions on at-risk accounts trigger SPRs and follow-ups. The RFP becomes a summary of a year's work — not a new plan.",
+      "tasks": [
+        { "title": "Define T-24 milestones and key breaking points for at-risk accounts", "priority": "High" },
+        { "title": "Build Slack-based content library for renewals", "priority": "Medium" },
+        { "title": "Train RMs / GVPs on framework", "priority": "Medium" }
+      ]
+    },
+    {
+      "name": "Pre-RFP ABM plays for top accounts",
+      "lane": "prospecting_bd",
+      "fiscalYear": "FY27",
+      "quarter": "Q1",
+      "ownerName": "Georgia",
+      "contributorsNames": ["Lisa"],
+      "supportingFunctions": ["Rev Ops"],
+      "goal": "Reach decision-makers 12-18 months ahead of formal RFP",
+      "metric": "3× win rate on early-engaged accounts vs. reactive pipeline",
+      "description": "Coordinated ABM motion against named campuses, mapping the buying committee (President, CFO, Provost, Auxiliary). Field events at AACC / NACUBO / EDUCAUSE; executive ABM sequences; bring back lead scoring.",
+      "theme": "Power of Partnerships",
+      "tasks": [
+        { "title": "Build tiered target account list with buying committee mapped", "priority": "High" },
+        { "title": "Get back to lead scoring", "priority": "High" },
+        { "title": "Schedule on-campus meetings for top accounts", "priority": "Medium" },
+        { "title": "Bi-annual contact list reviews led by BDVPs", "priority": "Medium" }
+      ]
+    },
+    {
+      "name": "Power of Partnerships — Access ABM launch",
+      "lane": "growth_marketing",
+      "fiscalYear": "FY26",
+      "quarter": "Q4",
+      "ownerName": "Lisa",
+      "contributorsNames": ["Marija"],
+      "supportingFunctions": ["Rev Ops", "Lifecycle Marketing"],
+      "goal": "Launch Access ABM campaign; SPR-aligned growth in Salesforce",
+      "metric": "ABM target list activated with persona sequences live",
+      "description": "Q4 FY26 quarterly theme. Launch Access ABM campaign with Salesforce designation for SPR-aligned growth and Access content for launch and growth.",
+      "theme": "Power of Partnerships",
+      "tasks": [
+        { "title": "Stand up Access ABM target list in HubSpot/Salesforce", "priority": "High" },
+        { "title": "SPR-aligned growth designation in Salesforce", "priority": "Medium" },
+        { "title": "Access content series for launch and growth", "priority": "Medium" },
+        { "title": "Persona email sequences live for top accounts", "priority": "High" }
+      ]
+    },
+    {
+      "name": "Connected Campus — Spirit & Success",
+      "lane": "growth_marketing",
+      "fiscalYear": "FY27",
+      "quarter": "Q1",
+      "ownerName": "Lisa",
+      "contributorsNames": [],
+      "supportingFunctions": ["Rev Ops", "Lifecycle Marketing", "Social Media (SMD)"],
+      "goal": "Segmented ABM with school-pride and student-life narrative",
+      "metric": "Segmented campaigns launched against 4 target segments",
+      "description": "Q1 FY27 quarterly theme. Add accounts to Salesforce stages, launch segmented ABM campaigns, anchor the school-pride / student-life narrative.",
+      "theme": "Connected Campus",
+      "tasks": [
+        { "title": "Add accounts to Salesforce stages", "priority": "High" },
+        { "title": "Launch segmented ABM campaigns", "priority": "High" },
+        { "title": "School-pride / student-life narrative content", "priority": "Medium" }
+      ]
+    },
+    {
+      "name": "Momentum That Matters — Enrollment to Graduation",
+      "lane": "growth_marketing",
+      "fiscalYear": "FY27",
+      "quarter": "Q2",
+      "ownerName": "Lisa",
+      "contributorsNames": [],
+      "supportingFunctions": ["Rev Ops"],
+      "goal": "ABM campaigns across B2B + outcomes-driven completion narrative",
+      "metric": "Account health metrics established for all installed accounts",
+      "description": "Q2 FY27 quarterly theme. Launch ABM campaigns across B2B; establish account health metrics; outcomes-driven persistence and completion story.",
+      "theme": "Momentum That Matters",
+      "tasks": [
+        { "title": "Launch ABM campaigns across B2B", "priority": "High" },
+        { "title": "Establish account health metrics", "priority": "High" },
+        { "title": "Outcomes-driven persistence & completion story", "priority": "Medium" }
+      ]
+    },
+    {
+      "name": "Creating the Campus Store of the Future",
+      "lane": "growth_marketing",
+      "fiscalYear": "FY27",
+      "quarter": "Q3",
+      "ownerName": "Lisa",
+      "contributorsNames": [],
+      "supportingFunctions": ["Lifecycle Marketing", "Social Media (SMD)", "B2C Design"],
+      "goal": "Modernize on-campus retail and integrate digital + physical journey",
+      "metric": "Store experience playbook live across pilot campuses",
+      "description": "Q3 FY27 quarterly theme. Modernize the on-campus retail experience; integrate digital + physical journey; position the store as a student-success hub.",
+      "theme": "Campus Store of the Future",
+      "tasks": [
+        { "title": "Modernize on-campus retail experience", "priority": "High" },
+        { "title": "Integrate digital + physical journey", "priority": "High" },
+        { "title": "Position store as student-success hub", "priority": "Medium" }
+      ]
+    },
+    {
+      "name": "Event playbook refresh (FY27)",
+      "lane": "growth_marketing",
+      "fiscalYear": "FY27",
+      "quarter": "Q1",
+      "ownerName": "Lisa",
+      "contributorsNames": ["Marija"],
+      "supportingFunctions": [],
+      "goal": "Show up where customers are with pre/on/post-show plays, exec dinners, speaking proposals",
+      "metric": "Refreshed event creative + playbook in place by Fall 2026",
+      "description": "Transform AI into the event strategy. Review fall conference outcomes and reset 2027 conference creative. Refine event playbook so we show up where customers are.",
+      "tasks": [
+        { "title": "Review fall conference outcomes; reset 2027 conference creative", "priority": "Medium" },
+        { "title": "Build pre-show / on-site / post-show playbook", "priority": "Medium" },
+        { "title": "Curate executive dinners & speaking proposals", "priority": "Medium" }
+      ]
+    },
+    {
+      "name": "Marketing Hub launch",
+      "lane": "growth_marketing",
+      "fiscalYear": "FY26",
+      "quarter": "Q4",
+      "ownerName": "Lisa",
+      "contributorsNames": ["Cassandra"],
+      "supportingFunctions": ["Internal Comms"],
+      "goal": "Activate campus marketing teams as extensions of the brand",
+      "metric": "Coverage % of campuses with verified marketing leads; toolkit access by campus",
+      "description": "Stand up the campus marketing contact foundation, launch the hub with kickoff comms + intro one-pager + quick-start toolkit, run sequenced email series tied to the academic calendar, host a fall webinar.",
+      "tasks": [
+        { "title": "Build campus marketing contact list (right person, right role)", "priority": "High" },
+        { "title": "Marketing Hub launch comms + toolkit access", "priority": "High" },
+        { "title": "Email series tied to admit / orientation / term start / holiday", "priority": "Medium" },
+        { "title": "Fall webinar — live + on-demand", "priority": "Medium" }
+      ]
+    },
+    {
+      "name": "GVP nurture campaign",
+      "lane": "growth_marketing",
+      "fiscalYear": "FY27",
+      "quarter": "Q1",
+      "ownerName": "Lisa",
+      "contributorsNames": [],
+      "supportingFunctions": ["Lifecycle Marketing", "Social Media (SMD)"],
+      "goal": "Email nurture using GVPs' LinkedIn / social presence to top 75 campus-living-fit schools",
+      "metric": "Series live to top 75 schools by Q1 FY27 close",
+      "description": "Build the GVP nurture campaign — email series leveraging GVPs' LinkedIn presence for the 'top 75' schools where campus living is a fit.",
+      "tasks": [
+        { "title": "Define top 75 list with campus-living criteria", "priority": "High" },
+        { "title": "Build LinkedIn-anchored nurture series", "priority": "Medium" },
+        { "title": "Train GVPs on participation cadence", "priority": "Medium" }
+      ]
+    },
+    {
+      "name": "Refresh ABM creative templates",
+      "lane": "brand",
+      "fiscalYear": "FY26",
+      "quarter": "Q4",
+      "ownerName": "Lisa",
+      "contributorsNames": [],
+      "supportingFunctions": ["B2B Design"],
+      "goal": "ABM-ready templates that feel like Follett, not generic B2B",
+      "metric": "Refreshed creative used in 100% of new prospecting moments",
+      "description": "Refreshed visual identity for prospecting moments — ABM-ready templates aligned to brand. Cleaner external creative for executive outreach.",
+      "tasks": [
+        { "title": "Audit current ABM creative for off-brand patterns", "priority": "Medium" },
+        { "title": "Build new ABM-ready templates", "priority": "High" },
+        { "title": "Train BD team on usage", "priority": "Medium" }
+      ]
+    },
+    {
+      "name": "Two-year campus marketing pages + pitch deck",
+      "lane": "brand",
+      "fiscalYear": "FY27",
+      "quarter": "Q1",
+      "ownerName": "Lisa",
+      "contributorsNames": [],
+      "supportingFunctions": ["B2B Design"],
+      "goal": "Segment-specific narrative for community colleges",
+      "metric": "Two-year-specific website + pitch live",
+      "description": "Two-year webpages and pitch deck. Align messaging to campus priorities — practical, outcome-driven use cases for leadership and faculty. Leverage CAB for feedback.",
+      "tasks": [
+        { "title": "Build two-year webpages with segment-specific value prop", "priority": "High" },
+        { "title": "Build two-year pitch deck", "priority": "High" },
+        { "title": "Leverage CAB for feedback", "priority": "Medium" }
+      ]
+    },
+    {
+      "name": "Shopify migration",
+      "lane": "consumer_marketing",
+      "fiscalYear": "FY26",
+      "quarter": "Q4",
+      "ownerName": "Robert",
+      "contributorsNames": ["Matt"],
+      "supportingFunctions": ["Ecommerce Team", "B2C Design"],
+      "goal": "Migrate ecommerce platform to Shopify",
+      "metric": "Cutover complete; minimal revenue impact during transition",
+      "description": "B2C platform migration to Shopify (per April 2026 offsite agenda).",
+      "tasks": [
+        { "title": "Confirm cutover plan and timeline", "priority": "High" },
+        { "title": "Data migration validation", "priority": "High" },
+        { "title": "Marketing comms plan for migration", "priority": "Medium" }
+      ]
+    },
+    {
+      "name": "FY27 Top 75 calendars",
+      "lane": "consumer_marketing",
+      "fiscalYear": "FY27",
+      "quarter": "Q1",
+      "ownerName": "Robert",
+      "contributorsNames": ["Matt", "Kelso"],
+      "supportingFunctions": ["Lifecycle Marketing", "Social Media (SMD)"],
+      "goal": "Activated marketing calendars for top 75 stores",
+      "metric": "All 75 calendars approved & in execution by start of Q1 FY27",
+      "description": "Build and activate FY27 marketing calendars for the top 75 stores.",
+      "tasks": [
+        { "title": "Define top 75 list (criteria + scoring)", "priority": "High" },
+        { "title": "Build calendar templates for store types", "priority": "Medium" },
+        { "title": "Activate calendars with store teams", "priority": "Medium" }
+      ]
+    },
+    {
+      "name": "CAC deep dive",
+      "lane": "consumer_marketing",
+      "fiscalYear": "FY26",
+      "quarter": "Q4",
+      "ownerName": "Robert",
+      "contributorsNames": ["Matt"],
+      "supportingFunctions": ["Rev Ops", "Digital Advertising"],
+      "goal": "Understand CAC by channel and segment to redirect spend",
+      "metric": "CAC dashboard live; spend reallocated against findings",
+      "description": "B2C CAC deep dive (per April 2026 offsite agenda).",
+      "tasks": [
+        { "title": "Pull historical CAC data by channel", "priority": "High" },
+        { "title": "Identify channels with unfavorable CAC; recommend cuts", "priority": "Medium" },
+        { "title": "Build ongoing CAC dashboard", "priority": "Medium" }
+      ]
+    },
+    {
+      "name": "Social media scaling / SMD program",
+      "lane": "consumer_marketing",
+      "fiscalYear": "FY27",
+      "quarter": "Q1",
+      "ownerName": "Kelso",
+      "contributorsNames": ["Robert", "Matt"],
+      "supportingFunctions": ["Social Media (SMD)", "B2C Design"],
+      "goal": "Scale social media program; SMD program operational",
+      "metric": "SMD coverage at top 75 campuses; engagement targets defined",
+      "description": "Social media scaling / Student Marketing Director (SMD) program (per April 2026 offsite agenda).",
+      "tasks": [
+        { "title": "Define SMD scope and recruiting plan", "priority": "High" },
+        { "title": "Set engagement KPIs by platform", "priority": "Medium" },
+        { "title": "Stand up content production cadence", "priority": "Medium" }
+      ]
+    },
+    {
+      "name": "FY27 email program — 2-year acquisition",
+      "lane": "consumer_marketing",
+      "fiscalYear": "FY27",
+      "quarter": "Q1",
+      "ownerName": "Robert",
+      "contributorsNames": ["Matt"],
+      "supportingFunctions": ["Lifecycle Marketing", "Rev Ops"],
+      "goal": "Close the 2-year campus-list acquisition gap (currently 15% vs 23% for 4-year)",
+      "metric": "2-year list growth +25% YoY; revenue per active customer holding at $26+",
+      "description": "Per the FY26 email program performance analysis: top 3 quartiles of 2-year stores outperform 4-year on AOV, conversion, and rev/visit. The total revenue gap is a list-size story. Improve campus-list acquisition; redirect 2-year send capacity from GM to course materials & tech; prioritize Spring Rush over Q4 holiday.",
+      "tasks": [
+        { "title": "Activate campus-list acquisition initiative across 2-year stores", "priority": "High" },
+        { "title": "Refocus 2-year send mix toward course materials + tech", "priority": "High" },
+        { "title": "Redirect Q4 holiday spend to Spring Rush for 2-year", "priority": "Medium" },
+        { "title": "Identify 2-year stores using only one of CustomCart / Financial Aid; activate the second", "priority": "Medium" }
+      ]
+    }
+  ]
+}

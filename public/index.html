@@ -102,6 +102,14 @@
         </div>
       </div>
 
+      <!-- Roadmap section -->
+      <div class="sidebar-section">
+        <button class="sidebar-nav-item" id="btn-roadmap" data-view="roadmap">
+          <span class="sidebar-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg></span>
+          <span>Roadmap</span>
+        </button>
+      </div>
+
       <!-- Middle section items -->
       <div class="sidebar-section">
         <button class="sidebar-nav-item" id="btn-open-chat">
@@ -615,6 +623,237 @@
               <button class="btn btn-primary" id="btn-approve-suggested">Create Selected Tasks</button>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Roadmap View -->
+    <div id="view-roadmap" style="display: none;">
+      <div id="roadmap-seed-banner" class="roadmap-seed-banner" style="display:none;">
+        <div class="seed-banner-text">
+          <strong>Pre-fill from your April 2026 leadership offsite</strong>
+          <p id="seed-banner-summary">We have your offsite plan ready to import — initiatives and tasks with owners pre-assigned.</p>
+        </div>
+        <div class="seed-banner-actions">
+          <button class="btn btn-ghost btn-sm" id="btn-seed-dismiss">Skip for now</button>
+          <button class="btn btn-primary btn-sm" id="btn-seed-preview">Preview &amp; seed →</button>
+        </div>
+      </div>
+      <div id="external-roadmaps-bar" class="external-roadmaps-bar" style="display:none;"></div>
+      <div class="roadmap-header">
+        <div class="roadmap-header-left">
+          <h2 class="roadmap-title">Roadmap</h2>
+          <span class="roadmap-fy-label" id="roadmap-fy-label">—</span>
+        </div>
+        <div class="roadmap-header-right">
+          <select id="roadmap-filter-lane" class="filter-select-compact" title="Lane">
+            <option value="all">All Lanes</option>
+            <option value="prospecting_bd">Prospecting &amp; BD</option>
+            <option value="growth_marketing">Growth Marketing</option>
+            <option value="brand">Brand</option>
+            <option value="consumer_marketing">Consumer Marketing</option>
+          </select>
+          <select id="roadmap-filter-owner" class="filter-select-compact" title="Owner">
+            <option value="all">All Owners</option>
+          </select>
+          <select id="roadmap-filter-status" class="filter-select-compact" title="Status">
+            <option value="all">All Statuses</option>
+            <option value="Backlog">Backlog</option>
+            <option value="Not Started">Not Started</option>
+            <option value="In Progress">In Progress</option>
+            <option value="Approved">Approved</option>
+            <option value="Completed">Completed</option>
+          </select>
+          <select id="roadmap-filter-fn" class="filter-select-compact" title="Supporting Function">
+            <option value="all">All Functions</option>
+          </select>
+          <select id="roadmap-filter-theme" class="filter-select-compact" title="Theme">
+            <option value="all">All Themes</option>
+          </select>
+          <button class="stat-toggle" id="btn-roadmap-mine">Mine</button>
+          <button class="btn btn-primary" id="btn-new-initiative">+ New Initiative</button>
+        </div>
+      </div>
+      <div class="roadmap-grid-wrap">
+        <div class="roadmap-grid" id="roadmap-grid"></div>
+      </div>
+      <div class="roadmap-empty" id="roadmap-empty" style="display: none;">
+        <p class="empty-title">No initiatives yet</p>
+        <p class="empty-subtitle">Click "+ New Initiative" to start the roadmap.</p>
+      </div>
+    </div>
+
+    <!-- Initiative Modal -->
+    <div class="modal-overlay" id="modal-initiative" style="display: none;">
+      <div class="modal modal-wide">
+        <div class="modal-header">
+          <h2 id="modal-initiative-title">New Initiative</h2>
+          <button class="modal-close" data-close="modal-initiative">&times;</button>
+        </div>
+        <form id="form-initiative" style="padding: 0 1.5rem 1.5rem;">
+          <!-- The basics: what is this -->
+          <div class="form-group">
+            <label for="init-title">Title <span class="required">*</span></label>
+            <input type="text" id="init-title" required placeholder="What's the initiative?">
+          </div>
+          <div class="form-group">
+            <label for="init-description">Description</label>
+            <textarea id="init-description" rows="3" placeholder="What is this and why are we doing it?"></textarea>
+          </div>
+          <div class="form-group">
+            <label for="init-goal">Goal <span class="required">*</span></label>
+            <input type="text" id="init-goal" required placeholder="What does success look like?">
+          </div>
+          <div class="form-group">
+            <label for="init-metric">Metric <span style="font-weight:400;color:var(--color-text-muted);font-size:0.7rem;">(optional but encouraged)</span></label>
+            <input type="text" id="init-metric" placeholder="e.g., +22% list growth, 3× win rate">
+          </div>
+
+          <!-- Team & area -->
+          <div class="form-section-header">Team &amp; Area</div>
+          <div class="form-group">
+            <label for="init-lane">Lane <span class="required">*</span></label>
+            <select id="init-lane" required>
+              <option value="">Select lane</option>
+              <option value="prospecting_bd">Prospecting &amp; BD</option>
+              <option value="growth_marketing">Growth Marketing</option>
+              <option value="brand">Brand</option>
+              <option value="consumer_marketing">Consumer Marketing</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Supporting Functions <span style="font-weight:400;color:var(--color-text-muted);font-size:0.7rem;">(select any that apply)</span></label>
+            <div id="init-fns-chips" class="fn-picker-chips"></div>
+            <div class="fn-add-row">
+              <input type="text" id="init-fns-add-input" placeholder="Add custom function…" class="fn-add-input">
+              <button type="button" class="btn btn-ghost btn-sm" id="btn-init-fns-add">+ Add</button>
+            </div>
+          </div>
+
+          <!-- Schedule -->
+          <div class="form-section-header">Schedule</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="init-start-date">Start Date <span class="required">*</span></label>
+              <input type="date" id="init-start-date" required>
+            </div>
+            <div class="form-group">
+              <label for="init-end-date">End Date <span class="required">*</span></label>
+              <input type="date" id="init-end-date" required>
+            </div>
+            <div class="form-group">
+              <label for="init-status">Status</label>
+              <select id="init-status">
+                <option value="Backlog">Backlog</option>
+                <option value="Not Started">Not Started</option>
+                <option value="In Progress">In Progress</option>
+                <option value="Approved">Approved</option>
+                <option value="Completed">Completed</option>
+              </select>
+            </div>
+          </div>
+          <p id="init-quarter-summary" style="font-size:0.72rem;color:var(--color-text-muted);margin:-0.4rem 0 0.6rem;"></p>
+          <div class="form-group">
+            <label for="init-theme">Theme <span style="font-weight:400;color:var(--color-text-muted);font-size:0.7rem;">(campaign label, optional)</span></label>
+            <input type="text" id="init-theme" placeholder="e.g., Power of Partnerships">
+          </div>
+
+          <!-- People -->
+          <div class="form-section-header">People</div>
+          <div class="form-group">
+            <label for="init-owner">Owner</label>
+            <select id="init-owner"></select>
+          </div>
+          <div class="form-group">
+            <label for="init-contributors-input">Contributors</label>
+            <div class="contributor-input-wrap" id="init-contributors-wrap">
+              <div id="init-contributors-chips" class="contributor-chips"></div>
+              <input type="text" id="init-contributors-input" class="contributor-input" placeholder="Type a name…" autocomplete="off">
+              <div id="init-contributors-suggestions" class="contributor-suggestions" style="display:none;"></div>
+            </div>
+          </div>
+
+          <!-- Tasks -->
+          <div class="form-section-header" id="init-tasks-section-header" style="display:none;">Tasks <span id="init-tasks-count" style="color:var(--color-text-muted);font-weight:400;font-size:0.7rem;text-transform:none;letter-spacing:0;margin-left:0.3rem;"></span></div>
+          <div class="form-group" id="init-tasks-section" style="display:none;">
+            <div id="init-tasks-list" class="init-tasks-list"></div>
+            <div id="init-add-task-row" class="init-add-task-row" style="display:none;">
+              <input type="text" id="init-new-task-title" placeholder="What needs to happen?">
+              <select id="init-new-task-priority">
+                <option value="High">High</option>
+                <option value="Medium" selected>Medium</option>
+                <option value="Low">Low</option>
+              </select>
+              <input type="date" id="init-new-task-due" style="width:auto;">
+              <button type="button" class="btn btn-primary btn-sm" id="btn-init-save-task">Save</button>
+              <button type="button" class="btn btn-ghost btn-sm" id="btn-init-cancel-task">Cancel</button>
+            </div>
+            <div class="init-tasks-actions">
+              <button type="button" class="btn btn-ghost btn-sm" id="btn-init-add-task">+ Add task</button>
+              <button type="button" class="btn btn-ghost btn-sm" id="btn-init-ai-tasks">✨ Generate from initiative (AI)</button>
+            </div>
+            <div id="init-ai-suggestions" class="init-ai-suggestions" style="display:none;"></div>
+          </div>
+          <p id="init-tasks-empty-note" class="init-tasks-empty-note" style="display:none;">Save the initiative first, then you can add tasks.</p>
+          <div class="modal-actions" style="justify-content:space-between;">
+            <button type="button" class="btn btn-ghost" id="btn-archive-initiative" style="color:var(--follett-coral);display:none;">Archive</button>
+            <div style="display:flex;gap:0.5rem;">
+              <button type="button" class="btn btn-ghost" data-close="modal-initiative">Cancel</button>
+              <button type="submit" class="btn btn-primary" id="btn-submit-initiative">Save</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- External Roadmap Link Modal -->
+    <div class="modal-overlay" id="modal-external-roadmap" style="display: none;">
+      <div class="modal">
+        <div class="modal-header">
+          <h2 id="modal-ext-title">Link External Roadmap</h2>
+          <button class="modal-close" data-close="modal-external-roadmap">&times;</button>
+        </div>
+        <form id="form-external-roadmap" style="padding: 0 1.5rem 1.5rem;">
+          <p style="font-size:0.78rem;color:var(--color-text-muted);margin:0 0 0.75rem;">Point to a roadmap that lives in Slack, Notion, a doc, or anywhere else. Anyone here can add one for their team.</p>
+          <div class="form-group">
+            <label for="ext-name">Team or Roadmap Name <span class="required">*</span></label>
+            <input type="text" id="ext-name" required maxlength="80" placeholder="e.g., Rev Ops">
+          </div>
+          <div class="form-group">
+            <label for="ext-url">URL <span class="required">*</span></label>
+            <input type="url" id="ext-url" required placeholder="https://...">
+          </div>
+          <div class="form-group">
+            <label for="ext-desc">Description <span style="font-weight:400;color:var(--color-text-muted);font-size:0.7rem;">(optional)</span></label>
+            <input type="text" id="ext-desc" maxlength="280" placeholder="e.g., Slack canvas — updated weekly">
+          </div>
+          <div class="modal-actions" style="justify-content:space-between;">
+            <button type="button" class="btn btn-ghost" id="btn-delete-ext" style="color:var(--follett-coral);display:none;">Remove Link</button>
+            <div style="display:flex;gap:0.5rem;">
+              <button type="button" class="btn btn-ghost" data-close="modal-external-roadmap">Cancel</button>
+              <button type="submit" class="btn btn-primary" id="btn-save-ext">Add Link</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Roadmap Seed Preview Modal -->
+    <div class="modal-overlay" id="modal-seed-preview" style="display: none;">
+      <div class="modal modal-wide">
+        <div class="modal-header">
+          <h2>Seed Roadmap from FY26 Offsite</h2>
+          <button class="modal-close" data-close="modal-seed-preview">&times;</button>
+        </div>
+        <div style="padding: 0 1.5rem 1rem;">
+          <p id="seed-preview-summary" style="font-size:0.82rem;color:var(--color-text-muted);margin:0 0 0.5rem;"></p>
+          <div id="seed-preview-stats" style="display:flex;gap:1rem;font-size:0.78rem;margin-bottom:0.5rem;"></div>
+          <div id="seed-preview-warning" class="seed-warning" style="display:none;"></div>
+          <div class="seed-preview-list" id="seed-preview-list"></div>
+        </div>
+        <div class="modal-actions" style="padding: 0 1.5rem 1.5rem;">
+          <button type="button" class="btn btn-ghost" data-close="modal-seed-preview">Cancel</button>
+          <button type="button" class="btn btn-primary" id="btn-seed-confirm">Create all</button>
         </div>
       </div>
     </div>

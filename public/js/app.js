@@ -671,13 +671,17 @@ function switchView(view) {
   document.getElementById('view-notifications').style.display = view === 'notifications' ? 'block' : 'none';
   document.getElementById('view-search').style.display = view === 'search' ? 'block' : 'none';
   document.getElementById('view-features').style.display = view === 'features' ? 'block' : 'none';
+  const roadmapEl = document.getElementById('view-roadmap');
+  if (roadmapEl) roadmapEl.style.display = view === 'roadmap' ? 'block' : 'none';
+  if (view === 'roadmap') showRoadmapView();
   // Update sidebar active states — skip global buttons (handled by renderSidebarSpaces)
   document.querySelectorAll('.sidebar-nav-item').forEach(el => {
     if (el.id === 'btn-my-tasks-global' || el.id === 'btn-my-notes-global') return;
     const match = (el.id === 'btn-open-chat' && view === 'ai') ||
                   (el.id === 'btn-notifications' && view === 'notifications') ||
                   (el.id === 'btn-feature-requests' && view === 'features') ||
-                  (el.dataset.view === 'team' && view === 'team');
+                  (el.dataset.view === 'team' && view === 'team') ||
+                  (el.dataset.view === 'roadmap' && view === 'roadmap');
     el.classList.toggle('active', match);
   });
   // Update global buttons
@@ -943,13 +947,13 @@ function renderMarkdown(str) {
   html = html.replace(/\n/g, '<br>');
   // Clean up br inside pre
   html = html.replace(/<pre><code>([\s\S]*?)<\/code><\/pre>/g, (m, code) => '<pre><code>' + code.replace(/<br>/g, '\n') + '</code></pre>');
-  // App link tags (tasks, notes, files)
+  // App link tags (tasks, notes, files) — clicks handled by the document-level delegated handler
   html = html.replace(/\[tasklink:([^\]:]+):([^\]]+)\]/g, (_, id, title) =>
-    `<a href="#" class="ai-link ai-link-task" data-task-id="${id}" onclick="event.preventDefault();showTaskDetail('${id}')">${title}</a>`);
+    `<a href="#" class="ai-link ai-link-task" data-task-id="${id}">${title}</a>`);
   html = html.replace(/\[notelink:([^\]:]+):([^\]]+)\]/g, (_, id, title) =>
-    `<a href="#" class="ai-link ai-link-note" data-note-id="${id}" onclick="event.preventDefault();switchView('notes');openNote('${id}')">${title}</a>`);
+    `<a href="#" class="ai-link ai-link-note" data-note-id="${id}">${title}</a>`);
   html = html.replace(/\[filelink:([^\]:]+):([^\]]+)\]/g, (_, path, name) =>
-    `<a href="#" class="ai-link ai-link-file" data-gcs-path="${escapeHtml(path)}" onclick="event.preventDefault();downloadFile('${path.replace(/'/g, "\\'")}')">${name}</a>`);
+    `<a href="#" class="ai-link ai-link-file" data-gcs-path="${escapeHtml(path)}">${name}</a>`);
   // Links
   html = html.replace(/(https?:\/\/[^\s<>"']+)/g, (url) => {
     const cleanUrl = url.replace(/&amp;/g, '&');
@@ -1388,8 +1392,19 @@ function renderPendingLinks() {
 
 // === Task Detail View ===
 function showTaskDetail(id) {
-  const task = tasks.find(t => t.id === id);
-  if (!task) return;
+  let task = tasks.find(t => t.id === id);
+  if (!task) {
+    // Task isn't in the local view (e.g., a workspace-scoped task referenced from the AI
+    // assistant or a search result). Fetch it from the API and re-render.
+    api('GET', `/api/tasks/${id}`).then(fetched => {
+      if (!fetched) return;
+      tasks.push(fetched);
+      showTaskDetail(id);
+    }).catch(err => {
+      showToast('Could not open task: ' + err.message, 'error');
+    });
+    return;
+  }
 
   // Fill in parent task context from local tasks array if missing (for subtasks)
   if (task.parentTaskId && !task.parentTaskTitle) {
@@ -4099,13 +4114,15 @@ async function loadWorkspaces() {
 function renderSidebarWorkspaces() {
   const container = document.getElementById('sidebar-workspaces');
   if (!container) return;
-  // Show section if user has any workspaces or is CMO/lead
-  const show = workspaces.length > 0 || (myProfile && (myProfile.role === 'cmo' || myProfile.role === 'lead'));
+  // Hide initiatives — those live in the Roadmap view, not the Workspaces sidebar.
+  const visibleWorkspaces = (workspaces || []).filter(w => w.kind !== 'initiative');
+  // Show section if user has any non-initiative workspaces or is CMO/lead
+  const show = visibleWorkspaces.length > 0 || (myProfile && (myProfile.role === 'cmo' || myProfile.role === 'lead'));
   document.getElementById('sidebar-workspaces-section').style.display = show ? 'block' : 'none';
   const wsLabel = document.getElementById('sidebar-workspaces-label');
   if (wsLabel) wsLabel.style.display = show ? 'block' : 'none';
   let html = '';
-  for (const w of workspaces) {
+  for (const w of visibleWorkspaces) {
     const dotColor = w.color || getTagColor(w.name).text;
     const isExpanded = expandedWorkspaces.has(w.id);
     const isActiveTasks = activeWorkspaceId === w.id && currentView === 'tasks';
@@ -5406,4 +5423,1369 @@ document.addEventListener('DOMContentLoaded', () => {
   setInterval(async () => {
     if (currentUser) authToken = await currentUser.getIdToken(true);
   }, 50 * 60 * 1000);
+});
+
+// === Roadmap (Initiatives) ===
+const ROADMAP_LANES = [
+  { key: 'prospecting_bd', label: 'Prospecting & BD' },
+  { key: 'growth_marketing', label: 'Growth Marketing' },
+  { key: 'brand', label: 'Brand' },
+  { key: 'consumer_marketing', label: 'Consumer Marketing' }
+];
+const ROADMAP_FN_PRESETS = [
+  'Internal Comms',
+  'Rev Ops',
+  'Lifecycle Marketing',
+  'Social Media (SMD)',
+  'Digital Advertising',
+  'Ecommerce Team',
+  'B2C Design',
+  'B2B Design'
+];
+const ROADMAP_STATUS_LIST = ['Backlog', 'Not Started', 'In Progress', 'Approved', 'Completed'];
+
+let initFnsState = []; // selected supporting functions for the current form
+
+function fnsForInitiative(init) {
+  // Read normalization: prefer new array; fall back to legacy single string if present.
+  if (Array.isArray(init.supportingFunctions)) return init.supportingFunctions;
+  if (typeof init.supportingFunction === 'string' && init.supportingFunction) {
+    const legacy = { rev_ops: 'Rev Ops', internal_comms: 'Internal Comms' };
+    return [legacy[init.supportingFunction] || init.supportingFunction];
+  }
+  return [];
+}
+
+function knownFnOptions() {
+  const set = new Set(ROADMAP_FN_PRESETS);
+  for (const i of (initiatives || [])) fnsForInitiative(i).forEach(v => set.add(v));
+  return Array.from(set).sort((a, b) => a.localeCompare(b));
+}
+
+function renderFnPicker() {
+  const container = document.getElementById('init-fns-chips');
+  if (!container) return;
+  const all = Array.from(new Set([...knownFnOptions(), ...initFnsState])).sort((a, b) => a.localeCompare(b));
+  container.innerHTML = all.map(fn => {
+    const sel = initFnsState.includes(fn);
+    const isCustom = !ROADMAP_FN_PRESETS.includes(fn);
+    return `<span class="fn-chip ${sel ? 'selected' : ''}" data-fn="${escapeHtml(fn)}">
+      ${escapeHtml(fn)}${isCustom ? ` <span class="fn-chip-remove" data-fn-remove="${escapeHtml(fn)}" title="Remove this option">×</span>` : ''}
+    </span>`;
+  }).join('');
+}
+
+function fnPickerToggle(fn) {
+  const i = initFnsState.indexOf(fn);
+  if (i >= 0) initFnsState.splice(i, 1);
+  else initFnsState.push(fn);
+  renderFnPicker();
+}
+
+function fnPickerAddCustom(value) {
+  const v = (value || '').trim();
+  if (!v) return;
+  if (v.length > 60) { showToast('Function name too long (max 60 chars)', 'error'); return; }
+  const all = [...knownFnOptions(), ...initFnsState];
+  const existing = all.find(x => x.toLowerCase() === v.toLowerCase());
+  const target = existing || v;
+  if (!initFnsState.includes(target)) initFnsState.push(target);
+  renderFnPicker();
+}
+
+let initiatives = [];
+let tasksByWorkspaceId = {};
+let currentFY = null; // { fiscalYear, quarter }
+let roadmapFilters = { lane: 'all', owner: 'all', status: 'all', fn: 'all', theme: 'all' };
+let roadmapMineOnly = false;
+let editingInitiativeId = null;
+let expandedQuarters = new Set(); // keys: "FY26|Q4"
+let expandedInitiatives = new Set(); // initiative ids — show inline tasks under the bar
+let initContributorsState = []; // userIds selected as contributors in the open form
+let contributorActiveSuggestionIdx = -1;
+
+function laneLabel(key) { return (ROADMAP_LANES.find(l => l.key === key) || {}).label || key; }
+function statusClassKey(s) { return 's-' + (s || '').replace(/\s+/g, ''); }
+
+const MONTH_LABELS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+// Follett FY: name = year FY ends.  FY27 → Jul 2026 – Jun 2027.
+function monthsForQuarter(fy, q) {
+  const fyEnd = parseInt((fy || 'FY27').replace(/^FY/, ''), 10) + 2000;
+  const fyStart = fyEnd - 1;
+  const map = {
+    Q1: [{ m: 6, y: fyStart }, { m: 7, y: fyStart }, { m: 8, y: fyStart }],
+    Q2: [{ m: 9, y: fyStart }, { m: 10, y: fyStart }, { m: 11, y: fyStart }],
+    Q3: [{ m: 0, y: fyEnd }, { m: 1, y: fyEnd }, { m: 2, y: fyEnd }],
+    Q4: [{ m: 3, y: fyEnd }, { m: 4, y: fyEnd }, { m: 5, y: fyEnd }]
+  };
+  return (map[q] || []).map(x => ({ ...x, label: MONTH_LABELS[x.m] }));
+}
+
+function isQuarterExpanded(c) {
+  return expandedQuarters.has(`${c.fiscalYear}|${c.quarter}`);
+}
+
+function toggleQuarterExpansion(fy, q) {
+  const key = `${fy}|${q}`;
+  if (expandedQuarters.has(key)) expandedQuarters.delete(key);
+  else expandedQuarters.add(key);
+  renderRoadmap();
+}
+
+// Date range for an initiative — derives from FY+quarter for legacy data.
+function dateRangeForInitiative(init) {
+  if (init.startDate && init.endDate) return { start: init.startDate, end: init.endDate };
+  if (!init.fiscalYear || !init.quarter) return null;
+  const months = monthsForQuarter(init.fiscalYear, init.quarter);
+  if (months.length === 0) return null;
+  const f = months[0], l = months[2];
+  const pad = n => String(n).padStart(2, '0');
+  const lastDay = new Date(l.y, l.m + 1, 0).getDate();
+  return { start: `${f.y}-${pad(f.m + 1)}-01`, end: `${l.y}-${pad(l.m + 1)}-${pad(lastDay)}` };
+}
+
+function quarterIndexForDate(dateStr, cols) {
+  if (!dateStr) return -1;
+  const d = new Date(dateStr + 'T00:00:00');
+  for (let i = 0; i < cols.length; i++) {
+    const months = monthsForQuarter(cols[i].fiscalYear, cols[i].quarter);
+    for (const m of months) {
+      if (d.getMonth() === m.m && d.getFullYear() === m.y) return i;
+    }
+  }
+  return -1;
+}
+
+function spanForInitiative(init, cols) {
+  const r = dateRangeForInitiative(init);
+  if (!r) return null;
+  let startIdx = quarterIndexForDate(r.start, cols);
+  let endIdx = quarterIndexForDate(r.end, cols);
+  const startD = new Date(r.start + 'T00:00:00');
+  const endD = new Date(r.end + 'T00:00:00');
+  const firstColMonths = monthsForQuarter(cols[0].fiscalYear, cols[0].quarter);
+  const lastColMonths = monthsForQuarter(cols[cols.length - 1].fiscalYear, cols[cols.length - 1].quarter);
+  const winStart = new Date(firstColMonths[0].y, firstColMonths[0].m, 1);
+  const winEnd = new Date(lastColMonths[2].y, lastColMonths[2].m + 1, 0);
+  if (endD < winStart || startD > winEnd) return null;
+  if (startIdx === -1) startIdx = 0;
+  if (endIdx === -1) endIdx = cols.length - 1;
+  return { startIdx, endIdx, span: endIdx - startIdx + 1 };
+}
+
+// === Date → pixel helpers for the Gantt-ish lane layout ===
+const ROADMAP_COL_W_BASE = 200;
+const ROADMAP_COL_W_EXPANDED = 540;
+const INIT_BAR_HEIGHT = 62;
+const TASK_BAR_HEIGHT = 14;
+const TASK_BAR_GAP = 4;
+const TRACK_GAP = 6;
+
+function colWidthFor(c) {
+  return isQuarterExpanded(c) ? ROADMAP_COL_W_EXPANDED : ROADMAP_COL_W_BASE;
+}
+
+function totalLaneWidth(cols) {
+  return cols.reduce((s, c) => s + colWidthFor(c), 0);
+}
+
+function addDays(dateStr, n) {
+  if (!dateStr) return dateStr;
+  const d = new Date(dateStr + 'T00:00:00');
+  d.setDate(d.getDate() + n);
+  const pad = num => String(num).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+// Pixel x-position for a calendar date inside the lane-content area.
+// Distributes evenly across months within each quarter and across days within each month.
+function pixelForDate(dateStr, cols) {
+  if (!dateStr) return 0;
+  const d = new Date(dateStr + 'T00:00:00');
+  const firstQ = monthsForQuarter(cols[0].fiscalYear, cols[0].quarter);
+  const lastQ = monthsForQuarter(cols[cols.length - 1].fiscalYear, cols[cols.length - 1].quarter);
+  const winStart = new Date(firstQ[0].y, firstQ[0].m, 1);
+  const winEndPlus1 = new Date(lastQ[2].y, lastQ[2].m + 1, 1);
+  const totalW = totalLaneWidth(cols);
+  if (d < winStart) return 0;
+  if (d >= winEndPlus1) return totalW;
+
+  let cumPx = 0;
+  for (let i = 0; i < cols.length; i++) {
+    const months = monthsForQuarter(cols[i].fiscalYear, cols[i].quarter);
+    const colW = colWidthFor(cols[i]);
+    for (let mi = 0; mi < months.length; mi++) {
+      const mm = months[mi];
+      if (d.getFullYear() === mm.y && d.getMonth() === mm.m) {
+        const daysInMonth = new Date(mm.y, mm.m + 1, 0).getDate();
+        const dayProgress = (d.getDate() - 1) / daysInMonth;
+        const monthW = colW / 3;
+        return cumPx + (mi * monthW) + (dayProgress * monthW);
+      }
+    }
+    cumPx += colW;
+  }
+  return totalW;
+}
+
+// Per-track top pixel offsets, accounting for expanded initiatives that need extra height.
+function computeTrackTops(pack) {
+  const tops = [0];
+  for (let t = 0; t < pack.trackCount; t++) {
+    const inTrack = pack.items.filter(x => x.trackIdx === t);
+    let trackH = INIT_BAR_HEIGHT;
+    for (const item of inTrack) {
+      if (expandedInitiatives.has(item.init.id)) {
+        const tasks = (tasksByWorkspaceId[item.init.id] || []);
+        const expandedH = INIT_BAR_HEIGHT + 8 + Math.max(tasks.length, 1) * (TASK_BAR_HEIGHT + TASK_BAR_GAP) + 4;
+        if (expandedH > trackH) trackH = expandedH;
+      }
+    }
+    tops.push(tops[t] + trackH + TRACK_GAP);
+  }
+  return tops; // tops[t] = top px for track t; tops[trackCount] = total lane height
+}
+
+// First-fit greedy packing into vertical tracks within a lane.
+function packTracksForLane(initsForLane, cols) {
+  const items = initsForLane
+    .map(init => ({ init, span: spanForInitiative(init, cols) }))
+    .filter(x => x.span)
+    .sort((a, b) => a.span.startIdx - b.span.startIdx ||
+                    (b.span.endIdx - b.span.startIdx) - (a.span.endIdx - a.span.startIdx));
+  const trackEnds = [];
+  for (const item of items) {
+    let placed = false;
+    for (let t = 0; t < trackEnds.length; t++) {
+      if (trackEnds[t] < item.span.startIdx) {
+        trackEnds[t] = item.span.endIdx;
+        item.trackIdx = t;
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) { trackEnds.push(item.span.endIdx); item.trackIdx = trackEnds.length - 1; }
+  }
+  return { items, trackCount: Math.max(1, trackEnds.length) };
+}
+
+// Build 8 quarter columns: previous quarter, current, next 6
+function buildQuarterColumns(curFy, curQ) {
+  const fyToInt = fy => parseInt((fy || 'FY27').replace(/^FY/, ''), 10);
+  const intToFy = n => `FY${String(n).padStart(2, '0')}`;
+  const qOrder = ['Q1', 'Q2', 'Q3', 'Q4'];
+  let fyN = fyToInt(curFy);
+  let qIdx = qOrder.indexOf(curQ);
+  qIdx -= 1;
+  if (qIdx < 0) { qIdx = 3; fyN -= 1; }
+  const cols = [];
+  for (let i = 0; i < 8; i++) {
+    cols.push({ fiscalYear: intToFy(fyN), quarter: qOrder[qIdx] });
+    qIdx += 1;
+    if (qIdx > 3) { qIdx = 0; fyN += 1; }
+  }
+  return cols;
+}
+
+async function showRoadmapView() {
+  try {
+    if (!currentFY) currentFY = await api('GET', '/api/fy/current');
+  } catch { currentFY = { fiscalYear: 'FY26', quarter: 'Q4' }; }
+  document.getElementById('roadmap-fy-label').textContent = `${currentFY.quarter} ${currentFY.fiscalYear} · today`;
+  if (!teamMembers || teamMembers.length === 0) await loadTeam();
+
+  const newBtn = document.getElementById('btn-new-initiative');
+  if (newBtn) {
+    const canCreate = myProfile && (myProfile.role === 'cmo' || myProfile.role === 'lead');
+    newBtn.style.display = canCreate ? '' : 'none';
+  }
+
+  await Promise.all([loadInitiatives(), loadExternalRoadmaps()]);
+  populateRoadmapFilterDropdowns();
+  renderRoadmap();
+  renderExternalRoadmapsBar();
+  refreshSeedBanner();
+}
+
+function populateRoadmapFilterDropdowns() {
+  const ownerSel = document.getElementById('roadmap-filter-owner');
+  if (ownerSel) {
+    const ownerIds = new Set();
+    initiatives.forEach(i => { if (i.ownerId) ownerIds.add(i.ownerId); });
+    const ownerList = Array.from(ownerIds).map(id => ({
+      id,
+      name: ownerNameForId(id)
+    })).sort((a, b) => a.name.localeCompare(b.name));
+    const cur = ownerSel.value || 'all';
+    ownerSel.innerHTML = '<option value="all">All Owners</option>' +
+      ownerList.map(o => `<option value="${o.id}">${escapeHtml(o.name)}</option>`).join('');
+    if (ownerList.some(o => o.id === cur) || cur === 'all') ownerSel.value = cur;
+  }
+
+  const fnSel = document.getElementById('roadmap-filter-fn');
+  if (fnSel) {
+    const fns = new Set();
+    initiatives.forEach(i => fnsForInitiative(i).forEach(f => fns.add(f)));
+    const list = Array.from(fns).sort((a, b) => a.localeCompare(b));
+    const cur = fnSel.value || 'all';
+    fnSel.innerHTML = '<option value="all">All Functions</option>' +
+      list.map(f => `<option value="${escapeHtml(f)}">${escapeHtml(f)}</option>`).join('');
+    if (list.includes(cur) || cur === 'all') fnSel.value = cur;
+  }
+
+  const themeSel = document.getElementById('roadmap-filter-theme');
+  if (themeSel) {
+    const themes = new Set();
+    initiatives.forEach(i => { if (i.theme) themes.add(i.theme); });
+    const list = Array.from(themes).sort((a, b) => a.localeCompare(b));
+    const cur = themeSel.value || 'all';
+    themeSel.innerHTML = '<option value="all">All Themes</option>' +
+      list.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
+    if (list.includes(cur) || cur === 'all') themeSel.value = cur;
+  }
+}
+
+async function loadInitiatives() {
+  try {
+    const all = await api('GET', '/api/workspaces');
+    initiatives = (all || []).filter(w => w.kind === 'initiative' && !w.archived);
+  } catch (err) {
+    console.error('Failed to load initiatives:', err);
+    initiatives = [];
+  }
+  // Keep tasks for the roadmap, keyed by workspaceId. Use allWorkspaces=true so workspace-scoped
+  // tasks aren't filtered out by the default "master view" rule on /api/tasks.
+  tasksByWorkspaceId = {};
+  try {
+    const allTasks = await api('GET', '/api/tasks?allWorkspaces=true');
+    (allTasks || []).forEach(t => {
+      if (!t.workspaceId) return;
+      if (!tasksByWorkspaceId[t.workspaceId]) tasksByWorkspaceId[t.workspaceId] = [];
+      tasksByWorkspaceId[t.workspaceId].push(t);
+    });
+    initiatives.forEach(i => {
+      const list = tasksByWorkspaceId[i.id] || [];
+      i.taskTotal = list.length;
+      i.taskDone = list.filter(t => t.status === 'Completed').length;
+    });
+  } catch { /* tasks optional */ }
+}
+
+function ownerNameForId(userId) {
+  if (!userId) return 'Unassigned';
+  if (myProfile && userId === myProfile.userId) return myProfile.name || 'Me';
+  const m = (teamMembers || []).find(t => t.userId === userId);
+  return m ? m.displayName : 'Unknown';
+}
+
+function renderRoadmap() {
+  const grid = document.getElementById('roadmap-grid');
+  const empty = document.getElementById('roadmap-empty');
+  if (!grid || !empty) return;
+
+  const visibleLanes = roadmapFilters.lane === 'all'
+    ? ROADMAP_LANES
+    : ROADMAP_LANES.filter(l => l.key === roadmapFilters.lane);
+
+  let visible = initiatives.slice();
+  if (roadmapMineOnly && myProfile) {
+    visible = visible.filter(i =>
+      i.ownerId === myProfile.userId ||
+      (Array.isArray(i.members) && i.members.includes(myProfile.userId)) ||
+      i.createdBy === myProfile.userId
+    );
+  }
+  if (roadmapFilters.owner !== 'all') {
+    visible = visible.filter(i => i.ownerId === roadmapFilters.owner);
+  }
+  if (roadmapFilters.status !== 'all') {
+    visible = visible.filter(i => (i.roadmapStatus || 'Backlog') === roadmapFilters.status);
+  }
+  if (roadmapFilters.fn !== 'all') {
+    visible = visible.filter(i => fnsForInitiative(i).some(f => f === roadmapFilters.fn));
+  }
+  if (roadmapFilters.theme !== 'all') {
+    visible = visible.filter(i => (i.theme || '') === roadmapFilters.theme);
+  }
+
+  const cols = buildQuarterColumns(currentFY.fiscalYear, currentFY.quarter);
+  const isNow = c => c.fiscalYear === currentFY.fiscalYear && c.quarter === currentFY.quarter;
+  const colWidths = cols.map(colWidthFor);
+
+  // Per-lane track packing
+  const lanePacks = visibleLanes.map(lane => {
+    const pack = packTracksForLane(visible.filter(i => i.lane === lane.key), cols);
+    const trackTops = computeTrackTops(pack);
+    return { lane, pack, trackTops };
+  });
+
+  grid.style.gridTemplateColumns = `180px ${colWidths.map(w => w + 'px').join(' ')}`;
+  grid.style.gridTemplateRows = `38px ${lanePacks.map(() => 'auto').join(' ')}`;
+
+  let html = '';
+  // Header row
+  html += `<div class="roadmap-corner" style="grid-row:1;grid-column:1;"></div>`;
+  cols.forEach((c, i) => {
+    const expanded = isQuarterExpanded(c);
+    const months = expanded ? monthsForQuarter(c.fiscalYear, c.quarter) : null;
+    const monthsStrip = months ? `<div class="quarter-months-strip">${months.map(m => `<span>${m.label}</span>`).join('')}</div>` : '';
+    html += `<div class="roadmap-quarter-header clickable${isNow(c) ? ' now' : ''}${expanded ? ' expanded' : ''}" data-q-fy="${c.fiscalYear}" data-q-q="${c.quarter}" style="grid-row:1;grid-column:${i + 2};" title="Click to ${expanded ? 'collapse' : 'expand to months'}">
+      <strong>${c.quarter} ${expanded ? '▾' : '▸'}</strong>${c.fiscalYear}${isNow(c) ? ' · now' : ''}${monthsStrip}
+    </div>`;
+  });
+
+  // Lanes — each lane is one outer-grid row containing a label cell + an absolute-positioned content area.
+  lanePacks.forEach(({ lane, pack, trackTops }, laneIdx) => {
+    const rowN = laneIdx + 2;
+    const laneH = trackTops[trackTops.length - 1];
+
+    // Lane label
+    html += `<div class="roadmap-lane-label" style="grid-row:${rowN};grid-column:1;height:${laneH}px;"><span class="lane-swatch lane-${lane.key}"></span>${escapeHtml(lane.label)}</div>`;
+
+    // Lane content (relative-positioned so children can absolute-position by date pixel)
+    html += `<div class="roadmap-lane-content" style="grid-row:${rowN};grid-column:2 / ${cols.length + 2};height:${laneH}px;">`;
+
+    // Background quarter stripes (now-quarter highlight + dividers)
+    let cumPx = 0;
+    for (let i = 0; i < cols.length; i++) {
+      const w = colWidths[i];
+      const isLast = i === cols.length - 1;
+      html += `<div class="lane-bg-stripe${isNow(cols[i]) ? ' now' : ''}${isLast ? ' last' : ''}" style="left:${cumPx}px;width:${w}px;"></div>`;
+      cumPx += w;
+    }
+
+    // Initiative bars (absolute, scaled to startDate→endDate)
+    pack.items.forEach(({ init, trackIdx }) => {
+      const range = dateRangeForInitiative(init);
+      if (!range) return;
+      const startPx = pixelForDate(range.start, cols);
+      const endPx = pixelForDate(addDays(range.end, 1), cols);
+      const widthPx = Math.max(endPx - startPx, 60);
+      const top = trackTops[trackIdx];
+      const isExpanded = expandedInitiatives.has(init.id);
+      html += `<div class="initiative-card lane-${init.lane}${isExpanded ? ' expanded-inline' : ''}" data-init-id="${init.id}" style="left:${startPx}px;top:${top}px;width:${widthPx - 6}px;height:${INIT_BAR_HEIGHT}px;">${renderInitiativeCardContent(init, isExpanded)}</div>`;
+
+      // Task bars below when expanded
+      if (isExpanded) {
+        const tasks = (tasksByWorkspaceId[init.id] || []).slice()
+          .sort((a, b) => (a.dueDate || '￿').localeCompare(b.dueDate || '￿'));
+        const taskAreaTop = top + INIT_BAR_HEIGHT + 8;
+        tasks.forEach((t, ti) => {
+          const taskTop = taskAreaTop + ti * (TASK_BAR_HEIGHT + TASK_BAR_GAP);
+          const taskBar = renderTaskBar(t, cols, range);
+          if (!taskBar) return;
+          html += `<div class="task-bar ${t.status === 'Completed' ? 'done' : ''}${taskBar.unscheduled ? ' unscheduled' : ''}" data-open-task="${t.id}" style="left:${taskBar.left}px;top:${taskTop}px;width:${taskBar.width}px;height:${TASK_BAR_HEIGHT}px;" title="${escapeHtml(taskBar.tooltip)}"><span class="task-bar-label">${t.status === 'Completed' ? '✓ ' : ''}${escapeHtml(t.title)}</span></div>`;
+        });
+      }
+    });
+
+    html += `</div>`;
+  });
+
+  grid.innerHTML = html;
+  empty.style.display = visible.length === 0 ? 'block' : 'none';
+
+  // Delegated click handler — chevron expands; card opens drawer; task bar opens task detail; quarter header expands months.
+  if (!grid.dataset.delegatedClick) {
+    grid.addEventListener('click', (e) => {
+      const chev = e.target.closest('[data-toggle-init]');
+      if (chev) {
+        e.stopPropagation();
+        toggleInitiativeExpansion(chev.dataset.toggleInit);
+        return;
+      }
+      const taskBar = e.target.closest('.task-bar[data-open-task]');
+      if (taskBar) {
+        e.stopPropagation();
+        const tid = taskBar.dataset.openTask;
+        if (typeof showTaskDetail === 'function') showTaskDetail(tid);
+        return;
+      }
+      const card = e.target.closest('.initiative-card[data-init-id]');
+      if (card) {
+        openInitiativeForm(card.dataset.initId);
+        return;
+      }
+      const qh = e.target.closest('.roadmap-quarter-header[data-q-fy]');
+      if (qh) {
+        toggleQuarterExpansion(qh.dataset.qFy, qh.dataset.qQ);
+      }
+    });
+    grid.dataset.delegatedClick = '1';
+  }
+}
+
+// Compute task bar geometry: { left, width, unscheduled, tooltip } or null if entirely outside view.
+function renderTaskBar(t, cols, initRange) {
+  let startStr, endStr;
+  let unscheduled = false;
+  if (t.startDate && t.dueDate) {
+    startStr = t.startDate;
+    endStr = t.dueDate;
+  } else if (t.dueDate) {
+    // Single-point task: 5-day bar ending on dueDate
+    startStr = addDays(t.dueDate, -4);
+    endStr = t.dueDate;
+  } else if (t.startDate) {
+    startStr = t.startDate;
+    endStr = addDays(t.startDate, 4);
+  } else {
+    // No dates — pin to initiative start, mark unscheduled
+    unscheduled = true;
+    startStr = initRange.start;
+    endStr = addDays(initRange.start, 4);
+  }
+  const left = pixelForDate(startStr, cols);
+  const right = pixelForDate(addDays(endStr, 1), cols);
+  const width = Math.max(right - left, 24);
+  const dueLabel = t.dueDate ? ` · due ${t.dueDate}` : (unscheduled ? ' · no date' : '');
+  return { left, width, unscheduled, tooltip: `${t.title}${dueLabel}` };
+}
+
+function toggleInitiativeExpansion(id) {
+  if (expandedInitiatives.has(id)) expandedInitiatives.delete(id);
+  else expandedInitiatives.add(id);
+  renderRoadmap();
+}
+
+// Card body — title, status pill, owner, progress; chevron toggles task bars in the lane below.
+function renderInitiativeCardContent(init, expanded) {
+  const ownerName = ownerNameForId(init.ownerId);
+  const total = init.taskTotal || 0;
+  const done = init.taskDone || 0;
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  const progress = total > 0 ? `
+    <div class="init-card-progress"><div class="init-card-progress-bar" style="width:${pct}%"></div></div>
+    <div class="init-card-progress-label">${done}/${total} tasks</div>
+  ` : '';
+  const chevron = `<button type="button" class="init-card-expand" data-toggle-init="${init.id}" aria-expanded="${expanded ? 'true' : 'false'}" title="${expanded ? 'Hide tasks' : 'Show tasks'}">${expanded ? '▾' : '▸'}</button>`;
+  return `
+    <div class="init-card-row">
+      ${chevron}
+      <div style="flex:1;min-width:0;">
+        <div class="init-card-title">${escapeHtml(init.name)}</div>
+        <div class="init-card-meta">
+          <span class="roadmap-status-pill ${statusClassKey(init.roadmapStatus)}">${escapeHtml(init.roadmapStatus || 'Backlog')}</span>
+          <span>${escapeHtml(ownerName)}</span>
+        </div>
+        ${progress}
+      </div>
+    </div>
+  `;
+}
+
+function populateInitiativeFormDropdowns() {
+  // Owner dropdown
+  const ownerSel = document.getElementById('init-owner');
+  const me = myProfile || {};
+  const list = (teamMembers || []).filter(m => m.status === 'active' || !m.status);
+  ownerSel.innerHTML = `<option value="${me.userId || ''}">${escapeHtml(me.name || 'Me')} (default)</option>` +
+    list.filter(m => m.userId !== me.userId)
+        .map(m => `<option value="${m.userId}">${escapeHtml(m.displayName)}</option>`).join('');
+}
+
+// === Contributor type-ahead ===
+function renderContributorChips() {
+  const chips = document.getElementById('init-contributors-chips');
+  if (!chips) return;
+  chips.innerHTML = initContributorsState.map(uid => {
+    const name = ownerNameForId(uid);
+    return `<span class="contributor-chip" data-uid="${uid}">${escapeHtml(name)} <span class="contributor-chip-remove" data-remove-contrib="${uid}" title="Remove">×</span></span>`;
+  }).join('');
+}
+
+function showContributorSuggestions(query) {
+  const sugg = document.getElementById('init-contributors-suggestions');
+  if (!sugg) return;
+  const q = (query || '').trim().toLowerCase();
+  if (!q) { sugg.style.display = 'none'; contributorActiveSuggestionIdx = -1; return; }
+  const list = (teamMembers || [])
+    .filter(m => (m.status === 'active' || !m.status))
+    .filter(m => !initContributorsState.includes(m.userId))
+    .filter(m => (m.displayName || '').toLowerCase().includes(q) || (m.email || '').toLowerCase().includes(q))
+    .slice(0, 8);
+  if (list.length === 0) {
+    sugg.innerHTML = `<div class="contributor-suggestion" style="cursor:default;color:var(--color-text-muted);">No matches</div>`;
+    sugg.style.display = '';
+    contributorActiveSuggestionIdx = -1;
+    return;
+  }
+  sugg.innerHTML = list.map((m, idx) =>
+    `<div class="contributor-suggestion${idx === 0 ? ' active' : ''}" data-uid="${m.userId}">${escapeHtml(m.displayName || m.email)}<span class="suggest-email">${escapeHtml(m.email || '')}</span></div>`
+  ).join('');
+  sugg.style.display = '';
+  contributorActiveSuggestionIdx = 0;
+}
+
+function addContributor(userId) {
+  if (!userId || initContributorsState.includes(userId)) return;
+  initContributorsState.push(userId);
+  renderContributorChips();
+  const input = document.getElementById('init-contributors-input');
+  if (input) input.value = '';
+  const sugg = document.getElementById('init-contributors-suggestions');
+  if (sugg) sugg.style.display = 'none';
+}
+
+function removeContributor(userId) {
+  initContributorsState = initContributorsState.filter(u => u !== userId);
+  renderContributorChips();
+}
+
+// Format a date string as a human label, and write the derived FY/quarter range below the date inputs.
+function refreshInitQuarterSummary() {
+  const start = document.getElementById('init-start-date').value;
+  const end = document.getElementById('init-end-date').value;
+  const summary = document.getElementById('init-quarter-summary');
+  if (!summary) return;
+  if (!start || !end) { summary.textContent = ''; return; }
+  if (start > end) { summary.textContent = '⚠ End date is before start date.'; return; }
+  const startFY = fyQuarterFromDateString(start);
+  const endFY = fyQuarterFromDateString(end);
+  if (startFY.fiscalYear === endFY.fiscalYear && startFY.quarter === endFY.quarter) {
+    summary.textContent = `Spans ${startFY.quarter} ${startFY.fiscalYear}.`;
+  } else {
+    summary.textContent = `Spans ${startFY.quarter} ${startFY.fiscalYear} → ${endFY.quarter} ${endFY.fiscalYear}.`;
+  }
+}
+
+function fyQuarterFromDateString(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  const m = d.getMonth(), y = d.getFullYear();
+  const fyEnd = m >= 6 ? y + 1 : y;
+  const fy = `FY${String(fyEnd).slice(-2)}`;
+  let q;
+  if (m >= 6 && m <= 8) q = 'Q1';
+  else if (m >= 9 && m <= 11) q = 'Q2';
+  else if (m <= 2) q = 'Q3';
+  else q = 'Q4';
+  return { fiscalYear: fy, quarter: q };
+}
+
+function openInitiativeForm(initId) {
+  if (myProfile && myProfile.role === 'viewer') return;
+  populateInitiativeFormDropdowns();
+  const titleEl = document.getElementById('modal-initiative-title');
+  const archiveBtn = document.getElementById('btn-archive-initiative');
+  const submitBtn = document.getElementById('btn-submit-initiative');
+
+  if (initId) {
+    const init = initiatives.find(i => i.id === initId);
+    if (!init) return;
+    editingInitiativeId = init.id;
+    titleEl.textContent = 'Edit Initiative';
+
+    document.getElementById('init-title').value = init.name || '';
+    document.getElementById('init-lane').value = init.lane || '';
+    initFnsState = fnsForInitiative(init).slice();
+    renderFnPicker();
+    const range = dateRangeForInitiative(init) || { start: '', end: '' };
+    document.getElementById('init-start-date').value = init.startDate || range.start || '';
+    document.getElementById('init-end-date').value = init.endDate || range.end || '';
+    refreshInitQuarterSummary();
+    document.getElementById('init-status').value = init.roadmapStatus || 'Backlog';
+    document.getElementById('init-theme').value = init.theme || '';
+    document.getElementById('init-goal').value = init.goal || '';
+    document.getElementById('init-metric').value = init.metric || '';
+    document.getElementById('init-description').value = init.description || '';
+
+    const ownerSel = document.getElementById('init-owner');
+    if (init.ownerId && ![...ownerSel.options].some(o => o.value === init.ownerId)) {
+      const opt = document.createElement('option');
+      opt.value = init.ownerId; opt.textContent = ownerNameForId(init.ownerId);
+      ownerSel.appendChild(opt);
+    }
+    ownerSel.value = init.ownerId || '';
+
+    initContributorsState = (init.members || []).filter(uid => uid !== init.ownerId);
+    renderContributorChips();
+    const cInput = document.getElementById('init-contributors-input');
+    if (cInput) cInput.value = '';
+    const cSugg = document.getElementById('init-contributors-suggestions');
+    if (cSugg) cSugg.style.display = 'none';
+
+    const canEdit = myProfile && (
+      myProfile.role === 'cmo' || myProfile.role === 'lead' ||
+      init.ownerId === myProfile.userId ||
+      (init.members || []).includes(myProfile.userId)
+    );
+    setInitiativeFormReadOnly(!canEdit);
+    archiveBtn.style.display = (myProfile.role === 'cmo' || myProfile.role === 'lead' || init.ownerId === myProfile.userId) ? '' : 'none';
+    submitBtn.textContent = 'Save Changes';
+    // Show tasks section when editing
+    document.getElementById('init-tasks-section-header').style.display = '';
+    document.getElementById('init-tasks-section').style.display = '';
+    document.getElementById('init-tasks-empty-note').style.display = 'none';
+    document.getElementById('init-add-task-row').style.display = 'none';
+    document.getElementById('init-ai-suggestions').style.display = 'none';
+    renderInitTasksList(init.id);
+  } else {
+    editingInitiativeId = null;
+    titleEl.textContent = 'New Initiative';
+    document.getElementById('form-initiative').reset();
+    // Default to the current quarter range
+    const defaultRange = dateRangeForInitiative({ fiscalYear: currentFY.fiscalYear, quarter: currentFY.quarter });
+    if (defaultRange) {
+      document.getElementById('init-start-date').value = defaultRange.start;
+      document.getElementById('init-end-date').value = defaultRange.end;
+    }
+    refreshInitQuarterSummary();
+    document.getElementById('init-status').value = 'Backlog';
+    initFnsState = [];
+    renderFnPicker();
+    initContributorsState = [];
+    renderContributorChips();
+    const cInputNew = document.getElementById('init-contributors-input');
+    if (cInputNew) cInputNew.value = '';
+    const cSuggNew = document.getElementById('init-contributors-suggestions');
+    if (cSuggNew) cSuggNew.style.display = 'none';
+    setInitiativeFormReadOnly(false);
+    archiveBtn.style.display = 'none';
+    submitBtn.textContent = 'Create Initiative';
+    // Hide tasks section for new initiatives; show note instead
+    document.getElementById('init-tasks-section-header').style.display = 'none';
+    document.getElementById('init-tasks-section').style.display = 'none';
+    document.getElementById('init-tasks-empty-note').style.display = '';
+  }
+  openModal('modal-initiative');
+}
+
+function setInitiativeFormReadOnly(readOnly) {
+  const ids = ['init-title', 'init-lane', 'init-start-date', 'init-end-date',
+    'init-status', 'init-theme', 'init-owner', 'init-goal', 'init-metric', 'init-description',
+    'init-fns-add-input', 'btn-init-fns-add', 'init-contributors-input'];
+  ids.forEach(id => { const el = document.getElementById(id); if (el) el.disabled = readOnly; });
+  const chips = document.getElementById('init-fns-chips');
+  if (chips) chips.style.pointerEvents = readOnly ? 'none' : '';
+  const cChips = document.getElementById('init-contributors-chips');
+  if (cChips) cChips.style.pointerEvents = readOnly ? 'none' : '';
+  document.getElementById('btn-submit-initiative').style.display = readOnly ? 'none' : '';
+}
+
+async function saveInitiative(e) {
+  e.preventDefault();
+  const members = initContributorsState.slice();
+  const payload = {
+    name: document.getElementById('init-title').value.trim(),
+    description: document.getElementById('init-description').value.trim(),
+    lane: document.getElementById('init-lane').value,
+    supportingFunctions: initFnsState.slice(),
+    startDate: document.getElementById('init-start-date').value,
+    endDate: document.getElementById('init-end-date').value,
+    roadmapStatus: document.getElementById('init-status').value,
+    theme: document.getElementById('init-theme').value.trim(),
+    ownerId: document.getElementById('init-owner').value || (myProfile && myProfile.userId),
+    members,
+    goal: document.getElementById('init-goal').value.trim(),
+    metric: document.getElementById('init-metric').value.trim(),
+    kind: 'initiative'
+  };
+  if (!payload.name || !payload.lane || !payload.startDate || !payload.endDate || !payload.goal) {
+    showToast('Title, lane, start date, end date, and goal are required', 'error');
+    return;
+  }
+  if (payload.startDate > payload.endDate) {
+    showToast('End date must be on or after start date', 'error');
+    return;
+  }
+  try {
+    if (editingInitiativeId) {
+      await api('PUT', '/api/workspaces/' + editingInitiativeId, payload);
+    } else {
+      await api('POST', '/api/workspaces', payload);
+    }
+    closeModal('modal-initiative');
+    await loadInitiatives();
+    renderRoadmap();
+    showToast(editingInitiativeId ? 'Initiative updated' : 'Initiative created', 'success');
+  } catch (err) {
+    showToast('Failed to save: ' + err.message, 'error');
+  }
+}
+
+async function archiveInitiativeFromForm() {
+  if (!editingInitiativeId) return;
+  if (!confirm('Archive this initiative? It will be hidden from the roadmap. Linked tasks remain.')) return;
+  try {
+    await api('DELETE', '/api/workspaces/' + editingInitiativeId);
+    closeModal('modal-initiative');
+    await loadInitiatives();
+    renderRoadmap();
+    showToast('Initiative archived', 'success');
+  } catch (err) {
+    showToast('Failed to archive: ' + err.message, 'error');
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const filterMap = {
+    'roadmap-filter-lane': 'lane',
+    'roadmap-filter-owner': 'owner',
+    'roadmap-filter-status': 'status',
+    'roadmap-filter-fn': 'fn',
+    'roadmap-filter-theme': 'theme'
+  };
+  Object.entries(filterMap).forEach(([elId, key]) => {
+    const el = document.getElementById(elId);
+    if (el) el.addEventListener('change', () => {
+      roadmapFilters[key] = el.value;
+      renderRoadmap();
+    });
+  });
+  const mineBtn = document.getElementById('btn-roadmap-mine');
+  if (mineBtn) mineBtn.addEventListener('click', () => {
+    roadmapMineOnly = !roadmapMineOnly;
+    mineBtn.classList.toggle('active', roadmapMineOnly);
+    renderRoadmap();
+  });
+  const newBtn = document.getElementById('btn-new-initiative');
+  if (newBtn) newBtn.addEventListener('click', () => openInitiativeForm(null));
+  const form = document.getElementById('form-initiative');
+  if (form) form.addEventListener('submit', saveInitiative);
+  const archBtn = document.getElementById('btn-archive-initiative');
+  if (archBtn) archBtn.addEventListener('click', archiveInitiativeFromForm);
+
+  // Contributor type-ahead
+  const cInput = document.getElementById('init-contributors-input');
+  const cSugg = document.getElementById('init-contributors-suggestions');
+  const cWrap = document.getElementById('init-contributors-wrap');
+  const cChips = document.getElementById('init-contributors-chips');
+  if (cInput) {
+    cInput.addEventListener('input', () => showContributorSuggestions(cInput.value));
+    cInput.addEventListener('focus', () => { if (cInput.value) showContributorSuggestions(cInput.value); });
+    cInput.addEventListener('keydown', (e) => {
+      const items = cSugg ? Array.from(cSugg.querySelectorAll('.contributor-suggestion[data-uid]')) : [];
+      if (e.key === 'ArrowDown' && items.length) {
+        e.preventDefault();
+        contributorActiveSuggestionIdx = Math.min(contributorActiveSuggestionIdx + 1, items.length - 1);
+        items.forEach((el, i) => el.classList.toggle('active', i === contributorActiveSuggestionIdx));
+      } else if (e.key === 'ArrowUp' && items.length) {
+        e.preventDefault();
+        contributorActiveSuggestionIdx = Math.max(contributorActiveSuggestionIdx - 1, 0);
+        items.forEach((el, i) => el.classList.toggle('active', i === contributorActiveSuggestionIdx));
+      } else if (e.key === 'Enter') {
+        if (items.length) {
+          e.preventDefault();
+          const idx = contributorActiveSuggestionIdx >= 0 ? contributorActiveSuggestionIdx : 0;
+          const uid = items[idx].dataset.uid;
+          if (uid) addContributor(uid);
+        }
+      } else if (e.key === 'Backspace' && !cInput.value && initContributorsState.length) {
+        // Backspace on empty input removes the last chip
+        e.preventDefault();
+        removeContributor(initContributorsState[initContributorsState.length - 1]);
+      } else if (e.key === 'Escape') {
+        if (cSugg) cSugg.style.display = 'none';
+      }
+    });
+  }
+  if (cSugg) {
+    cSugg.addEventListener('mousedown', (e) => {
+      const item = e.target.closest('.contributor-suggestion[data-uid]');
+      if (item) {
+        e.preventDefault();
+        addContributor(item.dataset.uid);
+      }
+    });
+  }
+  if (cChips) {
+    cChips.addEventListener('click', (e) => {
+      const r = e.target.closest('[data-remove-contrib]');
+      if (r) removeContributor(r.dataset.removeContrib);
+    });
+  }
+  // Click outside closes suggestion list
+  document.addEventListener('mousedown', (e) => {
+    if (cWrap && !cWrap.contains(e.target) && cSugg) cSugg.style.display = 'none';
+  });
+
+  // Live FY/quarter summary as dates change
+  const startDateInput = document.getElementById('init-start-date');
+  const endDateInput = document.getElementById('init-end-date');
+  if (startDateInput) startDateInput.addEventListener('change', () => {
+    // If end is empty or before new start, default end to last day of that quarter
+    if (!endDateInput.value || endDateInput.value < startDateInput.value) {
+      const fyq = fyQuarterFromDateString(startDateInput.value);
+      const range = dateRangeForInitiative({ fiscalYear: fyq.fiscalYear, quarter: fyq.quarter });
+      if (range) endDateInput.value = range.end;
+    }
+    refreshInitQuarterSummary();
+  });
+  if (endDateInput) endDateInput.addEventListener('change', refreshInitQuarterSummary);
+
+  // Supporting-function chip picker
+  const chipsEl = document.getElementById('init-fns-chips');
+  if (chipsEl) {
+    chipsEl.addEventListener('click', (e) => {
+      const removeEl = e.target.closest('[data-fn-remove]');
+      if (removeEl) {
+        e.stopPropagation();
+        const fn = removeEl.dataset.fnRemove;
+        const i = initFnsState.indexOf(fn);
+        if (i >= 0) initFnsState.splice(i, 1);
+        renderFnPicker();
+        return;
+      }
+      const chip = e.target.closest('[data-fn]');
+      if (chip) fnPickerToggle(chip.dataset.fn);
+    });
+  }
+  const addInput = document.getElementById('init-fns-add-input');
+  const addBtn = document.getElementById('btn-init-fns-add');
+  if (addBtn && addInput) {
+    addBtn.addEventListener('click', () => { fnPickerAddCustom(addInput.value); addInput.value = ''; });
+    addInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        fnPickerAddCustom(addInput.value);
+        addInput.value = '';
+      }
+    });
+  }
+});
+
+// === External Roadmap Links ===
+let externalRoadmaps = [];
+let editingExtRoadmapId = null;
+
+async function loadExternalRoadmaps() {
+  try { externalRoadmaps = await api('GET', '/api/external-roadmaps'); }
+  catch (err) {
+    console.error('Failed to load external roadmaps:', err);
+    externalRoadmaps = [];
+  }
+}
+
+function renderExternalRoadmapsBar() {
+  const bar = document.getElementById('external-roadmaps-bar');
+  if (!bar) return;
+  const canAdd = myProfile && myProfile.role !== 'viewer';
+  if (externalRoadmaps.length === 0 && !canAdd) {
+    bar.style.display = 'none';
+    return;
+  }
+  bar.style.display = '';
+  let html = '<span class="external-roadmaps-bar-label">Other teams’ roadmaps</span>';
+  for (const r of externalRoadmaps) {
+    const canEdit = myProfile && (myProfile.role === 'cmo' || r.createdBy === myProfile.userId);
+    const desc = r.description ? `\n${r.description}` : '';
+    const tooltip = `${r.url}${desc}`;
+    html += `<a class="ext-roadmap-chip" href="${escapeHtml(r.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(tooltip)}">
+      ${escapeHtml(r.name)} ↗${canEdit ? ` <span class="ext-roadmap-chip-edit" data-ext-edit="${r.id}" title="Edit">✏️</span>` : ''}
+    </a>`;
+  }
+  if (canAdd) {
+    html += `<button type="button" class="ext-roadmap-chip ext-roadmap-add" id="btn-add-ext-roadmap">+ Link external roadmap</button>`;
+  }
+  bar.innerHTML = html;
+}
+
+function openExtRoadmapModal(id) {
+  editingExtRoadmapId = id || null;
+  const titleEl = document.getElementById('modal-ext-title');
+  const delBtn = document.getElementById('btn-delete-ext');
+  const submitBtn = document.getElementById('btn-save-ext');
+  if (id) {
+    const r = externalRoadmaps.find(x => x.id === id);
+    if (!r) return;
+    titleEl.textContent = 'Edit External Roadmap';
+    document.getElementById('ext-name').value = r.name || '';
+    document.getElementById('ext-url').value = r.url || '';
+    document.getElementById('ext-desc').value = r.description || '';
+    delBtn.style.display = '';
+    submitBtn.textContent = 'Save Changes';
+  } else {
+    titleEl.textContent = 'Link External Roadmap';
+    document.getElementById('form-external-roadmap').reset();
+    delBtn.style.display = 'none';
+    submitBtn.textContent = 'Add Link';
+  }
+  openModal('modal-external-roadmap');
+}
+
+async function saveExtRoadmap(e) {
+  e.preventDefault();
+  const payload = {
+    name: document.getElementById('ext-name').value.trim(),
+    url: document.getElementById('ext-url').value.trim(),
+    description: document.getElementById('ext-desc').value.trim()
+  };
+  if (!payload.name || !payload.url) {
+    showToast('Name and URL are required', 'error');
+    return;
+  }
+  try {
+    if (editingExtRoadmapId) {
+      await api('PUT', '/api/external-roadmaps/' + editingExtRoadmapId, payload);
+    } else {
+      await api('POST', '/api/external-roadmaps', payload);
+    }
+    closeModal('modal-external-roadmap');
+    await loadExternalRoadmaps();
+    renderExternalRoadmapsBar();
+    showToast(editingExtRoadmapId ? 'Link updated' : 'Link added', 'success');
+  } catch (err) {
+    showToast('Failed: ' + err.message, 'error');
+  }
+}
+
+async function deleteExtRoadmap() {
+  if (!editingExtRoadmapId) return;
+  if (!confirm('Remove this external roadmap link?')) return;
+  try {
+    await api('DELETE', '/api/external-roadmaps/' + editingExtRoadmapId);
+    closeModal('modal-external-roadmap');
+    await loadExternalRoadmaps();
+    renderExternalRoadmapsBar();
+    showToast('Link removed', 'success');
+  } catch (err) {
+    showToast('Failed: ' + err.message, 'error');
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  // Bar click delegation: edit pencil → open modal; "+" button → open new
+  const bar = document.getElementById('external-roadmaps-bar');
+  if (bar) {
+    bar.addEventListener('click', (e) => {
+      const editEl = e.target.closest('[data-ext-edit]');
+      if (editEl) {
+        e.preventDefault();
+        e.stopPropagation();
+        openExtRoadmapModal(editEl.dataset.extEdit);
+        return;
+      }
+      const addBtn = e.target.closest('#btn-add-ext-roadmap');
+      if (addBtn) {
+        e.preventDefault();
+        openExtRoadmapModal(null);
+      }
+    });
+  }
+  const form = document.getElementById('form-external-roadmap');
+  if (form) form.addEventListener('submit', saveExtRoadmap);
+  const delBtn = document.getElementById('btn-delete-ext');
+  if (delBtn) delBtn.addEventListener('click', deleteExtRoadmap);
+});
+
+// === Roadmap Seed (FY26 Offsite) ===
+let seedPreviewData = null;
+
+async function refreshSeedBanner() {
+  const banner = document.getElementById('roadmap-seed-banner');
+  if (!banner) return;
+  // Only the CMO sees this. Hide for everyone else.
+  if (!myProfile || myProfile.role !== 'cmo') {
+    banner.style.display = 'none';
+    return;
+  }
+  // Skip-for-session: respect dismissal
+  if (sessionStorage.getItem('seedFy26Dismissed') === '1') {
+    banner.style.display = 'none';
+    return;
+  }
+  // Hide if already seeded or any initiatives already exist
+  try {
+    const preview = await api('GET', '/api/roadmap/seed-fy26-offsite/preview');
+    seedPreviewData = preview;
+    if (preview.alreadySeeded || (initiatives && initiatives.length > 0)) {
+      banner.style.display = 'none';
+      return;
+    }
+    const summaryEl = document.getElementById('seed-banner-summary');
+    if (summaryEl && preview.totals) {
+      summaryEl.textContent = `${preview.totals.initiatives} initiatives · ${preview.totals.tasks} tasks · owners pre-assigned from your team roster.`;
+    }
+    banner.style.display = '';
+  } catch (err) {
+    // Endpoint may 403 for non-CMO or otherwise; just hide
+    banner.style.display = 'none';
+  }
+}
+
+function openSeedPreviewModal() {
+  if (!seedPreviewData) { showToast('Preview not loaded yet', 'error'); return; }
+  const list = document.getElementById('seed-preview-list');
+  const summary = document.getElementById('seed-preview-summary');
+  const stats = document.getElementById('seed-preview-stats');
+  const warning = document.getElementById('seed-preview-warning');
+
+  summary.textContent = seedPreviewData.summary || '';
+  const t = seedPreviewData.totals || {};
+  stats.innerHTML = `
+    <span><strong>${t.initiatives}</strong> initiatives</span>
+    <span><strong>${t.tasks}</strong> tasks</span>
+    <span><strong>${t.unmatchedOwners || 0}</strong> unmatched owners</span>
+  `;
+  if ((t.unmatchedOwners || 0) > 0) {
+    warning.style.display = '';
+    warning.textContent = `${t.unmatchedOwners} initiative(s) have an owner name we couldn't match to a team member. Those will be assigned to you (the CMO) — you can reassign after import.`;
+  } else {
+    warning.style.display = 'none';
+  }
+
+  // Sort by FY then quarter then lane
+  const qOrder = ['Q1', 'Q2', 'Q3', 'Q4'];
+  const fyKey = fy => parseInt((fy || 'FY00').replace(/^FY/, ''), 10);
+  const sorted = (seedPreviewData.initiatives || []).slice().sort((a, b) =>
+    fyKey(a.fiscalYear) - fyKey(b.fiscalYear) ||
+    qOrder.indexOf(a.quarter) - qOrder.indexOf(b.quarter) ||
+    a.lane.localeCompare(b.lane) ||
+    a.name.localeCompare(b.name)
+  );
+
+  list.innerHTML = sorted.map(i => {
+    const ownerStr = i.resolvedOwner
+      ? `→ ${escapeHtml(i.resolvedOwner.displayName)}`
+      : `<span class="unmatched">⚠ ${escapeHtml(i.ownerName || 'unassigned')} (no match)</span>`;
+    return `
+      <div class="seed-init-row">
+        <div class="seed-init-quarter">
+          ${i.quarter} ${i.fiscalYear}
+          <small>${escapeHtml(laneLabel(i.lane))}</small>
+        </div>
+        <div>
+          <div class="seed-init-title">${escapeHtml(i.name)}</div>
+          <div class="seed-init-goal">${escapeHtml(i.goal || '')}</div>
+        </div>
+        <div class="seed-init-owner ${i.resolvedOwner ? '' : 'unmatched'}">
+          ${ownerStr}<br>
+          <span class="seed-task-count">${i.taskCount} task${i.taskCount === 1 ? '' : 's'}</span>
+        </div>
+      </div>`;
+  }).join('');
+
+  document.getElementById('btn-seed-confirm').textContent = `Create all ${t.initiatives} initiatives + ${t.tasks} tasks`;
+  openModal('modal-seed-preview');
+}
+
+async function confirmSeed() {
+  const btn = document.getElementById('btn-seed-confirm');
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Creating…';
+  try {
+    const r = await api('POST', '/api/roadmap/seed-fy26-offsite');
+    closeModal('modal-seed-preview');
+    showToast(`Seeded ${r.initiativesCreated} initiatives + ${r.tasksCreated} tasks`, 'success');
+    await loadInitiatives();
+    renderRoadmap();
+    refreshSeedBanner();
+  } catch (err) {
+    showToast('Seed failed: ' + err.message, 'error');
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const dismissBtn = document.getElementById('btn-seed-dismiss');
+  if (dismissBtn) dismissBtn.addEventListener('click', () => {
+    sessionStorage.setItem('seedFy26Dismissed', '1');
+    document.getElementById('roadmap-seed-banner').style.display = 'none';
+  });
+  const previewBtn = document.getElementById('btn-seed-preview');
+  if (previewBtn) previewBtn.addEventListener('click', openSeedPreviewModal);
+  const confirmBtn = document.getElementById('btn-seed-confirm');
+  if (confirmBtn) confirmBtn.addEventListener('click', confirmSeed);
+});
+
+// === Initiative form: tasks list, add inline, AI generate ===
+function renderInitTasksList(initId) {
+  const list = document.getElementById('init-tasks-list');
+  const countEl = document.getElementById('init-tasks-count');
+  const tasks = (tasksByWorkspaceId[initId] || []).slice()
+    .sort((a, b) => (a.dueDate || '￿').localeCompare(b.dueDate || '￿'));
+  countEl.textContent = tasks.length ? `(${tasks.length})` : '';
+  if (tasks.length === 0) {
+    list.innerHTML = '<p style="color:var(--color-text-muted);font-size:0.78rem;margin:0;padding:0.4rem;">No tasks yet — add one or generate from the initiative goal.</p>';
+    return;
+  }
+  list.innerHTML = tasks.map(t => `
+    <div class="init-task-row ${t.status === 'Completed' ? 'completed' : ''}" data-task-id="${t.id}">
+      <input type="checkbox" class="init-task-cb" ${t.status === 'Completed' ? 'checked' : ''} title="Toggle complete">
+      <span class="init-task-row-title init-task-clickable" data-open-task="${t.id}" title="Open full task editor">${escapeHtml(t.title)}</span>
+      ${t.priority ? `<span class="init-task-row-priority">${escapeHtml(t.priority)}</span>` : ''}
+      ${t.dueDate ? `<span class="init-task-row-due">${escapeHtml(t.dueDate)}</span>` : ''}
+      <button type="button" class="init-task-delete" data-delete-task="${t.id}" title="Delete task">🗑</button>
+    </div>
+  `).join('');
+  list.querySelectorAll('.init-task-cb').forEach(cb => {
+    cb.addEventListener('change', async (e) => {
+      const row = e.target.closest('.init-task-row');
+      const taskId = row.dataset.taskId;
+      try {
+        await api('PUT', '/api/tasks/' + taskId, { status: cb.checked ? 'Completed' : 'Not Started' });
+        await loadInitiatives();
+        renderInitTasksList(initId);
+        renderRoadmap();
+      } catch (err) { showToast('Failed: ' + err.message, 'error'); cb.checked = !cb.checked; }
+    });
+  });
+}
+
+async function deleteTaskFromInitForm(taskId) {
+  if (!taskId) return;
+  if (!confirm('Delete this task?')) return;
+  try {
+    await api('DELETE', '/api/tasks/' + taskId);
+    await loadInitiatives();
+    renderInitTasksList(editingInitiativeId);
+    renderRoadmap();
+    showToast('Task deleted', 'success');
+  } catch (err) {
+    showToast('Delete failed: ' + err.message, 'error');
+  }
+}
+
+async function saveNewInitTask() {
+  if (!editingInitiativeId) return;
+  const title = document.getElementById('init-new-task-title').value.trim();
+  if (!title) { showToast('Task title required', 'error'); return; }
+  const init = initiatives.find(i => i.id === editingInitiativeId);
+  const laneToDept = {
+    prospecting_bd: 'B2B Marketing',
+    growth_marketing: 'B2B Marketing',
+    brand: 'B2B Marketing',
+    consumer_marketing: 'B2C Marketing'
+  };
+  const dept = init ? (laneToDept[init.lane] || 'B2B Marketing') : 'B2B Marketing';
+  const payload = {
+    title,
+    department: dept,
+    priority: document.getElementById('init-new-task-priority').value,
+    dueDate: document.getElementById('init-new-task-due').value || '',
+    workspaceId: editingInitiativeId,
+    assignedTo: (init && init.ownerId) || (myProfile && myProfile.userId)
+  };
+  try {
+    await api('POST', '/api/tasks', payload);
+    document.getElementById('init-new-task-title').value = '';
+    document.getElementById('init-new-task-due').value = '';
+    document.getElementById('init-add-task-row').style.display = 'none';
+    await loadInitiatives();
+    renderInitTasksList(editingInitiativeId);
+    renderRoadmap();
+  } catch (err) {
+    showToast('Failed: ' + err.message, 'error');
+  }
+}
+
+async function generateInitTasksAi() {
+  if (!editingInitiativeId) return;
+  const btn = document.getElementById('btn-init-ai-tasks');
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '✨ Thinking…';
+  try {
+    const r = await api('POST', '/api/workspaces/' + editingInitiativeId + '/generate-tasks');
+    const suggestions = (r.tasks || []);
+    if (suggestions.length === 0) {
+      showToast('No tasks suggested — try editing the goal/description for more signal', 'error');
+      return;
+    }
+    showAiSuggestions(suggestions);
+  } catch (err) {
+    showToast('AI generation failed: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = orig;
+  }
+}
+
+function showAiSuggestions(suggestions) {
+  const c = document.getElementById('init-ai-suggestions');
+  c.style.display = '';
+  c.dataset.suggestions = JSON.stringify(suggestions);
+  let html = '<p style="font-size:0.78rem;margin:0 0 0.4rem;font-weight:600;">AI suggestions — uncheck any you don’t want:</p>';
+  html += suggestions.map((s, i) => `
+    <div class="init-ai-row">
+      <input type="checkbox" class="init-ai-check" data-idx="${i}" checked>
+      <span class="ai-title">${escapeHtml(s.title)}</span>
+      <span class="ai-priority">${escapeHtml(s.priority || 'Medium')}</span>
+    </div>
+  `).join('');
+  html += `<div style="margin-top:0.5rem;display:flex;gap:0.5rem;justify-content:flex-end;">
+    <button type="button" class="btn btn-ghost btn-sm" id="btn-ai-cancel">Cancel</button>
+    <button type="button" class="btn btn-primary btn-sm" id="btn-ai-create">Create selected</button>
+  </div>`;
+  c.innerHTML = html;
+  document.getElementById('btn-ai-cancel').addEventListener('click', () => { c.style.display = 'none'; });
+  document.getElementById('btn-ai-create').addEventListener('click', createAiSuggestionsFromUI);
+}
+
+async function createAiSuggestionsFromUI() {
+  const c = document.getElementById('init-ai-suggestions');
+  const all = JSON.parse(c.dataset.suggestions || '[]');
+  const checked = [...c.querySelectorAll('.init-ai-check:checked')].map(cb => parseInt(cb.dataset.idx, 10));
+  const selected = checked.map(i => all[i]).filter(Boolean);
+  if (selected.length === 0) { c.style.display = 'none'; return; }
+  const init = initiatives.find(i => i.id === editingInitiativeId);
+  const laneToDept = {
+    prospecting_bd: 'B2B Marketing', growth_marketing: 'B2B Marketing',
+    brand: 'B2B Marketing', consumer_marketing: 'B2C Marketing'
+  };
+  const tasks = selected.map(s => ({
+    title: s.title,
+    department: s.department || (init && laneToDept[init.lane]) || 'B2B Marketing',
+    priority: s.priority || 'Medium',
+    notes: s.notes || '',
+    assignedTo: s.assignedTo || (init && init.ownerId) || (myProfile && myProfile.userId),
+    workspaceId: editingInitiativeId
+  }));
+  try {
+    await api('POST', '/api/tasks/batch', { tasks });
+    c.style.display = 'none';
+    await loadInitiatives();
+    renderInitTasksList(editingInitiativeId);
+    renderRoadmap();
+    showToast(`Created ${tasks.length} tasks`, 'success');
+  } catch (err) {
+    showToast('Failed: ' + err.message, 'error');
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const addBtn = document.getElementById('btn-init-add-task');
+  if (addBtn) addBtn.addEventListener('click', () => {
+    document.getElementById('init-add-task-row').style.display = 'flex';
+    document.getElementById('init-new-task-title').focus();
+  });
+  const saveBtn = document.getElementById('btn-init-save-task');
+  if (saveBtn) saveBtn.addEventListener('click', saveNewInitTask);
+  const cancelBtn = document.getElementById('btn-init-cancel-task');
+  if (cancelBtn) cancelBtn.addEventListener('click', () => {
+    document.getElementById('init-new-task-title').value = '';
+    document.getElementById('init-new-task-due').value = '';
+    document.getElementById('init-add-task-row').style.display = 'none';
+  });
+  const newTaskTitle = document.getElementById('init-new-task-title');
+  if (newTaskTitle) newTaskTitle.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); saveNewInitTask(); }
+  });
+  const aiBtn = document.getElementById('btn-init-ai-tasks');
+  if (aiBtn) aiBtn.addEventListener('click', generateInitTasksAi);
+
+  // Delegated click handler on the init tasks list — open task detail or delete.
+  const initTasksListEl = document.getElementById('init-tasks-list');
+  if (initTasksListEl) {
+    initTasksListEl.addEventListener('click', (e) => {
+      const open = e.target.closest('[data-open-task]');
+      if (open) {
+        const tid = open.dataset.openTask;
+        closeModal('modal-initiative');
+        if (typeof showTaskDetail === 'function') {
+          // Slight delay so the close transition completes cleanly
+          setTimeout(() => showTaskDetail(tid), 30);
+        }
+        return;
+      }
+      const del = e.target.closest('[data-delete-task]');
+      if (del) {
+        e.stopPropagation();
+        deleteTaskFromInitForm(del.dataset.deleteTask);
+      }
+    });
+  }
 });

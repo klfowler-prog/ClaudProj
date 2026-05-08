@@ -340,9 +340,12 @@ app.get('/api/tasks', auth, async (req, res) => {
       );
     }
 
-    // Workspace filtering: scope to workspace or main view
+    // Workspace filtering: scope to workspace, all-workspaces, or main view
     if (req.query.workspaceId) {
       tasks = tasks.filter(t => t.workspaceId === req.query.workspaceId);
+    } else if (req.query.allWorkspaces === 'true') {
+      // Roadmap view: include every task, including those scoped to a workspace
+      // (no additional filter beyond the role-based one above)
     } else {
       // Main view: show non-workspace tasks + workspace tasks promoted to master
       tasks = tasks.filter(t => !t.workspaceId || t.workspaceId === '' || t.showOnMaster === true);
@@ -522,7 +525,11 @@ app.post('/api/tasks/batch', authWrite, async (req, res) => {
         recurring: task.recurring || 'none',
         createdBy: req.userId, assignedTo: task.assignedTo || req.userId, sharedWith: [],
         subDepartment: task.subDepartment || '', parentTaskId: task.parentTaskId || '',
-        watchers: []
+        watchers: [],
+        workspaceId: task.workspaceId || '',
+        showOnMaster: task.showOnMaster || false,
+        tags: Array.isArray(task.tags) ? task.tags.slice(0, 20).map(t => String(t).substring(0, 50)) : [],
+        private: task.private || false
       };
       batch.set(docRef, taskData);
       results.push({ id: docRef.id, ...taskData });
@@ -1218,24 +1225,60 @@ app.get('/api/workspaces', auth, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Failed to fetch workspaces' }); }
 });
 
-// POST /api/workspaces — Create a workspace (CMO or lead)
+// POST /api/workspaces — Create a workspace (CMO or lead). Pass kind:'initiative' to create a roadmap initiative.
 app.post('/api/workspaces', authWrite, async (req, res) => {
   if (req.memberRole !== 'cmo' && req.memberRole !== 'lead') return res.status(403).json({ error: 'Only CMO and leads can create workspaces' });
   try {
     const { name, description, members, color } = req.body;
     if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' });
+    const isInit = req.body.kind === 'initiative';
+    if (isInit) {
+      const err = validateInitiativePayload(req.body);
+      if (err) return res.status(400).json({ error: err });
+    }
     const memberList = Array.isArray(members) ? members : [];
     if (!memberList.includes(req.userId)) memberList.push(req.userId);
     const workspace = {
       name: name.trim(),
       description: (description || '').trim(),
-      ownerId: req.userId,
+      ownerId: req.body.ownerId || req.userId,
       members: memberList,
       color: color || '',
       archived: false,
       createdBy: req.userId,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      kind: isInit ? 'initiative' : 'workspace'
     };
+    if (isInit) {
+      workspace.lane = req.body.lane;
+      // Date range — preferred; derive FY/quarter from startDate
+      let startDate = req.body.startDate || '';
+      let endDate = req.body.endDate || '';
+      let fy = req.body.fiscalYear || '';
+      let qtr = req.body.quarter || '';
+      if (!startDate && fy && qtr) {
+        const m = quarterToMonths(fy, qtr);
+        startDate = m.start;
+        endDate = m.end;
+      }
+      if (startDate) {
+        workspace.startDate = startDate;
+        workspace.endDate = endDate || startDate;
+        const derived = fyQuarter(new Date(startDate));
+        workspace.fiscalYear = derived.fiscalYear;
+        workspace.quarter = derived.quarter;
+      } else {
+        workspace.fiscalYear = fy;
+        workspace.quarter = qtr;
+      }
+      workspace.goal = req.body.goal.trim();
+      workspace.metric = (req.body.metric || '').trim();
+      workspace.theme = (req.body.theme || '').trim();
+      workspace.supportingFunctions = normalizeSupportingFunctions(req.body.supportingFunctions);
+      workspace.roadmapStatus = req.body.roadmapStatus && ROADMAP_STATUSES.includes(req.body.roadmapStatus)
+        ? req.body.roadmapStatus
+        : 'Backlog';
+    }
     const ref = await orgCol(req, 'workspaces').add(workspace);
 
     // Notify added members (except creator)
@@ -1255,12 +1298,21 @@ app.post('/api/workspaces', authWrite, async (req, res) => {
   } catch (err) { console.error('Create workspace failed:', err); res.status(500).json({ error: 'Failed to create workspace' }); }
 });
 
-// PUT /api/workspaces/:id — Update a workspace (owner or CMO)
+// PUT /api/workspaces/:id — Update a workspace
+//   Regular workspace: owner or CMO can edit.
+//   Initiative: cmo/lead/owner/member can edit (members are added "by invite").
 app.put('/api/workspaces/:id', authWrite, async (req, res) => {
   try {
     const doc = await orgCol(req, 'workspaces').doc(req.params.id).get();
     if (!doc.exists) return res.status(404).json({ error: 'Workspace not found' });
-    if (req.memberRole !== 'cmo' && doc.data().ownerId !== req.userId) {
+    const ws = doc.data();
+    const isInit = ws.kind === 'initiative';
+    if (isInit) {
+      const allowed = req.memberRole === 'cmo' || req.memberRole === 'lead'
+        || ws.ownerId === req.userId
+        || (Array.isArray(ws.members) && ws.members.includes(req.userId));
+      if (!allowed) return res.status(403).json({ error: 'Only leaders, the owner, or members can edit this initiative' });
+    } else if (req.memberRole !== 'cmo' && ws.ownerId !== req.userId) {
       return res.status(403).json({ error: 'Only the workspace owner or CMO can edit' });
     }
     const updates = {};
@@ -1268,6 +1320,54 @@ app.put('/api/workspaces/:id', authWrite, async (req, res) => {
     if (req.body.description !== undefined) updates.description = req.body.description.trim();
     if (req.body.color !== undefined) updates.color = req.body.color;
     if (req.body.archived !== undefined) updates.archived = req.body.archived;
+    if (req.body.ownerId !== undefined) updates.ownerId = req.body.ownerId;
+    if (isInit) {
+      if (req.body.lane !== undefined) {
+        if (!ROADMAP_LANES.includes(req.body.lane)) return res.status(400).json({ error: 'Invalid lane' });
+        updates.lane = req.body.lane;
+      }
+      if (req.body.fiscalYear !== undefined) {
+        if (!/^FY\d{2}$/.test(req.body.fiscalYear)) return res.status(400).json({ error: 'Invalid fiscalYear' });
+        updates.fiscalYear = req.body.fiscalYear;
+      }
+      if (req.body.quarter !== undefined) {
+        if (!['Q1', 'Q2', 'Q3', 'Q4'].includes(req.body.quarter)) return res.status(400).json({ error: 'Invalid quarter' });
+        updates.quarter = req.body.quarter;
+      }
+      if (req.body.startDate !== undefined) {
+        if (req.body.startDate && !/^\d{4}-\d{2}-\d{2}$/.test(req.body.startDate)) return res.status(400).json({ error: 'startDate must be YYYY-MM-DD' });
+        updates.startDate = req.body.startDate || '';
+        if (updates.startDate) {
+          const derived = fyQuarter(new Date(updates.startDate));
+          updates.fiscalYear = derived.fiscalYear;
+          updates.quarter = derived.quarter;
+        }
+      }
+      if (req.body.endDate !== undefined) {
+        if (req.body.endDate && !/^\d{4}-\d{2}-\d{2}$/.test(req.body.endDate)) return res.status(400).json({ error: 'endDate must be YYYY-MM-DD' });
+        updates.endDate = req.body.endDate || '';
+      }
+      // Cross-validate after both potentially set
+      const newStart = updates.startDate !== undefined ? updates.startDate : ws.startDate;
+      const newEnd = updates.endDate !== undefined ? updates.endDate : ws.endDate;
+      if (newStart && newEnd && newStart > newEnd) return res.status(400).json({ error: 'End date must be on or after start date' });
+      if (req.body.roadmapStatus !== undefined) {
+        if (!ROADMAP_STATUSES.includes(req.body.roadmapStatus)) return res.status(400).json({ error: 'Invalid roadmapStatus' });
+        updates.roadmapStatus = req.body.roadmapStatus;
+      }
+      if (req.body.supportingFunctions !== undefined) {
+        if (!Array.isArray(req.body.supportingFunctions)) {
+          return res.status(400).json({ error: 'supportingFunctions must be an array' });
+        }
+        updates.supportingFunctions = normalizeSupportingFunctions(req.body.supportingFunctions);
+      }
+      if (req.body.theme !== undefined) updates.theme = (req.body.theme || '').trim();
+      if (req.body.goal !== undefined) {
+        if (!req.body.goal.trim()) return res.status(400).json({ error: 'Goal cannot be empty' });
+        updates.goal = req.body.goal.trim();
+      }
+      if (req.body.metric !== undefined) updates.metric = (req.body.metric || '').trim();
+    }
     if (req.body.members !== undefined) {
       updates.members = req.body.members;
       // Notify newly added members
@@ -1288,14 +1388,18 @@ app.put('/api/workspaces/:id', authWrite, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Failed to update workspace' }); }
 });
 
-// DELETE /api/workspaces/:id — Archive a workspace (owner or CMO)
+// DELETE /api/workspaces/:id — Archive a workspace
+//   Regular workspace: owner or CMO. Initiative: cmo/lead/owner.
 app.delete('/api/workspaces/:id', authWrite, async (req, res) => {
   try {
     const doc = await orgCol(req, 'workspaces').doc(req.params.id).get();
     if (!doc.exists) return res.status(404).json({ error: 'Workspace not found' });
-    if (req.memberRole !== 'cmo' && doc.data().ownerId !== req.userId) {
-      return res.status(403).json({ error: 'Only the workspace owner or CMO can archive' });
-    }
+    const ws = doc.data();
+    const isInit = ws.kind === 'initiative';
+    const allowed = isInit
+      ? (req.memberRole === 'cmo' || req.memberRole === 'lead' || ws.ownerId === req.userId)
+      : (req.memberRole === 'cmo' || ws.ownerId === req.userId);
+    if (!allowed) return res.status(403).json({ error: 'Not allowed to archive' });
     await orgCol(req, 'workspaces').doc(req.params.id).update({ archived: true });
     res.json({ archived: true });
   } catch (err) { res.status(500).json({ error: 'Failed to archive workspace' }); }
@@ -4068,6 +4172,432 @@ app.post('/api/sync', auth, async (req, res) => {
     res.json({ synced: newCount });
   } catch (err) {
     console.error('Email sync failed:', err); res.status(500).json({ error: 'Email sync failed. Please try again.' });
+  }
+});
+
+// === Roadmap (Initiative) Helpers & Endpoints ===
+
+const ROADMAP_LANES = ['prospecting_bd', 'growth_marketing', 'brand', 'consumer_marketing'];
+const ROADMAP_STATUSES = ['Backlog', 'Not Started', 'In Progress', 'Approved', 'Completed'];
+
+// Follett FY: Jul–Jun. FY name = year the FY ends in.
+//   Apr 2026 → FY26 Q4   |   Jul 2026 → FY27 Q1   |   Jan 2027 → FY27 Q3
+function fyQuarter(date) {
+  const d = date instanceof Date ? date : new Date(date);
+  const m = d.getMonth(), y = d.getFullYear();
+  const fyEndYear = m >= 6 ? y + 1 : y;
+  const fiscalYear = `FY${String(fyEndYear).slice(-2)}`;
+  let quarter;
+  if (m >= 6 && m <= 8) quarter = 'Q1';
+  else if (m >= 9 && m <= 11) quarter = 'Q2';
+  else if (m <= 2) quarter = 'Q3';
+  else quarter = 'Q4';
+  return { fiscalYear, quarter };
+}
+
+// Quarter → first/last day strings (YYYY-MM-DD). Used to derive dates from legacy quarter-only initiatives.
+function quarterToMonths(fy, q) {
+  const fyEnd = parseInt((fy || 'FY27').replace(/^FY/, ''), 10) + 2000;
+  const fyStart = fyEnd - 1;
+  const ranges = {
+    Q1: { startY: fyStart, startM: 6, endY: fyStart, endM: 8 },
+    Q2: { startY: fyStart, startM: 9, endY: fyStart, endM: 11 },
+    Q3: { startY: fyEnd, startM: 0, endY: fyEnd, endM: 2 },
+    Q4: { startY: fyEnd, startM: 3, endY: fyEnd, endM: 5 }
+  };
+  const r = ranges[q] || ranges.Q1;
+  const pad = n => String(n).padStart(2, '0');
+  const lastDay = new Date(r.endY, r.endM + 1, 0).getDate();
+  return {
+    start: `${r.startY}-${pad(r.startM + 1)}-01`,
+    end: `${r.endY}-${pad(r.endM + 1)}-${pad(lastDay)}`
+  };
+}
+
+function normalizeSupportingFunctions(input) {
+  if (!Array.isArray(input)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const raw of input) {
+    if (typeof raw !== 'string') continue;
+    const v = raw.trim();
+    if (!v) continue;
+    if (v.length > 60) continue;
+    const key = v.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(v);
+    if (out.length >= 12) break;
+  }
+  return out;
+}
+
+function validateInitiativePayload(body) {
+  if (!body.lane || !ROADMAP_LANES.includes(body.lane)) return 'Valid lane is required';
+  // Either dates OR (fiscalYear + quarter) must be supplied
+  const hasDates = body.startDate && body.endDate;
+  const hasQuarter = body.fiscalYear && body.quarter;
+  if (!hasDates && !hasQuarter) return 'Start date and end date are required';
+  if (body.startDate && !/^\d{4}-\d{2}-\d{2}$/.test(body.startDate)) return 'startDate must be YYYY-MM-DD';
+  if (body.endDate && !/^\d{4}-\d{2}-\d{2}$/.test(body.endDate)) return 'endDate must be YYYY-MM-DD';
+  if (body.startDate && body.endDate && body.startDate > body.endDate) return 'End date must be on or after start date';
+  if (body.fiscalYear && !/^FY\d{2}$/.test(body.fiscalYear)) return 'Valid fiscalYear (e.g., FY27) is required';
+  if (body.quarter && !['Q1', 'Q2', 'Q3', 'Q4'].includes(body.quarter)) return 'Valid quarter is required';
+  if (!body.goal || !body.goal.trim()) return 'Goal is required';
+  if (body.roadmapStatus && !ROADMAP_STATUSES.includes(body.roadmapStatus)) return 'Invalid roadmap status';
+  if (body.supportingFunctions !== undefined && !Array.isArray(body.supportingFunctions)) return 'supportingFunctions must be an array';
+  return null;
+}
+
+// GET /api/fy/current — Current fiscal year + quarter for the UI header
+app.get('/api/fy/current', auth, (req, res) => {
+  res.json(fyQuarter(new Date()));
+});
+
+// === Roadmap Seed (FY26 Offsite One-Time Import) ===
+// Pre-extracted initiatives + tasks from the April 2026 leadership offsite (PDFs in repo root).
+// CMO-only. Idempotent: refuses to seed if any workspace already carries seedSource:'fy26-offsite'.
+
+let _fy26SeedCache = null;
+function loadFy26Seed() {
+  if (_fy26SeedCache) return _fy26SeedCache;
+  try {
+    const txt = fs.readFileSync(path.join(__dirname, 'data', 'roadmap-seed-fy26.json'), 'utf-8');
+    _fy26SeedCache = JSON.parse(txt);
+  } catch (err) {
+    console.error('Failed to load FY26 seed file:', err);
+    _fy26SeedCache = { initiatives: [] };
+  }
+  return _fy26SeedCache;
+}
+
+// Match a person name (case-insensitive prefix or contains) against team displayNames.
+// Returns { userId, displayName } or null.
+function resolveOwnerName(name, members) {
+  if (!name) return null;
+  const want = name.trim().toLowerCase();
+  if (!want) return null;
+  // Exact match first
+  const exact = members.find(m => (m.displayName || '').toLowerCase() === want);
+  if (exact) return { userId: exact.userId, displayName: exact.displayName };
+  // First-name / first-token match
+  const firstToken = members.find(m => (m.displayName || '').toLowerCase().split(/\s+/)[0] === want);
+  if (firstToken) return { userId: firstToken.userId, displayName: firstToken.displayName };
+  // Contains
+  const contains = members.find(m => (m.displayName || '').toLowerCase().includes(want));
+  if (contains) return { userId: contains.userId, displayName: contains.displayName };
+  return null;
+}
+
+async function loadActiveMembers(req) {
+  const snap = await orgCol(req, 'members').get();
+  return snap.docs.map(d => d.data()).filter(m => m.status === 'active' || !m.status);
+}
+
+// GET /api/roadmap/seed-fy26-offsite/preview — CMO-only
+app.get('/api/roadmap/seed-fy26-offsite/preview', auth, async (req, res) => {
+  if (req.memberRole !== 'cmo') return res.status(403).json({ error: 'CMO only' });
+  try {
+    const seed = loadFy26Seed();
+    const members = await loadActiveMembers(req);
+    const wsSnap = await orgCol(req, 'workspaces')
+      .where('seedSource', '==', 'fy26-offsite').limit(1).get();
+    const alreadySeeded = !wsSnap.empty;
+
+    const resolved = (seed.initiatives || []).map(init => {
+      const ownerMatch = resolveOwnerName(init.ownerName, members);
+      const contributorMatches = (init.contributorsNames || [])
+        .map(n => ({ name: n, match: resolveOwnerName(n, members) }))
+        .filter(x => x.match);
+      const unmatchedContribs = (init.contributorsNames || [])
+        .filter(n => !resolveOwnerName(n, members));
+      return {
+        name: init.name,
+        lane: init.lane,
+        fiscalYear: init.fiscalYear,
+        quarter: init.quarter,
+        theme: init.theme || '',
+        goal: init.goal,
+        metric: init.metric || '',
+        supportingFunctions: init.supportingFunctions || [],
+        ownerName: init.ownerName,
+        resolvedOwner: ownerMatch,
+        resolvedContributors: contributorMatches.map(x => x.match),
+        unmatchedContributors: unmatchedContribs,
+        taskCount: (init.tasks || []).length
+      };
+    });
+
+    res.json({
+      version: seed.version,
+      summary: seed.summary,
+      alreadySeeded,
+      initiatives: resolved,
+      totals: {
+        initiatives: resolved.length,
+        tasks: resolved.reduce((s, i) => s + i.taskCount, 0),
+        unmatchedOwners: resolved.filter(i => !i.resolvedOwner).length
+      }
+    });
+  } catch (err) {
+    console.error('Seed preview failed:', err);
+    res.status(500).json({ error: 'Failed to build seed preview: ' + err.message });
+  }
+});
+
+// POST /api/roadmap/seed-fy26-offsite — CMO-only, refuses if already seeded
+app.post('/api/roadmap/seed-fy26-offsite', auth, async (req, res) => {
+  if (req.memberRole !== 'cmo') return res.status(403).json({ error: 'CMO only' });
+  try {
+    const wsSnap = await orgCol(req, 'workspaces')
+      .where('seedSource', '==', 'fy26-offsite').limit(1).get();
+    if (!wsSnap.empty) return res.status(409).json({ error: 'Roadmap is already seeded from the FY26 offsite' });
+
+    const seed = loadFy26Seed();
+    const members = await loadActiveMembers(req);
+    const now = new Date().toISOString();
+    const wsRef = orgCol(req, 'workspaces');
+    const tasksRef = orgCol(req, 'tasks');
+
+    const laneToDept = {
+      prospecting_bd: 'B2B Marketing',
+      growth_marketing: 'B2B Marketing',
+      brand: 'B2B Marketing',
+      consumer_marketing: 'B2C Marketing'
+    };
+
+    let initCount = 0;
+    let taskCount = 0;
+
+    for (const init of (seed.initiatives || [])) {
+      const ownerMatch = resolveOwnerName(init.ownerName, members);
+      const ownerId = (ownerMatch && ownerMatch.userId) || req.userId;
+      const contribIds = (init.contributorsNames || [])
+        .map(n => resolveOwnerName(n, members))
+        .filter(Boolean)
+        .map(m => m.userId);
+      // Owner is always in members; ensure CMO is too (creator)
+      const memberIds = Array.from(new Set([ownerId, req.userId, ...contribIds]));
+
+      const wsDoc = {
+        name: init.name,
+        description: init.description || '',
+        ownerId,
+        members: memberIds,
+        color: '',
+        archived: false,
+        createdBy: req.userId,
+        createdAt: now,
+        kind: 'initiative',
+        lane: init.lane,
+        fiscalYear: init.fiscalYear,
+        quarter: init.quarter,
+        theme: init.theme || '',
+        goal: init.goal,
+        metric: init.metric || '',
+        supportingFunctions: normalizeSupportingFunctions(init.supportingFunctions || []),
+        roadmapStatus: 'Backlog',
+        seedSource: 'fy26-offsite'
+      };
+      const wsCreated = await wsRef.add(wsDoc);
+      initCount++;
+
+      const dept = laneToDept[init.lane] || 'B2B Marketing';
+      for (const t of (init.tasks || [])) {
+        await tasksRef.add({
+          title: t.title,
+          department: dept,
+          priority: t.priority || 'Medium',
+          notes: '',
+          status: 'Not Started',
+          completed: false,
+          completedAt: '',
+          createdAt: now,
+          source: 'seed',
+          attachments: [],
+          dueDate: '',
+          emailMessageId: '',
+          recurring: 'none',
+          createdBy: req.userId,
+          assignedTo: ownerId,
+          sharedWith: [],
+          parentTaskId: '',
+          workspaceId: wsCreated.id,
+          tags: []
+        });
+        taskCount++;
+      }
+    }
+
+    res.status(201).json({ ok: true, initiativesCreated: initCount, tasksCreated: taskCount });
+  } catch (err) {
+    console.error('Seed run failed:', err);
+    res.status(500).json({ error: 'Seed failed: ' + err.message });
+  }
+});
+
+// === External Roadmap Links ===
+// Lightweight pointer collection for teams that keep their roadmap in Slack/Notion/etc.
+// Any non-viewer can add a link; only the creator (or CMO) can edit/remove it.
+
+function isValidExternalUrl(url) {
+  if (!url || typeof url !== 'string') return false;
+  return /^https?:\/\/.+/i.test(url.trim());
+}
+
+app.get('/api/external-roadmaps', auth, async (req, res) => {
+  try {
+    const snap = await orgCol(req, 'externalRoadmaps').get();
+    const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    res.json(list);
+  } catch (err) {
+    console.error('External roadmaps list failed:', err);
+    res.status(500).json({ error: 'Failed to fetch external roadmaps' });
+  }
+});
+
+app.post('/api/external-roadmaps', authWrite, async (req, res) => {
+  try {
+    const name = (req.body.name || '').trim();
+    const url = (req.body.url || '').trim();
+    const description = (req.body.description || '').trim();
+    if (!name) return res.status(400).json({ error: 'Name is required' });
+    if (!isValidExternalUrl(url)) return res.status(400).json({ error: 'URL must start with http:// or https://' });
+    if (name.length > 80) return res.status(400).json({ error: 'Name too long (max 80 chars)' });
+    if (description.length > 280) return res.status(400).json({ error: 'Description too long (max 280 chars)' });
+    const doc = {
+      name,
+      url,
+      description,
+      createdBy: req.userId,
+      createdByName: req.memberName || '',
+      createdAt: new Date().toISOString()
+    };
+    const ref = await orgCol(req, 'externalRoadmaps').add(doc);
+    res.status(201).json({ id: ref.id, ...doc });
+  } catch (err) {
+    console.error('External roadmap create failed:', err);
+    res.status(500).json({ error: 'Failed to create external roadmap' });
+  }
+});
+
+app.put('/api/external-roadmaps/:id', authWrite, async (req, res) => {
+  try {
+    const ref = orgCol(req, 'externalRoadmaps').doc(req.params.id);
+    const doc = await ref.get();
+    if (!doc.exists) return res.status(404).json({ error: 'External roadmap not found' });
+    const data = doc.data();
+    if (req.memberRole !== 'cmo' && data.createdBy !== req.userId) {
+      return res.status(403).json({ error: 'Only the creator or CMO can edit this link' });
+    }
+    const updates = {};
+    if (req.body.name !== undefined) {
+      const v = (req.body.name || '').trim();
+      if (!v) return res.status(400).json({ error: 'Name cannot be empty' });
+      if (v.length > 80) return res.status(400).json({ error: 'Name too long' });
+      updates.name = v;
+    }
+    if (req.body.url !== undefined) {
+      const v = (req.body.url || '').trim();
+      if (!isValidExternalUrl(v)) return res.status(400).json({ error: 'URL must start with http:// or https://' });
+      updates.url = v;
+    }
+    if (req.body.description !== undefined) {
+      const v = (req.body.description || '').trim();
+      if (v.length > 280) return res.status(400).json({ error: 'Description too long' });
+      updates.description = v;
+    }
+    await ref.update(updates);
+    res.json({ id: req.params.id, ...data, ...updates });
+  } catch (err) {
+    console.error('External roadmap update failed:', err);
+    res.status(500).json({ error: 'Failed to update external roadmap' });
+  }
+});
+
+app.delete('/api/external-roadmaps/:id', authWrite, async (req, res) => {
+  try {
+    const ref = orgCol(req, 'externalRoadmaps').doc(req.params.id);
+    const doc = await ref.get();
+    if (!doc.exists) return res.status(404).json({ error: 'External roadmap not found' });
+    const data = doc.data();
+    if (req.memberRole !== 'cmo' && data.createdBy !== req.userId) {
+      return res.status(403).json({ error: 'Only the creator or CMO can remove this link' });
+    }
+    await ref.delete();
+    res.json({ deleted: true });
+  } catch (err) {
+    console.error('External roadmap delete failed:', err);
+    res.status(500).json({ error: 'Failed to remove external roadmap' });
+  }
+});
+
+// POST /api/workspaces/:id/generate-tasks — Use Gemini to draft tasks for an initiative
+app.post('/api/workspaces/:id/generate-tasks', aiLimiter, auth, async (req, res) => {
+  try {
+    const doc = await orgCol(req, 'workspaces').doc(req.params.id).get();
+    if (!doc.exists) return res.status(404).json({ error: 'Initiative not found' });
+    const ws = doc.data();
+    if (ws.kind !== 'initiative') return res.status(400).json({ error: 'Not an initiative' });
+
+    // Pull linked notes context (notes that reference this workspace via note.links[])
+    let noteContext = '';
+    try {
+      const notesSnap = await orgCol(req, 'notes').get();
+      const linked = notesSnap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(n => Array.isArray(n.links) && n.links.some(l => l.type === 'workspace' && l.id === req.params.id));
+      for (const n of linked.slice(0, 5)) {
+        noteContext += `\n[Linked note: ${n.title}]\n${stripHtml(n.content || '').substring(0, 1000)}\n`;
+      }
+    } catch (e) { /* notes optional */ }
+
+    const laneToDept = {
+      prospecting_bd: 'B2B Marketing',
+      growth_marketing: 'B2B Marketing',
+      brand: 'B2B Marketing',
+      consumer_marketing: 'B2C Marketing'
+    };
+    const defaultDept = laneToDept[ws.lane] || 'B2B Marketing';
+
+    const membersSnap = await orgCol(req, 'members').get();
+    const memberList = membersSnap.docs.map(d => {
+      const m = d.data();
+      return `${m.displayName} (userId: ${m.userId})`;
+    }).join(', ');
+
+    const model = getGeminiModel();
+    const result = await model.generateContent({
+      contents: [{ role: 'user', parts: [{ text: `You are a marketing strategy assistant for a CMO at Follett Higher Education. Extract the concrete tasks needed to deliver the strategic initiative below. Return ONLY a JSON array (no markdown, no code fences) where each item has:
+- "title": string (concise, action-oriented)
+- "department": one of "B2B Marketing", "Internal Comms", "Rev Ops", "B2C Marketing", "Personal" (default "${defaultDept}" if unsure)
+- "priority": "High" | "Medium" | "Low"
+- "notes": string (brief context)
+- "assignedTo": userId of a team member if a name is mentioned, otherwise ""
+
+Return at most 8 tasks, only genuinely actionable items. If nothing actionable, return [].
+
+Available team members: ${memberList}
+
+INITIATIVE
+Title: ${ws.name}
+Lane: ${ws.lane}
+Quarter: ${ws.fiscalYear} ${ws.quarter}${ws.theme ? '\nTheme: ' + ws.theme : ''}
+Goal: ${ws.goal}${ws.metric ? '\nMetric: ' + ws.metric : ''}
+Description: ${ws.description || ''}${noteContext ? '\n\nLINKED NOTES' + noteContext : ''}` }] }]
+    });
+
+    const responseText = result.response.text().trim();
+    const cleaned = responseText.replace(/^```json?\n?/i, '').replace(/\n?```$/i, '').trim();
+    let tasks;
+    try { tasks = JSON.parse(cleaned); } catch { return res.status(400).json({ error: 'AI returned invalid format. Try again.' }); }
+    if (!Array.isArray(tasks)) tasks = [];
+    tasks = tasks.map(t => ({ ...t, workspaceId: req.params.id }));
+    res.json({ tasks });
+  } catch (err) {
+    console.error('Initiative task generation failed:', err);
+    res.status(500).json({ error: 'Task generation failed. Please try again.' });
   }
 });
 
