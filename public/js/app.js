@@ -109,6 +109,8 @@ const DEPT_KEYWORDS = {
 
 // === State ===
 let tasks = [];
+let initiatives = [];
+let initiativesById = {}; // id → initiative; rebuilt by setInitiatives()
 let filters = { department: 'all', priority: 'all', search: '', sort: 'due-date', statFilter: 'none' };
 let activeTaskTagFilter = '';
 let pendingAttachments = []; // temp attachments for the add-task form
@@ -276,6 +278,7 @@ function renderKanban() {
       const assigneeName = assignee ? assignee.displayName.split(' ')[0] : '';
       return `<div class="kb-card ${prioClass}" draggable="true" data-task-id="${t.id}">
         <div class="kb-card-title">${escapeHtml(t.title)}</div>
+        <div class="kb-card-row">${renderInitiativePill(t)}</div>
         ${(t.tags || []).length > 0 ? `<div style="display:flex;gap:0.2rem;flex-wrap:wrap;margin-bottom:0.2rem;">${(t.tags || []).slice(0, 2).map(tg => renderTagChip(tg, { small: true })).join('')}</div>` : ''}
         <div class="kb-card-meta">
           ${assigneeName ? `<span>${escapeHtml(assigneeName)}</span>` : ''}
@@ -747,6 +750,7 @@ function renderTaskItem(task) {
           ${isSubtask ? `<span class="task-parent-label">Part of: ${escapeHtml(task.parentTaskTitle || '...')}</span>` : ''}
           ${!activeWorkspaceId ? `<span class="badge badge-${deptKey}">${escapeHtml(task.department)}</span>` : ''}
           ${(task.tags || []).map(t => renderTagChip(t, { small: true })).join('')}
+          ${renderInitiativePill(task)}
           ${task.workspaceId && !activeWorkspaceId ? `<span class="ws-badge" onclick="event.stopPropagation();openWorkspace('${task.workspaceId}')">${escapeHtml(workspaces.find(w => w.id === task.workspaceId)?.name || 'Workspace')}</span>` : ''}
           ${prioDot}
           ${dueDateHtml}
@@ -1076,7 +1080,7 @@ function applyFilters(reload) {
 // === Task Operations (API-backed) ===
 let currentTaskTags = [];
 
-async function addTask(title, department, priority, notes, source, attachments, dueDate, recurring, assignedTo, tags, startDate) {
+async function addTask(title, department, priority, notes, source, attachments, dueDate, recurring, assignedTo, tags, startDate, initiativeId) {
   const taskData = {
     title: title.trim(),
     department,
@@ -1091,7 +1095,8 @@ async function addTask(title, department, priority, notes, source, attachments, 
     startDate: startDate || '',
     dueDate: dueDate || '',
     recurring: recurring || 'none',
-    workspaceId: activeWorkspaceId || ''
+    workspaceId: activeWorkspaceId || '',
+    initiativeId: initiativeId || null
   };
   if (assignedTo && myProfile && assignedTo !== myProfile.userId) {
     taskData.assignedTo = assignedTo;
@@ -1228,6 +1233,13 @@ async function editTask(id) {
       workspaces.map(w => `<option value="${w.id}" ${w.id === task.workspaceId ? 'selected' : ''}>${escapeHtml(w.name)}</option>`).join('');
   }
 
+  // Set initiative dropdown
+  const initSelect = document.getElementById('input-initiative');
+  if (initSelect) {
+    initSelect.innerHTML = '<option value="">— None (Inbox task) —</option>' +
+      initiatives.map(i => `<option value="${i.id}" ${i.id === task.initiativeId ? 'selected' : ''}>${escapeHtml(i.name)}</option>`).join('');
+  }
+
   // Load existing attachments into pending lists
   pendingAttachments = (task.attachments || []).filter(a => a.type === 'file');
   pendingLinks = (task.attachments || []).filter(a => a.type === 'link');
@@ -1306,6 +1318,13 @@ function resetAddForm() {
   if (wsSelect) {
     wsSelect.innerHTML = '<option value="">None</option>' +
       workspaces.map(w => `<option value="${w.id}" ${w.id === activeWorkspaceId ? 'selected' : ''}>${escapeHtml(w.name)}</option>`).join('');
+  }
+
+  // Populate initiative dropdown
+  const initSelect = document.getElementById('input-initiative');
+  if (initSelect) {
+    initSelect.innerHTML = '<option value="">— None (Inbox task) —</option>' +
+      initiatives.map(i => `<option value="${i.id}">${escapeHtml(i.name)}</option>`).join('');
   }
 }
 
@@ -3042,6 +3061,7 @@ async function init() {
   await loadTasks();
   await loadTeam();
   await loadWorkspaces();
+  await loadInitiatives();
   await loadTemplates();
   await loadFolders();
   await migrateLocalStorage();
@@ -3179,13 +3199,15 @@ async function init() {
     const assignTo = document.getElementById('input-assign-to').value || undefined;
     const wsSelect = document.getElementById('input-workspace');
     const selectedWorkspaceId = wsSelect ? wsSelect.value : '';
+    const initSelect = document.getElementById('input-initiative');
+    const selectedInitiativeId = initSelect && initSelect.value ? initSelect.value : null;
 
     if (!title || !department) return;
 
     const allAttachments = [...pendingAttachments, ...pendingLinks];
 
     if (editingTaskId) {
-      const updates = { title, department, priority, notes, startDate, dueDate, recurring, attachments: allAttachments, tags: currentTaskTags, workspaceId: selectedWorkspaceId };
+      const updates = { title, department, priority, notes, startDate, dueDate, recurring, attachments: allAttachments, tags: currentTaskTags, workspaceId: selectedWorkspaceId, initiativeId: selectedInitiativeId };
       if (assignTo) {
         const existingTask = tasks.find(t => t.id === editingTaskId);
         const assigneeChanged = existingTask && assignTo !== existingTask.assignedTo;
@@ -3206,7 +3228,7 @@ async function init() {
     } else {
       const prevWsId = activeWorkspaceId;
       activeWorkspaceId = selectedWorkspaceId || null;
-      await addTask(title, department, priority, notes, 'manual', allAttachments, dueDate, recurring, assignTo, currentTaskTags, startDate);
+      await addTask(title, department, priority, notes, 'manual', allAttachments, dueDate, recurring, assignTo, currentTaskTags, startDate, selectedInitiativeId);
       activeWorkspaceId = prevWsId;
     }
 
@@ -4105,6 +4127,28 @@ let expandedWorkspaces = new Set();
 async function loadWorkspaces() {
   try { workspaces = await api('GET', '/api/workspaces'); } catch { workspaces = []; }
   renderSidebarWorkspaces();
+}
+
+// === Initiatives ===
+async function loadInitiatives() {
+  try { initiatives = await api('GET', '/api/initiatives'); }
+  catch { initiatives = []; }
+  initiativesById = {};
+  for (const i of initiatives) initiativesById[i.id] = i;
+  if (typeof renderSidebarInitiatives === 'function') renderSidebarInitiatives();
+}
+
+function initiativeForTask(task) {
+  if (!task || !task.initiativeId) return null;
+  return initiativesById[task.initiativeId] || null;
+}
+
+function renderInitiativePill(task) {
+  const init = initiativeForTask(task);
+  if (init) {
+    return `<span class="kb-init-pill" title="${escapeHtml(init.thesis || init.name)}">${escapeHtml(init.name)}</span>`;
+  }
+  return `<span class="kb-init-pill kb-init-pill--inbox">Inbox</span>`;
 }
 
 function renderSidebarWorkspaces() {
@@ -5417,4 +5461,248 @@ document.addEventListener('DOMContentLoaded', () => {
   setInterval(async () => {
     if (currentUser) authToken = await currentUser.getIdToken(true);
   }, 50 * 60 * 1000);
+});
+
+// === Initiative form ===
+let editingInitiativeId = null;
+let editingInitiativeCollab = []; // userIds selected as collaborators in the open form
+
+function todayIso() {
+  const d = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function populateInitiativeOwnerDropdown(selectedId) {
+  const sel = document.getElementById('init-owner');
+  if (!sel) return;
+  const me = myProfile || {};
+  const list = (teamMembers || []).filter(m => m.status === 'active' || !m.status);
+  const meRow = `<option value="${me.userId || ''}">${escapeHtml(me.name || 'Me')} (default)</option>`;
+  const others = list
+    .filter(m => m.userId !== me.userId)
+    .map(m => `<option value="${m.userId}">${escapeHtml(m.displayName)}</option>`)
+    .join('');
+  sel.innerHTML = meRow + others;
+  if (selectedId && [...sel.options].every(o => o.value !== selectedId)) {
+    // Owner not in current dropdown — append a placeholder option so we don't lose it
+    const opt = document.createElement('option');
+    opt.value = selectedId;
+    opt.textContent = (teamMembers.find(m => m.userId === selectedId) || {}).displayName || 'Owner';
+    sel.appendChild(opt);
+  }
+  if (selectedId) sel.value = selectedId;
+}
+
+function renderInitiativeCollabGrid(ownerId) {
+  const grid = document.getElementById('init-collab-grid');
+  if (!grid) return;
+  const list = (teamMembers || []).filter(m => (m.status === 'active' || !m.status) && m.userId !== ownerId);
+  if (list.length === 0) {
+    grid.innerHTML = '<p style="color:var(--color-text-muted);font-size:0.78rem;margin:0;">No team members yet.</p>';
+    return;
+  }
+  grid.innerHTML = list.map(m => {
+    const active = editingInitiativeCollab.includes(m.userId);
+    return `<button type="button" class="if-collab ${active ? 'is-active' : ''}" data-uid="${m.userId}">
+      <span>${escapeHtml(m.displayName)}</span>
+      ${active ? '<span class="if-collab__check">✓</span>' : ''}
+    </button>`;
+  }).join('');
+}
+
+function setHealthSegmented(val) {
+  const seg = document.getElementById('init-health-seg');
+  const hidden = document.getElementById('init-health');
+  if (!seg || !hidden) return;
+  hidden.value = val;
+  seg.querySelectorAll('.seg-btn').forEach(b => {
+    b.classList.toggle('is-active', b.dataset.val === val);
+  });
+}
+
+function openInitiativeForm(initiativeId) {
+  if (myProfile && myProfile.role === 'viewer') return;
+  // Only leaders can create new initiatives; leaders + owner can edit
+  if (!initiativeId && !(myProfile && (myProfile.role === 'cmo' || myProfile.role === 'lead'))) {
+    showToast('Only leaders can create initiatives', 'error');
+    return;
+  }
+  const titleEl = document.getElementById('modal-initiative-title');
+  const submitBtn = document.getElementById('btn-submit-initiative');
+  const archiveBtn = document.getElementById('btn-archive-initiative');
+  const form = document.getElementById('form-initiative');
+  if (!form) return;
+
+  if (initiativeId) {
+    const init = initiativesById[initiativeId];
+    if (!init) return;
+    editingInitiativeId = init.id;
+    editingInitiativeCollab = (init.collaborators || []).slice();
+    titleEl.textContent = 'Edit Initiative';
+    submitBtn.textContent = 'Save changes';
+
+    document.getElementById('init-name').value = init.name || '';
+    document.getElementById('init-thesis').value = init.thesis || '';
+    document.getElementById('init-department').value = init.department || '';
+    document.getElementById('init-priority').value = init.priority || 'Medium';
+    setHealthSegmented(init.health || 'on-track');
+    document.getElementById('init-start').value = init.start || todayIso();
+    document.getElementById('init-end').value = init.end || todayIso();
+    populateInitiativeOwnerDropdown(init.ownerId);
+    renderInitiativeCollabGrid(init.ownerId);
+
+    const canArchive = myProfile && (
+      myProfile.role === 'cmo' || myProfile.role === 'lead' ||
+      init.ownerId === myProfile.userId
+    );
+    archiveBtn.style.display = canArchive ? '' : 'none';
+  } else {
+    editingInitiativeId = null;
+    editingInitiativeCollab = [];
+    titleEl.textContent = 'New Initiative';
+    submitBtn.textContent = 'Create initiative';
+    archiveBtn.style.display = 'none';
+    form.reset();
+    populateInitiativeOwnerDropdown((myProfile && myProfile.userId) || '');
+    setHealthSegmented('on-track');
+    document.getElementById('init-priority').value = 'Medium';
+    const t = todayIso();
+    document.getElementById('init-start').value = t;
+    // Default end: 90 days out
+    const d = new Date(t + 'T00:00:00');
+    d.setDate(d.getDate() + 90);
+    const pad = n => String(n).padStart(2, '0');
+    document.getElementById('init-end').value = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    renderInitiativeCollabGrid((myProfile && myProfile.userId) || '');
+  }
+
+  openModal('modal-initiative');
+}
+
+async function saveInitiativeFromForm(e) {
+  e.preventDefault();
+  const payload = {
+    name: document.getElementById('init-name').value.trim(),
+    thesis: document.getElementById('init-thesis').value.trim(),
+    department: document.getElementById('init-department').value,
+    priority: document.getElementById('init-priority').value,
+    health: document.getElementById('init-health').value,
+    ownerId: document.getElementById('init-owner').value,
+    start: document.getElementById('init-start').value,
+    end: document.getElementById('init-end').value,
+    collaborators: editingInitiativeCollab.slice()
+  };
+  if (!payload.name || !payload.thesis || !payload.department || !payload.start || !payload.end) {
+    showToast('Name, thesis, department, start and end are required', 'error');
+    return;
+  }
+  if (payload.start > payload.end) {
+    showToast('End date must be on or after start date', 'error');
+    return;
+  }
+  try {
+    let saved;
+    if (editingInitiativeId) {
+      saved = await api('PUT', '/api/initiatives/' + editingInitiativeId, payload);
+    } else {
+      saved = await api('POST', '/api/initiatives', payload);
+    }
+    closeModal('modal-initiative');
+    await loadInitiatives();
+    // Re-render whatever's on screen so pills refresh
+    if (typeof render === 'function') render();
+    if (typeof renderKanban === 'function' && document.getElementById('view-tasks').style.display !== 'none') renderKanban();
+    showToast(editingInitiativeId ? 'Initiative updated' : 'Initiative created', 'success');
+  } catch (err) {
+    showToast('Failed: ' + err.message, 'error');
+  }
+}
+
+async function archiveInitiativeFromForm() {
+  if (!editingInitiativeId) return;
+  if (!confirm('Archive this initiative? Linked tasks remain but the initiative will be hidden.')) return;
+  try {
+    await api('DELETE', '/api/initiatives/' + editingInitiativeId);
+    closeModal('modal-initiative');
+    await loadInitiatives();
+    if (typeof render === 'function') render();
+    if (typeof renderKanban === 'function') renderKanban();
+    showToast('Initiative archived', 'success');
+  } catch (err) {
+    showToast('Failed: ' + err.message, 'error');
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const form = document.getElementById('form-initiative');
+  if (form) form.addEventListener('submit', saveInitiativeFromForm);
+
+  const seg = document.getElementById('init-health-seg');
+  if (seg) seg.addEventListener('click', (e) => {
+    const btn = e.target.closest('.seg-btn');
+    if (!btn) return;
+    setHealthSegmented(btn.dataset.val);
+  });
+
+  const grid = document.getElementById('init-collab-grid');
+  if (grid) grid.addEventListener('click', (e) => {
+    const btn = e.target.closest('.if-collab');
+    if (!btn) return;
+    const uid = btn.dataset.uid;
+    const i = editingInitiativeCollab.indexOf(uid);
+    if (i >= 0) editingInitiativeCollab.splice(i, 1);
+    else editingInitiativeCollab.push(uid);
+    const ownerId = document.getElementById('init-owner').value;
+    renderInitiativeCollabGrid(ownerId);
+  });
+
+  const archBtn = document.getElementById('btn-archive-initiative');
+  if (archBtn) archBtn.addEventListener('click', archiveInitiativeFromForm);
+
+  // Owner change → re-render collaborator grid (so the new owner is excluded)
+  const ownerSel = document.getElementById('init-owner');
+  if (ownerSel) ownerSel.addEventListener('change', () => {
+    const newOwner = ownerSel.value;
+    // Remove the new owner from collaborators if present
+    editingInitiativeCollab = editingInitiativeCollab.filter(uid => uid !== newOwner);
+    renderInitiativeCollabGrid(newOwner);
+  });
+});
+
+// === Initiatives sidebar (temporary Phase 1 entry point) ===
+function toggleSidebarInitiatives() {
+  const subnav = document.getElementById('initiatives-subnav');
+  const caret = document.getElementById('initiatives-caret');
+  if (!subnav || !caret) return;
+  const isCollapsed = subnav.classList.contains('collapsed');
+  subnav.classList.toggle('collapsed', !isCollapsed);
+  caret.innerHTML = isCollapsed ? '&#9662;' : '&#9656;';
+}
+
+function renderSidebarInitiatives() {
+  const section = document.getElementById('sidebar-initiatives-section');
+  const list = document.getElementById('sidebar-initiatives-list');
+  if (!section || !list) return;
+  const isLeader = myProfile && (myProfile.role === 'cmo' || myProfile.role === 'lead');
+  const hasAny = (initiatives || []).length > 0;
+  section.style.display = (isLeader || hasAny) ? '' : 'none';
+  list.innerHTML = (initiatives || []).map(i => {
+    const deptKey = (i.department || '').toLowerCase().replace(/\s+/g, '-').replace('all-marketing', 'allmkt');
+    return `<button class="sidebar-dept-item" data-edit-init="${i.id}">
+      <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--color-${deptKey === 'b2b-marketing' ? 'b2b' : deptKey === 'b2c-marketing' ? 'b2c' : deptKey === 'rev-ops' ? 'revops' : deptKey === 'allmkt' ? 'b2b' : 'personal'});margin-right:0.4rem;flex-shrink:0;"></span>
+      ${escapeHtml(i.name)}
+    </button>`;
+  }).join('');
+  list.querySelectorAll('[data-edit-init]').forEach(b => {
+    b.addEventListener('click', () => {
+      openInitiativeForm(b.dataset.editInit);
+      closeSidebar();
+    });
+  });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const newBtn = document.getElementById('btn-add-initiative');
+  if (newBtn) newBtn.addEventListener('click', () => openInitiativeForm(null));
 });

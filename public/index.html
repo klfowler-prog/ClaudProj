@@ -102,6 +102,19 @@
         </div>
       </div>
 
+      <!-- Initiatives (temporary Phase 1 entry — Roadmap view ships in Phase 2) -->
+      <div class="sidebar-section" id="sidebar-initiatives-section" style="display:none;">
+        <button class="sidebar-nav-item" onclick="event.stopImmediatePropagation();toggleSidebarInitiatives()">
+          <span class="sidebar-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M3 12h12"/><path d="M3 18h6"/><circle cx="20" cy="12" r="2"/><circle cx="14" cy="18" r="2"/></svg></span>
+          <span>Initiatives</span>
+          <span class="sidebar-caret" id="initiatives-caret">&#9656;</span>
+        </button>
+        <div class="sidebar-subnav collapsed" id="initiatives-subnav">
+          <div id="sidebar-initiatives-list"></div>
+          <button class="sidebar-add-folder" id="btn-add-initiative">+ New Initiative</button>
+        </div>
+      </div>
+
       <!-- Middle section items -->
       <div class="sidebar-section">
         <button class="sidebar-nav-item" id="btn-open-chat">
@@ -619,6 +632,83 @@
       </div>
     </div>
 
+    <!-- Create/Edit Initiative Modal -->
+    <div class="modal-overlay" id="modal-initiative" style="display: none;">
+      <div class="modal modal-wide">
+        <div class="modal-header">
+          <h2 id="modal-initiative-title">New Initiative</h2>
+          <button class="modal-close" data-close="modal-initiative">&times;</button>
+        </div>
+        <form id="form-initiative" style="padding: 0 1.5rem 1.5rem;">
+          <div class="form-group">
+            <label for="init-name">Name <span class="required">*</span></label>
+            <input type="text" id="init-name" required maxlength="120" placeholder="e.g. Shopify Rollout — 50 Stores">
+          </div>
+          <div class="form-group">
+            <label for="init-thesis">Why this matters <span class="required">*</span>
+              <span style="font-weight:400;color:var(--color-text-muted);font-size:0.7rem;">— one sentence; the strategic thesis</span>
+            </label>
+            <textarea id="init-thesis" rows="3" required maxlength="500" placeholder="What's the bet, and why is it worth doing now?"></textarea>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="init-department">Department <span class="required">*</span></label>
+              <select id="init-department" required>
+                <option value="">Select department</option>
+                <option>All Marketing</option>
+                <option>B2B Marketing</option>
+                <option>B2C Marketing</option>
+                <option>Personal</option>
+                <option>Rev Ops</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="init-priority">Priority</label>
+              <select id="init-priority">
+                <option>Medium</option>
+                <option>High</option>
+                <option>Low</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Health</label>
+            <div class="segmented-radio" id="init-health-seg" data-name="health">
+              <button type="button" class="seg-btn is-active" data-val="on-track">On Track</button>
+              <button type="button" class="seg-btn" data-val="at-risk">At Risk</button>
+              <button type="button" class="seg-btn" data-val="off-track">Off Track</button>
+            </div>
+            <input type="hidden" id="init-health" value="on-track">
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="init-owner">Owner</label>
+              <select id="init-owner"></select>
+            </div>
+            <div class="form-group">
+              <label for="init-start">Start <span class="required">*</span></label>
+              <input type="date" id="init-start" required>
+            </div>
+            <div class="form-group">
+              <label for="init-end">End <span class="required">*</span></label>
+              <input type="date" id="init-end" required>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Collaborators <span style="font-weight:400;color:var(--color-text-muted);font-size:0.7rem;">— click to add</span></label>
+            <div id="init-collab-grid" class="if-collab-grid"></div>
+          </div>
+          <div class="modal-actions" style="justify-content: space-between;">
+            <button type="button" class="btn btn-ghost" id="btn-archive-initiative" style="color:var(--follett-coral);display:none;">Archive initiative</button>
+            <div style="display:flex;gap:0.5rem;">
+              <button type="button" class="btn btn-ghost" data-close="modal-initiative">Cancel</button>
+              <button type="submit" class="btn btn-primary" id="btn-submit-initiative">Create initiative</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <!-- Create/Edit Workspace Modal -->
     <div class="modal-overlay" id="modal-workspace" style="display: none;">
       <div class="modal">
@@ -782,6 +872,12 @@
             <label for="input-workspace">Workspace</label>
             <select id="input-workspace">
               <option value="">None</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="input-initiative">Initiative <span style="font-weight:400;color:var(--color-text-muted);font-size:0.7rem;">— rolls up to a strategic initiative</span></label>
+            <select id="input-initiative">
+              <option value="">— None (Inbox task) —</option>
             </select>
           </div>
           <div class="form-group">

@@ -3246,3 +3246,97 @@ body {
   font-size: 0.7rem;
   opacity: 0.7;
 }
+
+/* === Initiative pill on task cards (Roadmap MVP) === */
+.kb-init-pill {
+  display: inline-block;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: var(--color-b2b-light);
+  color: #2e7aaa;
+  vertical-align: middle;
+}
+.kb-init-pill--inbox {
+  background: var(--follett-light-gray);
+  color: var(--follett-dark-gray);
+}
+.kb-card-row {
+  margin: 0.25rem 0;
+}
+.task-meta .kb-init-pill {
+  font-size: 0.7rem;
+}
+
+/* === Segmented radio (used by initiative health field) === */
+.segmented-radio {
+  display: inline-flex;
+  gap: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--color-surface);
+}
+.segmented-radio .seg-btn {
+  background: transparent;
+  border: none;
+  padding: 0.45rem 0.85rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  border-right: 1px solid var(--color-border);
+  font-family: inherit;
+}
+.segmented-radio .seg-btn:last-child { border-right: none; }
+.segmented-radio .seg-btn:hover {
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+.segmented-radio .seg-btn.is-active {
+  background: var(--follett-dark-blue);
+  color: #fff;
+}
+.segmented-radio .seg-btn.is-active[data-val="at-risk"]   { background: #d4960a; }
+.segmented-radio .seg-btn.is-active[data-val="off-track"] { background: var(--follett-coral); }
+
+/* === Collaborator chip grid (initiative form) === */
+.if-collab-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.4rem;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 0.5rem;
+  background: var(--color-surface);
+}
+.if-collab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.55rem;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-family: inherit;
+  text-align: left;
+  transition: all 0.12s;
+}
+.if-collab:hover { background: var(--follett-light-gray); border-color: var(--follett-medium-blue); }
+.if-collab.is-active {
+  background: var(--follett-medium-blue);
+  color: #fff;
+  border-color: var(--follett-medium-blue);
+}
+.if-collab__check {
+  margin-left: auto;
+  font-weight: 700;
+}
