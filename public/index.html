@@ -847,18 +847,47 @@
       <div id="feature-requests-empty" style="display:none;text-align:center;padding:2rem;color:var(--color-text-muted);">No suggestions yet. Be the first!</div>
     </div>
 
-    <!-- Roadmap View -->
+    <!-- Roadmap View (timeline) -->
     <div id="view-roadmap" style="display: none;">
       <div class="rm-hero">
         <div class="rm-hero__left">
           <h1 class="rm-hero__title">Roadmap</h1>
-          <p class="rm-hero__sub">Big initiatives, with the tasks that bring them to life. Phase 1: a grid of initiatives — the timeline view ships next.</p>
+          <p class="rm-hero__sub">Big initiatives by department, with the tasks that bring them to life. Click an initiative to expand it.</p>
         </div>
         <div class="rm-hero__actions">
           <button class="btn btn-primary" id="btn-new-initiative-from-roadmap">+ New Initiative</button>
         </div>
       </div>
-      <div class="rm-grid" id="rm-grid"></div>
+      <div class="rm-toolbar">
+        <div class="zoom-toggle" id="rm-zoom-toggle">
+          <button type="button" class="zoom-btn" data-zoom="week">Week</button>
+          <button type="button" class="zoom-btn is-active" data-zoom="quarter">Quarter</button>
+          <button type="button" class="zoom-btn" data-zoom="year">Year</button>
+        </div>
+        <div class="rm-toolbar__filters">
+          <select id="rm-filter-dept" class="filter-select-compact">
+            <option value="all">All departments</option>
+            <option>All Marketing</option>
+            <option>B2B Marketing</option>
+            <option>B2C Marketing</option>
+            <option>Personal</option>
+            <option>Rev Ops</option>
+          </select>
+          <select id="rm-filter-health" class="filter-select-compact">
+            <option value="all">All health</option>
+            <option value="on-track">On Track</option>
+            <option value="at-risk">At Risk</option>
+            <option value="off-track">Off Track</option>
+          </select>
+        </div>
+      </div>
+      <div class="rm-canvas" id="rm-canvas">
+        <div class="rm-canvas__lanes" id="rm-lanes"></div>
+        <div class="rm-canvas__time-wrap">
+          <div class="rm-time-header" id="rm-time-header"></div>
+          <div class="rm-time-rows" id="rm-time-rows"></div>
+        </div>
+      </div>
       <div class="rm-empty" id="rm-empty" style="display:none;">
         <p class="empty-title">No initiatives yet</p>
         <p class="empty-subtitle">Click "+ New Initiative" to start the roadmap.</p>

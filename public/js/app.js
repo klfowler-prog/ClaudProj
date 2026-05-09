@@ -4139,7 +4139,9 @@ async function loadInitiatives() {
   catch { initiatives = []; }
   initiativesById = {};
   for (const i of initiatives) initiativesById[i.id] = i;
-  if (currentView === 'roadmap' && typeof renderRoadmapGrid === 'function') renderRoadmapGrid();
+  // Invalidate the timeline's task cache so newly-added tasks appear.
+  if (typeof rmTasksByInit !== 'undefined') rmTasksByInit = {};
+  if (currentView === 'roadmap' && typeof renderRoadmapTimeline === 'function') renderRoadmapTimeline();
 }
 
 function initiativeForTask(task) {
@@ -5663,10 +5665,15 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
-// === Roadmap view (Phase 1: grid of initiative cards; Phase 2 will replace with timeline) ===
-function showRoadmapView() {
-  renderRoadmapGrid();
-}
+// === Roadmap timeline view ===
+
+const RM_DEPTS = ['All Marketing', 'B2B Marketing', 'B2C Marketing', 'Rev Ops', 'Personal'];
+
+let rmZoom = 'quarter';
+let rmFilters = { dept: 'all', health: 'all' };
+let rmExpanded = new Set(); // initiative IDs whose tasks are expanded
+let rmCollapsedGroups = new Set(); // dept names collapsed
+let rmTasksByInit = {}; // initiative id → tasks[] cached for the session
 
 function deptKeyFor(department) {
   const m = {
@@ -5679,44 +5686,338 @@ function deptKeyFor(department) {
   return m[department] || 'allmkt';
 }
 
-function renderRoadmapGrid() {
-  const grid = document.getElementById('rm-grid');
+const rmParseDate = (s) => new Date(s + 'T00:00:00');
+const rmAddDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+const rmDaysBetween = (a, b) => Math.round((b - a) / 86400000);
+const rmStartOfWeek = (d) => { const x = new Date(d); x.setDate(x.getDate() - x.getDay()); x.setHours(0,0,0,0); return x; };
+const rmStartOfMonth = (d) => new Date(d.getFullYear(), d.getMonth(), 1);
+const rmStartOfQuarter = (d) => new Date(d.getFullYear(), Math.floor(d.getMonth()/3)*3, 1);
+const rmFmtMD = (d) => d.toLocaleDateString('en-US', { month:'short', day:'numeric' });
+
+function rmBuildScale(zoom, anchor) {
+  if (zoom === 'week') {
+    const start = rmStartOfWeek(rmAddDays(anchor, -7));
+    const end = rmAddDays(start, 7 * 6);
+    const ticks = [];
+    for (let i = 0; i < 7 * 6; i++) {
+      const d = rmAddDays(start, i);
+      ticks.push({
+        date: d,
+        label: d.toLocaleDateString('en-US', { weekday: 'short' })[0],
+        sub: String(d.getDate()),
+        major: d.getDay() === 1
+      });
+    }
+    return { start, end, ticks, days: rmDaysBetween(start, end), unit: 'week', pxPerDay: 28 };
+  }
+  if (zoom === 'quarter') {
+    const start = rmStartOfMonth(rmAddDays(anchor, -30));
+    const end = rmAddDays(start, 30 * 5);
+    const ticks = [];
+    let cur = new Date(start);
+    while (cur < end) {
+      ticks.push({ date: new Date(cur), label: rmFmtMD(cur), sub: '', major: cur.getDate() <= 7 });
+      cur = rmAddDays(cur, 7);
+    }
+    return { start, end, ticks, days: rmDaysBetween(start, end), unit: 'quarter', pxPerDay: 7.5 };
+  }
+  // year
+  const start = rmStartOfQuarter(rmAddDays(anchor, -60));
+  const end = new Date(start.getFullYear() + 1, start.getMonth(), 1);
+  const ticks = [];
+  let cur = new Date(start);
+  while (cur < end) {
+    ticks.push({
+      date: new Date(cur),
+      label: cur.toLocaleDateString('en-US', { month: 'short' }),
+      sub: cur.getMonth() === 0 ? String(cur.getFullYear()) : '',
+      major: cur.getMonth() % 3 === 0
+    });
+    cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
+  }
+  return { start, end, ticks, days: rmDaysBetween(start, end), unit: 'year', pxPerDay: 3.0 };
+}
+
+function rmClampToScale(startStr, endStr, scale) {
+  if (!startStr || !endStr) return null;
+  const a = rmParseDate(startStr);
+  const b = rmParseDate(endStr);
+  if (b < scale.start || a > scale.end) return null; // entirely outside view
+  const left = Math.max(0, rmDaysBetween(scale.start, a)) * scale.pxPerDay;
+  const right = Math.min(scale.days, rmDaysBetween(scale.start, b)) * scale.pxPerDay;
+  return { left, width: Math.max(20, right - left) };
+}
+
+function rmDateXOnScale(dateStr, scale) {
+  if (!dateStr) return null;
+  const d = rmParseDate(dateStr);
+  if (d < scale.start || d > scale.end) return null;
+  return rmDaysBetween(scale.start, d) * scale.pxPerDay;
+}
+
+async function showRoadmapView() {
+  await renderRoadmapTimeline();
+}
+
+function rmFilterInitiatives() {
+  return (initiatives || []).filter(i => {
+    if (rmFilters.dept !== 'all' && i.department !== rmFilters.dept) return false;
+    if (rmFilters.health !== 'all' && i.health !== rmFilters.health) return false;
+    return true;
+  });
+}
+
+async function rmEnsureTasksFor(initiativeId) {
+  if (rmTasksByInit[initiativeId]) return rmTasksByInit[initiativeId];
+  try {
+    const list = await api('GET', '/api/initiatives/' + initiativeId + '/tasks');
+    rmTasksByInit[initiativeId] = list || [];
+  } catch {
+    rmTasksByInit[initiativeId] = [];
+  }
+  return rmTasksByInit[initiativeId];
+}
+
+async function renderRoadmapTimeline() {
+  const lanesEl = document.getElementById('rm-lanes');
+  const headerEl = document.getElementById('rm-time-header');
+  const rowsEl = document.getElementById('rm-time-rows');
   const empty = document.getElementById('rm-empty');
-  if (!grid || !empty) return;
-  if (!initiatives || initiatives.length === 0) {
-    grid.innerHTML = '';
+  const canvas = document.getElementById('rm-canvas');
+  if (!lanesEl || !headerEl || !rowsEl) return;
+
+  const visible = rmFilterInitiatives();
+  if (visible.length === 0) {
+    canvas.style.display = 'none';
     empty.style.display = '';
     return;
   }
+  canvas.style.display = '';
   empty.style.display = 'none';
-  grid.innerHTML = initiatives.map(i => {
-    const dk = deptKeyFor(i.department);
-    const owner = teamMembers.find(m => m.userId === i.ownerId);
-    const ownerName = owner ? owner.displayName : (i.ownerId === (myProfile && myProfile.userId) ? (myProfile.name || 'Me') : 'Unassigned');
-    const pct = Math.round((Number(i.progress) || 0) * 100);
-    const dates = `${i.start} → ${i.end}`;
-    const healthLabel = { 'on-track': 'On track', 'at-risk': 'At risk', 'off-track': 'Off track' }[i.health] || 'On track';
-    return `
-      <div class="rm-card dept-${dk} health-${i.health}" data-init-id="${i.id}">
-        <div class="rm-card__head">
-          <div class="rm-card__title">${escapeHtml(i.name)}</div>
-          <span class="rm-card__health health-${i.health}">${escapeHtml(healthLabel)}</span>
+
+  const today = new Date(); today.setHours(0,0,0,0);
+  const scale = rmBuildScale(rmZoom, today);
+  const totalWidth = scale.days * scale.pxPerDay;
+  const todayX = rmDaysBetween(scale.start, today) * scale.pxPerDay;
+
+  // Group by department
+  const byDept = {};
+  visible.forEach(i => { (byDept[i.department] = byDept[i.department] || []).push(i); });
+  const groups = RM_DEPTS.filter(d => byDept[d]).map(d => ({ label: d, items: byDept[d] }));
+
+  // Pre-fetch tasks for any expanded initiative in view
+  for (const g of groups) {
+    for (const init of g.items) {
+      if (rmExpanded.has(init.id)) await rmEnsureTasksFor(init.id);
+    }
+  }
+
+  // Lanes column
+  let lanesHtml = '<div class="rm-canvas__lanes-header">Initiative</div>';
+  // Time header
+  let headerHtml = '';
+  // Rows
+  let rowsHtml = '';
+
+  // Time header ticks
+  for (const t of scale.ticks) {
+    const x = rmDaysBetween(scale.start, t.date) * scale.pxPerDay;
+    headerHtml += `<div class="rm-tick ${t.major ? 'rm-tick--major' : ''}" style="left:${x}px;">
+      <span class="rm-tick__label">${escapeHtml(t.label)}</span>
+      ${t.sub ? `<span class="rm-tick__sub">${escapeHtml(t.sub)}</span>` : ''}
+    </div>`;
+  }
+  // Today pin in header
+  if (todayX >= 0 && todayX <= totalWidth) {
+    headerHtml += `<div class="rm-today-pin" style="left:${todayX}px;">TODAY</div>`;
+  }
+
+  // Today line + grid lines belong inside rowsEl (so they span full height)
+  // We accumulate them and prepend.
+  let overlayHtml = '';
+  if (todayX >= 0 && todayX <= totalWidth) {
+    overlayHtml += `<div class="rm-today-line" style="left:${todayX}px;"></div>`;
+  }
+  for (const t of scale.ticks) {
+    if (t.major) {
+      const x = rmDaysBetween(scale.start, t.date) * scale.pxPerDay;
+      overlayHtml += `<div class="rm-grid-line" style="left:${x}px;"></div>`;
+    }
+  }
+
+  // Build group + lane rows
+  for (const g of groups) {
+    const dk = deptKeyFor(g.label);
+    const collapsed = rmCollapsedGroups.has(g.label);
+    // Lane column: group header
+    lanesHtml += `<button class="rm-group-header dept-${dk}" data-toggle-group="${escapeHtml(g.label)}">
+      <span class="rm-group-header__caret">${collapsed ? '▸' : '▾'}</span>
+      <span class="dept-dot dept-${dk}" style="width:8px;height:8px;border-radius:50%;background:var(--color-${dk === 'allmkt' ? 'b2b' : dk === 'personal' ? 'revops' : dk});"></span>
+      <span>${escapeHtml(g.label)}</span>
+      <span class="rm-group-header__count">${g.items.length}</span>
+    </button>`;
+    // Time column: empty matching row for the header
+    rowsHtml += `<div class="rm-group-track"></div>`;
+
+    if (collapsed) continue;
+
+    for (const init of g.items) {
+      const ownerObj = teamMembers.find(m => m.userId === init.ownerId);
+      const ownerName = ownerObj ? ownerObj.displayName : (init.ownerId === (myProfile && myProfile.userId) ? (myProfile.name || 'Me') : 'Unassigned');
+      const isOpen = rmExpanded.has(init.id);
+      const pct = Math.round((Number(init.progress) || 0) * 100);
+
+      lanesHtml += `<div class="rm-lane-meta">
+        <button type="button" class="rm-lane-meta__caret" data-toggle-init="${init.id}" title="${isOpen ? 'Hide tasks' : 'Show tasks'}">${isOpen ? '▾' : '▸'}</button>
+        <div style="flex:1;min-width:0;">
+          <button type="button" class="rm-lane-meta__title" data-open-init="${init.id}" title="Open initiative">${escapeHtml(init.name)}</button>
+          <span class="rm-lane-meta__sub">${escapeHtml(ownerName)} · ${escapeHtml(init.start)} → ${escapeHtml(init.end)}</span>
         </div>
-        <div class="rm-card__thesis">${escapeHtml(i.thesis || '')}</div>
-        <div class="rm-card__meta">
-          <span>${escapeHtml(i.department)}</span>
-          <span>·</span>
-          <span>${escapeHtml(ownerName)}</span>
-        </div>
-        <div class="rm-card__meta"><span>${escapeHtml(dates)}</span></div>
-        <div class="rm-card__progress"><div class="rm-card__progress-bar" style="width:${pct}%"></div></div>
-        <div class="rm-card__progress-label">${pct}% complete</div>
       </div>`;
-  }).join('');
-  grid.querySelectorAll('.rm-card[data-init-id]').forEach(card => {
-    card.addEventListener('click', () => openInitiativeDetail(card.dataset.initId));
+
+      // Time column row for this initiative
+      const clamped = rmClampToScale(init.start, init.end, scale);
+      let barHtml = '';
+      if (clamped) {
+        barHtml = `<button type="button" class="rm-init-bar dept-${dk} health-${init.health} ${isOpen ? 'is-open' : ''}" data-toggle-init="${init.id}" style="left:${clamped.left}px;width:${clamped.width}px;" title="${escapeHtml(init.thesis || init.name)}">
+          <span class="rm-init-bar__fill" style="width:${pct}%;"></span>
+          <span class="rm-init-bar__content">
+            <span class="rm-init-bar__title">${escapeHtml(init.name)}</span>
+            <span class="rm-init-bar__pct">${pct}%</span>
+          </span>
+        </button>`;
+      }
+      // Milestones
+      let msHtml = '';
+      for (const m of (init.milestones || [])) {
+        const x = rmDateXOnScale(m.date, scale);
+        if (x === null) continue;
+        msHtml += `<span class="rm-milestone rm-milestone-${m.kind || 'event'}" style="left:${x}px;" title="${escapeHtml(m.label)} · ${escapeHtml(m.date)}">
+          <span class="rm-milestone-label">${escapeHtml(m.label)} · ${escapeHtml(m.date)}</span>
+        </span>`;
+      }
+      for (const m of (init.suggestedMilestones || [])) {
+        const x = rmDateXOnScale(m.date, scale);
+        if (x === null) continue;
+        msHtml += `<span class="rm-milestone rm-milestone-suggested" style="left:${x}px;" title="✦ Suggested: ${escapeHtml(m.label)}">
+          <span class="rm-milestone-label">✦ ${escapeHtml(m.label)} · ${escapeHtml(m.date)}</span>
+        </span>`;
+      }
+      rowsHtml += `<div class="rm-lane-track">${barHtml}${msHtml}</div>`;
+
+      // If expanded, render task rows
+      if (isOpen) {
+        const tasks = rmTasksByInit[init.id] || [];
+        for (const t of tasks) {
+          const sk = STATUS_KEYS[t.status] || 'not-started';
+          lanesHtml += `<div class="rm-task-meta-row" data-open-task="${t.id}">
+            <span class="task-status-dot status-${sk}"></span>
+            <span class="rm-task-meta-row__title">${escapeHtml(t.title)}</span>
+          </div>`;
+          let pinHtml = '';
+          if (t.dueDate) {
+            const x = rmDateXOnScale(t.dueDate, scale);
+            if (x !== null) {
+              pinHtml = `<button type="button" class="rm-task-pin status-${sk}" data-open-task="${t.id}" style="left:${Math.max(0, x - 100)}px;" title="${escapeHtml(t.title)} · due ${escapeHtml(t.dueDate)}">
+                <span class="rm-task-pin__dot status-${sk}"></span>
+                <span class="rm-task-pin__title">${escapeHtml(t.title)}</span>
+              </button>`;
+            }
+          }
+          rowsHtml += `<div class="rm-task-track">${pinHtml}</div>`;
+        }
+      }
+    }
+  }
+
+  lanesEl.innerHTML = lanesHtml;
+  headerEl.innerHTML = headerHtml;
+  // Match width of header to total width so ticks align
+  headerEl.style.width = totalWidth + 'px';
+  rowsEl.innerHTML = overlayHtml + rowsHtml;
+  rowsEl.style.width = totalWidth + 'px';
+
+  // Wire interactions
+  // 1. Group toggle (left rail)
+  lanesEl.querySelectorAll('[data-toggle-group]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const d = btn.dataset.toggleGroup;
+      if (rmCollapsedGroups.has(d)) rmCollapsedGroups.delete(d);
+      else rmCollapsedGroups.add(d);
+      renderRoadmapTimeline();
+    });
   });
+  // 2. Initiative caret toggle (left rail) and bar click (right canvas) — both expand
+  const onToggleInit = async (id) => {
+    if (rmExpanded.has(id)) rmExpanded.delete(id);
+    else { rmExpanded.add(id); await rmEnsureTasksFor(id); }
+    renderRoadmapTimeline();
+  };
+  lanesEl.querySelectorAll('[data-toggle-init]').forEach(btn => {
+    btn.addEventListener('click', () => onToggleInit(btn.dataset.toggleInit));
+  });
+  rowsEl.querySelectorAll('[data-toggle-init]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      onToggleInit(btn.dataset.toggleInit);
+    });
+  });
+  // 3. Title click → open detail panel
+  lanesEl.querySelectorAll('[data-open-init]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openInitiativeDetail(btn.dataset.openInit);
+    });
+  });
+  // 4. Task row / task pin click → open task detail
+  const openTaskHandler = (id) => {
+    if (typeof showTaskDetail === 'function') showTaskDetail(id);
+  };
+  lanesEl.querySelectorAll('[data-open-task]').forEach(el => {
+    el.addEventListener('click', (e) => { e.stopPropagation(); openTaskHandler(el.dataset.openTask); });
+  });
+  rowsEl.querySelectorAll('[data-open-task]').forEach(el => {
+    el.addEventListener('click', (e) => { e.stopPropagation(); openTaskHandler(el.dataset.openTask); });
+  });
+
+  // Sync vertical scrolling between lanes column and time column
+  const timeWrap = document.querySelector('.rm-canvas__time-wrap');
+  if (lanesEl && timeWrap && !lanesEl.dataset.syncBound) {
+    lanesEl.dataset.syncBound = '1';
+    let syncing = false;
+    lanesEl.addEventListener('scroll', () => {
+      if (syncing) return; syncing = true;
+      timeWrap.scrollTop = lanesEl.scrollTop;
+      requestAnimationFrame(() => syncing = false);
+    });
+    timeWrap.addEventListener('scroll', () => {
+      if (syncing) return; syncing = true;
+      lanesEl.scrollTop = timeWrap.scrollTop;
+      requestAnimationFrame(() => syncing = false);
+    });
+  }
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+  const zoomToggle = document.getElementById('rm-zoom-toggle');
+  if (zoomToggle) zoomToggle.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-zoom]');
+    if (!btn) return;
+    rmZoom = btn.dataset.zoom;
+    zoomToggle.querySelectorAll('.zoom-btn').forEach(b => b.classList.toggle('is-active', b === btn));
+    if (currentView === 'roadmap') renderRoadmapTimeline();
+  });
+  const deptSel = document.getElementById('rm-filter-dept');
+  if (deptSel) deptSel.addEventListener('change', () => {
+    rmFilters.dept = deptSel.value;
+    if (currentView === 'roadmap') renderRoadmapTimeline();
+  });
+  const healthSel = document.getElementById('rm-filter-health');
+  if (healthSel) healthSel.addEventListener('change', () => {
+    rmFilters.health = healthSel.value;
+    if (currentView === 'roadmap') renderRoadmapTimeline();
+  });
+});
 
 // === Initiative form: type-ahead collaborator handlers ===
 function renderInitCollabChips() {
