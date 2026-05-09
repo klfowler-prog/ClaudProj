@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Roadmap · Follett Marketing</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@400;500;600;700&family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="follett-app.css">
+  <link rel="stylesheet" href="roadmap.css">
+  <style>
+    /* Make sidebar + main play nicely with the embedded roadmap */
+    body { display: flex; min-height: 100vh; }
+    .app-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .stats-bar { padding: .9rem 1.25rem; }
+    .kb-col-toggles__label { font-size: .72rem; color: var(--color-text-muted, #6b6358); margin-right: .35rem; font-weight: 500; }
+    .kb-col-toggle.is-locked { opacity: .85; cursor: default; background: rgba(208,165,56,.18); color: #8a6a08; border-color: rgba(208,165,56,.35); }
+    .kb-col-toggle.is-locked:hover { background: rgba(208,165,56,.18); }
+    .stats-bar-left--roadmap { display: flex; gap: .35rem; align-items: center; }
+    .stats-bar-left--roadmap .stat-toggle { font-size: .78rem; padding: .35rem .8rem; }
+    .rmf-count {
+      display: inline-block; margin-left: .35rem; padding: 0 .35rem;
+      background: rgba(217,119,87,.18); color: #b85a36;
+      border-radius: 999px; font-size: .68rem; font-weight: 600; min-width: 18px; text-align: center;
+    }
+    .kb-init-pill {
+      display: inline-block;
+      max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      font-size: .68rem; font-weight: 600;
+      padding: .1rem .45rem; border-radius: 999px;
+      background: var(--color-b2b-light); color: #2e7aaa;
+    }
+    .kb-init-pill--inbox { background: var(--follett-light-gray); color: var(--follett-dark-gray); }
+    .kb-card-row { margin: .25rem 0; }
+    .dept-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .dept-dot.dept-b2b { background: var(--color-b2b); }
+    .dept-dot.dept-comms { background: var(--color-comms); }
+    .dept-dot.dept-revops { background: var(--color-revops); }
+    .dept-dot.dept-b2c { background: var(--color-b2c); }
+    .dept-dot.dept-allmkt { background: var(--color-all-mktg, #6b8a76); }
+    .dept-dot.dept-personal { background: var(--follett-dark-gray); }
+    /* Roadmap view container resets so the React app's own canvas works */
+    #view-roadmap .rm-shell { background: transparent; }
+    #view-roadmap .rm-canvas { box-shadow: var(--shadow); }
+    /* Hide the React app's own tweaks panel default position so it doesn't fight the sidebar */
+    body .tweaks-panel { z-index: 9999; }
+  </style>
+</head>
+<body>
+  <div id="app-container" style="display:none;">
+
+  <!-- Sidebar (lifted from the real Follett Marketing app) -->
+  <nav id="app-sidebar" class="sidebar">
+    <div class="sidebar-header">
+      <h1 class="sidebar-title">Follett Marketing</h1>
+      <button id="sidebar-close" class="sidebar-close">&times;</button>
+    </div>
+
+    <div class="sidebar-search">
+      <input type="text" id="global-search" class="sidebar-search-input" placeholder="Search tasks &amp; notes...">
+    </div>
+
+    <div class="sidebar-nav">
+      <div class="sidebar-section-label">My Stuff</div>
+      <div class="sidebar-section">
+        <button class="sidebar-nav-item active" data-view="tasks">
+          <span class="sidebar-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          </span>
+          <span>My Tasks</span>
+          <span class="sidebar-count" id="sidebar-count-my-tasks">0</span>
+        </button>
+        <button class="sidebar-nav-item" data-view="roadmap">
+          <span class="sidebar-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M3 12h12"/><path d="M3 18h6"/><circle cx="20" cy="12" r="2"/><circle cx="14" cy="18" r="2"/></svg>
+          </span>
+          <span>Roadmap</span>
+        </button>
+      </div>
+
+      <div class="sidebar-section-label">Departments</div>
+      <div class="sidebar-section" id="sidebar-dept-spaces"></div>
+
+      <div class="sidebar-section">
+        <button class="sidebar-nav-item">
+          <span class="sidebar-icon sidebar-icon-ai">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="var(--follett-light-blue)" stroke="none"><path d="M12 0l1.8 7.6L22 8l-6.4 4.2L18 20l-6-4.8L6 20l2.4-7.8L2 8l8.2-.4z"/></svg>
+          </span>
+          <span>AI Assistant</span>
+        </button>
+        <button class="sidebar-nav-item">
+          <span class="sidebar-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 1 4 12.7V18H8v-3.3A7 7 0 0 1 12 2z"/></svg>
+          </span>
+          <span>Ideas &amp; Feedback</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="sidebar-settings">
+      <div class="sidebar-footer">
+        <span class="sidebar-email">katie@follett.com</span>
+        <button class="sidebar-sign-out">Sign out</button>
+      </div>
+    </div>
+  </nav>
+
+  <button id="sidebar-toggle" class="sidebar-toggle">&#9776;</button>
+  <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+  <main id="app-main" class="app-main">
+    <!-- Stats Bar with view toggle -->
+    <div class="stats-bar">
+      <div class="stats-bar-left">
+        <button class="stat-toggle active">My Tasks</button>
+        <button class="stat-toggle">My Team</button>
+        <button class="stat-toggle">All</button>
+        <button class="stat-pill stat-pill-overdue stat-pill-clickable"><strong id="stat-overdue">0</strong> Overdue</button>
+        <button class="stat-pill stat-pill-clickable"><strong id="stat-delegated">0</strong> Delegated</button>
+        <button class="stat-pill stat-pill-clickable"><strong id="stat-completed">0</strong> Done this wk</button>
+      </div>
+      <div class="stats-bar-left stats-bar-left--roadmap" id="stats-bar-left-roadmap" style="display:none;">
+        <button class="stat-toggle active" data-rmf="all">All</button>
+        <button class="stat-toggle" data-rmf="mine">Mine</button>
+        <button class="stat-toggle" data-rmf="at-risk">At Risk <span class="rmf-count" id="rmf-atrisk">0</span></button>
+      </div>
+      <div class="stats-bar-right">
+        <div class="view-toggle">
+          <button class="view-toggle-btn" id="btn-view-list" title="List view">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg> List
+          </button>
+          <button class="view-toggle-btn active" id="btn-view-kanban" title="Kanban view">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="5" height="18" rx="1"/><rect x="10" y="3" width="5" height="12" rx="1"/><rect x="17" y="3" width="5" height="15" rx="1"/></svg> Board
+          </button>
+          <button class="view-toggle-btn" id="btn-view-roadmap" title="Roadmap view">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M3 12h12"/><path d="M3 18h6"/></svg> Roadmap
+          </button>
+        </div>
+        <div class="kb-col-toggles" id="kb-col-toggles">
+          <span class="kb-col-toggles__label">Columns:</span>
+          <button class="kb-col-toggle" id="kb-toggle-backlog">Backlog</button>
+          <button class="kb-col-toggle active" id="kb-toggle-completed">Completed</button>
+        </div>
+        <select id="filter-priority" class="filter-select-compact">
+          <option value="all">All Priorities</option>
+          <option value="High">High</option>
+          <option value="Medium">Medium</option>
+          <option value="Low">Low</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- List View -->
+    <div id="view-list-wrap" style="display:none;">
+      <div class="task-list-container">
+        <div class="task-list" id="task-list"></div>
+      </div>
+    </div>
+
+    <!-- Kanban View -->
+    <div id="kanban-view" style="padding: 0 1.25rem;">
+      <div class="kanban-board" id="kanban-board"></div>
+    </div>
+
+    <!-- Roadmap View (React mounts here) -->
+    <div id="view-roadmap" style="display:none;">
+      <div id="roadmap-root"></div>
+    </div>
+  </main>
+
+  </div><!-- /app-container -->
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <link rel="stylesheet" href="initiative-detail.css">
+  <script src="data.js"></script>
+  <script type="text/babel" src="tweaks-panel.jsx"></script>
+  <script type="text/babel" src="roadmap.jsx"></script>
+  <script type="text/babel" src="tasks-view.jsx"></script>
+  <script type="text/babel" src="initiative-form.jsx"></script>
+  <script type="text/babel" src="initiative-detail.jsx"></script>
+  <script type="text/babel">
+    // Mount the Roadmap React app lazily so it only loads when the user clicks Roadmap.
+    let __rmRoot = null;
+    window.__mountRoadmap = function () {
+      if (__rmRoot) return;
+      __rmRoot = ReactDOM.createRoot(document.getElementById('roadmap-root'));
+      __rmRoot.render(<window.RoadmapApp />);
+    };
+  </script>
+  <script src="app-shell.js"></script>
+</body>
+</html>

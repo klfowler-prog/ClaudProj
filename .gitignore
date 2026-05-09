@@ -1,1 +1,6 @@
 node_modules/
+.DS_Store
+
+# User-provided reference PDFs (kept local)
+Marketing Leadership Meeting.pdf
+Marketing_Leadership_Action_Items.pdf
