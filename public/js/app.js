@@ -943,13 +943,13 @@ function renderMarkdown(str) {
   html = html.replace(/\n/g, '<br>');
   // Clean up br inside pre
   html = html.replace(/<pre><code>([\s\S]*?)<\/code><\/pre>/g, (m, code) => '<pre><code>' + code.replace(/<br>/g, '\n') + '</code></pre>');
-  // App link tags (tasks, notes, files)
+  // App link tags (tasks, notes, files) — clicks handled by the document-level delegated handler
   html = html.replace(/\[tasklink:([^\]:]+):([^\]]+)\]/g, (_, id, title) =>
-    `<a href="#" class="ai-link ai-link-task" data-task-id="${id}" onclick="event.preventDefault();showTaskDetail('${id}')">${title}</a>`);
+    `<a href="#" class="ai-link ai-link-task" data-task-id="${id}">${title}</a>`);
   html = html.replace(/\[notelink:([^\]:]+):([^\]]+)\]/g, (_, id, title) =>
-    `<a href="#" class="ai-link ai-link-note" data-note-id="${id}" onclick="event.preventDefault();switchView('notes');openNote('${id}')">${title}</a>`);
+    `<a href="#" class="ai-link ai-link-note" data-note-id="${id}">${title}</a>`);
   html = html.replace(/\[filelink:([^\]:]+):([^\]]+)\]/g, (_, path, name) =>
-    `<a href="#" class="ai-link ai-link-file" data-gcs-path="${escapeHtml(path)}" onclick="event.preventDefault();downloadFile('${path.replace(/'/g, "\\'")}')">${name}</a>`);
+    `<a href="#" class="ai-link ai-link-file" data-gcs-path="${escapeHtml(path)}">${name}</a>`);
   // Links
   html = html.replace(/(https?:\/\/[^\s<>"']+)/g, (url) => {
     const cleanUrl = url.replace(/&amp;/g, '&');
@@ -1388,8 +1388,19 @@ function renderPendingLinks() {
 
 // === Task Detail View ===
 function showTaskDetail(id) {
-  const task = tasks.find(t => t.id === id);
-  if (!task) return;
+  let task = tasks.find(t => t.id === id);
+  if (!task) {
+    // Task isn't in the local view (e.g., a workspace-scoped task referenced from the AI
+    // assistant or a search result). Fetch it from the API and re-render.
+    api('GET', `/api/tasks/${id}`).then(fetched => {
+      if (!fetched) return;
+      tasks.push(fetched);
+      showTaskDetail(id);
+    }).catch(err => {
+      if (typeof showToast === 'function') showToast('Could not open task: ' + err.message, 'error');
+    });
+    return;
+  }
 
   // Fill in parent task context from local tasks array if missing (for subtasks)
   if (task.parentTaskId && !task.parentTaskTitle) {
