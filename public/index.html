@@ -102,17 +102,12 @@
         </div>
       </div>
 
-      <!-- Initiatives (temporary Phase 1 entry — Roadmap view ships in Phase 2) -->
-      <div class="sidebar-section" id="sidebar-initiatives-section" style="display:none;">
-        <button class="sidebar-nav-item" onclick="event.stopImmediatePropagation();toggleSidebarInitiatives()">
+      <!-- Roadmap nav item (initiatives + timeline live behind this) -->
+      <div class="sidebar-section">
+        <button class="sidebar-nav-item" id="btn-roadmap" data-view="roadmap">
           <span class="sidebar-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M3 12h12"/><path d="M3 18h6"/><circle cx="20" cy="12" r="2"/><circle cx="14" cy="18" r="2"/></svg></span>
-          <span>Initiatives</span>
-          <span class="sidebar-caret" id="initiatives-caret">&#9656;</span>
+          <span>Roadmap</span>
         </button>
-        <div class="sidebar-subnav collapsed" id="initiatives-subnav">
-          <div id="sidebar-initiatives-list"></div>
-          <button class="sidebar-add-folder" id="btn-add-initiative">+ New Initiative</button>
-        </div>
       </div>
 
       <!-- Middle section items -->
@@ -634,76 +629,91 @@
 
     <!-- Create/Edit Initiative Modal -->
     <div class="modal-overlay" id="modal-initiative" style="display: none;">
-      <div class="modal modal-wide">
-        <div class="modal-header">
-          <h2 id="modal-initiative-title">New Initiative</h2>
+      <div class="modal if-modal">
+        <div class="modal-header if-modal__header">
+          <div>
+            <div class="if-modal__bread" id="modal-initiative-bread">New initiative</div>
+            <h2 id="modal-initiative-title">Untitled initiative</h2>
+          </div>
           <button class="modal-close" data-close="modal-initiative">&times;</button>
         </div>
-        <form id="form-initiative" style="padding: 0 1.5rem 1.5rem;">
-          <div class="form-group">
-            <label for="init-name">Name <span class="required">*</span></label>
-            <input type="text" id="init-name" required maxlength="120" placeholder="e.g. Shopify Rollout — 50 Stores">
-          </div>
-          <div class="form-group">
-            <label for="init-thesis">Why this matters <span class="required">*</span>
-              <span style="font-weight:400;color:var(--color-text-muted);font-size:0.7rem;">— one sentence; the strategic thesis</span>
+        <form id="form-initiative" class="if-form">
+          <div class="if-grid">
+            <label class="if-field if-field--full">
+              <span class="if-label">Name <span class="required">*</span></span>
+              <input type="text" id="init-name" required maxlength="120" placeholder="e.g. Shopify Rollout — 50 Stores">
             </label>
-            <textarea id="init-thesis" rows="3" required maxlength="500" placeholder="What's the bet, and why is it worth doing now?"></textarea>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label for="init-department">Department <span class="required">*</span></label>
+
+            <label class="if-field if-field--full">
+              <span class="if-label">Why this matters <span class="required">*</span>
+                <span class="if-hint">One sentence — the strategic thesis. Will show on hover and in detail views.</span>
+              </span>
+              <textarea id="init-thesis" rows="2" required maxlength="500" placeholder="What's the bet, and why is it worth doing now?"></textarea>
+            </label>
+
+            <label class="if-field">
+              <span class="if-label">Department <span class="required">*</span></span>
               <select id="init-department" required>
-                <option value="">Select department</option>
+                <option value="">Select</option>
                 <option>All Marketing</option>
                 <option>B2B Marketing</option>
                 <option>B2C Marketing</option>
                 <option>Personal</option>
                 <option>Rev Ops</option>
               </select>
-            </div>
-            <div class="form-group">
-              <label for="init-priority">Priority</label>
+            </label>
+
+            <label class="if-field">
+              <span class="if-label">Priority</span>
               <select id="init-priority">
                 <option>Medium</option>
                 <option>High</option>
                 <option>Low</option>
               </select>
+            </label>
+
+            <div class="if-field">
+              <span class="if-label">Health</span>
+              <div class="segmented-radio" id="init-health-seg" data-name="health">
+                <button type="button" class="seg-btn is-active" data-val="on-track">On Track</button>
+                <button type="button" class="seg-btn" data-val="at-risk">At Risk</button>
+                <button type="button" class="seg-btn" data-val="off-track">Off Track</button>
+              </div>
+              <input type="hidden" id="init-health" value="on-track">
             </div>
-          </div>
-          <div class="form-group">
-            <label>Health</label>
-            <div class="segmented-radio" id="init-health-seg" data-name="health">
-              <button type="button" class="seg-btn is-active" data-val="on-track">On Track</button>
-              <button type="button" class="seg-btn" data-val="at-risk">At Risk</button>
-              <button type="button" class="seg-btn" data-val="off-track">Off Track</button>
-            </div>
-            <input type="hidden" id="init-health" value="on-track">
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label for="init-owner">Owner</label>
+
+            <label class="if-field">
+              <span class="if-label">Owner</span>
               <select id="init-owner"></select>
-            </div>
-            <div class="form-group">
-              <label for="init-start">Start <span class="required">*</span></label>
+            </label>
+
+            <label class="if-field">
+              <span class="if-label">Start <span class="required">*</span></span>
               <input type="date" id="init-start" required>
-            </div>
-            <div class="form-group">
-              <label for="init-end">End <span class="required">*</span></label>
+            </label>
+
+            <label class="if-field">
+              <span class="if-label">End <span class="required">*</span></span>
               <input type="date" id="init-end" required>
+            </label>
+
+            <div class="if-field if-field--full">
+              <span class="if-label">Collaborators
+                <span class="if-hint">Type a name to add. Backspace to remove the last chip.</span>
+              </span>
+              <div class="contributor-input-wrap" id="init-collab-wrap">
+                <div id="init-collab-chips" class="contributor-chips"></div>
+                <input type="text" id="init-collab-input" class="contributor-input" placeholder="Add collaborator…" autocomplete="off">
+                <div id="init-collab-suggestions" class="contributor-suggestions" style="display:none;"></div>
+              </div>
             </div>
           </div>
-          <div class="form-group">
-            <label>Collaborators <span style="font-weight:400;color:var(--color-text-muted);font-size:0.7rem;">— click to add</span></label>
-            <div id="init-collab-grid" class="if-collab-grid"></div>
-          </div>
-          <div class="modal-actions" style="justify-content: space-between;">
-            <button type="button" class="btn btn-ghost" id="btn-archive-initiative" style="color:var(--follett-coral);display:none;">Archive initiative</button>
-            <div style="display:flex;gap:0.5rem;">
-              <button type="button" class="btn btn-ghost" data-close="modal-initiative">Cancel</button>
-              <button type="submit" class="btn btn-primary" id="btn-submit-initiative">Create initiative</button>
-            </div>
+
+          <div class="if-modal__actions">
+            <button type="button" class="btn btn-ghost btn-danger" id="btn-archive-initiative" style="display:none;">Archive initiative</button>
+            <div style="flex:1;"></div>
+            <button type="button" class="btn btn-ghost" data-close="modal-initiative">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="btn-submit-initiative">Create initiative</button>
           </div>
         </form>
       </div>
@@ -801,6 +811,24 @@
       </div>
       <div id="feature-requests-list"></div>
       <div id="feature-requests-empty" style="display:none;text-align:center;padding:2rem;color:var(--color-text-muted);">No suggestions yet. Be the first!</div>
+    </div>
+
+    <!-- Roadmap View -->
+    <div id="view-roadmap" style="display: none;">
+      <div class="rm-hero">
+        <div class="rm-hero__left">
+          <h1 class="rm-hero__title">Roadmap</h1>
+          <p class="rm-hero__sub">Big initiatives, with the tasks that bring them to life. Phase 1: a grid of initiatives — the timeline view ships next.</p>
+        </div>
+        <div class="rm-hero__actions">
+          <button class="btn btn-primary" id="btn-new-initiative-from-roadmap">+ New Initiative</button>
+        </div>
+      </div>
+      <div class="rm-grid" id="rm-grid"></div>
+      <div class="rm-empty" id="rm-empty" style="display:none;">
+        <p class="empty-title">No initiatives yet</p>
+        <p class="empty-subtitle">Click "+ New Initiative" to start the roadmap.</p>
+      </div>
     </div>
 
     <!-- Search Results View -->

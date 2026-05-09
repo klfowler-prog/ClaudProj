@@ -674,13 +674,17 @@ function switchView(view) {
   document.getElementById('view-notifications').style.display = view === 'notifications' ? 'block' : 'none';
   document.getElementById('view-search').style.display = view === 'search' ? 'block' : 'none';
   document.getElementById('view-features').style.display = view === 'features' ? 'block' : 'none';
+  const roadmapEl = document.getElementById('view-roadmap');
+  if (roadmapEl) roadmapEl.style.display = view === 'roadmap' ? 'block' : 'none';
+  if (view === 'roadmap') showRoadmapView();
   // Update sidebar active states — skip global buttons (handled by renderSidebarSpaces)
   document.querySelectorAll('.sidebar-nav-item').forEach(el => {
     if (el.id === 'btn-my-tasks-global' || el.id === 'btn-my-notes-global') return;
     const match = (el.id === 'btn-open-chat' && view === 'ai') ||
                   (el.id === 'btn-notifications' && view === 'notifications') ||
                   (el.id === 'btn-feature-requests' && view === 'features') ||
-                  (el.dataset.view === 'team' && view === 'team');
+                  (el.dataset.view === 'team' && view === 'team') ||
+                  (el.dataset.view === 'roadmap' && view === 'roadmap');
     el.classList.toggle('active', match);
   });
   // Update global buttons
@@ -4135,7 +4139,7 @@ async function loadInitiatives() {
   catch { initiatives = []; }
   initiativesById = {};
   for (const i of initiatives) initiativesById[i.id] = i;
-  if (typeof renderSidebarInitiatives === 'function') renderSidebarInitiatives();
+  if (currentView === 'roadmap' && typeof renderRoadmapGrid === 'function') renderRoadmapGrid();
 }
 
 function initiativeForTask(task) {
@@ -5494,23 +5498,6 @@ function populateInitiativeOwnerDropdown(selectedId) {
   if (selectedId) sel.value = selectedId;
 }
 
-function renderInitiativeCollabGrid(ownerId) {
-  const grid = document.getElementById('init-collab-grid');
-  if (!grid) return;
-  const list = (teamMembers || []).filter(m => (m.status === 'active' || !m.status) && m.userId !== ownerId);
-  if (list.length === 0) {
-    grid.innerHTML = '<p style="color:var(--color-text-muted);font-size:0.78rem;margin:0;">No team members yet.</p>';
-    return;
-  }
-  grid.innerHTML = list.map(m => {
-    const active = editingInitiativeCollab.includes(m.userId);
-    return `<button type="button" class="if-collab ${active ? 'is-active' : ''}" data-uid="${m.userId}">
-      <span>${escapeHtml(m.displayName)}</span>
-      ${active ? '<span class="if-collab__check">✓</span>' : ''}
-    </button>`;
-  }).join('');
-}
-
 function setHealthSegmented(val) {
   const seg = document.getElementById('init-health-seg');
   const hidden = document.getElementById('init-health');
@@ -5523,23 +5510,35 @@ function setHealthSegmented(val) {
 
 function openInitiativeForm(initiativeId) {
   if (myProfile && myProfile.role === 'viewer') return;
-  // Only leaders can create new initiatives; leaders + owner can edit
   if (!initiativeId && !(myProfile && (myProfile.role === 'cmo' || myProfile.role === 'lead'))) {
     showToast('Only leaders can create initiatives', 'error');
     return;
   }
   const titleEl = document.getElementById('modal-initiative-title');
+  const breadEl = document.getElementById('modal-initiative-bread');
   const submitBtn = document.getElementById('btn-submit-initiative');
   const archiveBtn = document.getElementById('btn-archive-initiative');
   const form = document.getElementById('form-initiative');
+  const collabInput = document.getElementById('init-collab-input');
+  const collabSugg = document.getElementById('init-collab-suggestions');
   if (!form) return;
+
+  // Live-update the modal h2 as the user types Name
+  const nameInput = document.getElementById('init-name');
+  if (nameInput && !nameInput.dataset.bound) {
+    nameInput.dataset.bound = '1';
+    nameInput.addEventListener('input', () => {
+      titleEl.textContent = nameInput.value.trim() || 'Untitled initiative';
+    });
+  }
 
   if (initiativeId) {
     const init = initiativesById[initiativeId];
     if (!init) return;
     editingInitiativeId = init.id;
     editingInitiativeCollab = (init.collaborators || []).slice();
-    titleEl.textContent = 'Edit Initiative';
+    breadEl.textContent = 'Edit initiative';
+    titleEl.textContent = init.name || 'Untitled initiative';
     submitBtn.textContent = 'Save changes';
 
     document.getElementById('init-name').value = init.name || '';
@@ -5550,7 +5549,6 @@ function openInitiativeForm(initiativeId) {
     document.getElementById('init-start').value = init.start || todayIso();
     document.getElementById('init-end').value = init.end || todayIso();
     populateInitiativeOwnerDropdown(init.ownerId);
-    renderInitiativeCollabGrid(init.ownerId);
 
     const canArchive = myProfile && (
       myProfile.role === 'cmo' || myProfile.role === 'lead' ||
@@ -5560,7 +5558,8 @@ function openInitiativeForm(initiativeId) {
   } else {
     editingInitiativeId = null;
     editingInitiativeCollab = [];
-    titleEl.textContent = 'New Initiative';
+    breadEl.textContent = 'New initiative';
+    titleEl.textContent = 'Untitled initiative';
     submitBtn.textContent = 'Create initiative';
     archiveBtn.style.display = 'none';
     form.reset();
@@ -5569,13 +5568,15 @@ function openInitiativeForm(initiativeId) {
     document.getElementById('init-priority').value = 'Medium';
     const t = todayIso();
     document.getElementById('init-start').value = t;
-    // Default end: 90 days out
     const d = new Date(t + 'T00:00:00');
     d.setDate(d.getDate() + 90);
     const pad = n => String(n).padStart(2, '0');
     document.getElementById('init-end').value = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-    renderInitiativeCollabGrid((myProfile && myProfile.userId) || '');
   }
+  // Render contributor chips + clear input
+  if (collabInput) collabInput.value = '';
+  if (collabSugg) collabSugg.style.display = 'none';
+  renderInitCollabChips();
 
   openModal('modal-initiative');
 }
@@ -5645,64 +5646,181 @@ document.addEventListener('DOMContentLoaded', () => {
     setHealthSegmented(btn.dataset.val);
   });
 
-  const grid = document.getElementById('init-collab-grid');
-  if (grid) grid.addEventListener('click', (e) => {
-    const btn = e.target.closest('.if-collab');
-    if (!btn) return;
-    const uid = btn.dataset.uid;
-    const i = editingInitiativeCollab.indexOf(uid);
-    if (i >= 0) editingInitiativeCollab.splice(i, 1);
-    else editingInitiativeCollab.push(uid);
-    const ownerId = document.getElementById('init-owner').value;
-    renderInitiativeCollabGrid(ownerId);
-  });
-
   const archBtn = document.getElementById('btn-archive-initiative');
   if (archBtn) archBtn.addEventListener('click', archiveInitiativeFromForm);
 
-  // Owner change → re-render collaborator grid (so the new owner is excluded)
+  // Owner change → re-render contributor chips (in case the new owner was a chip)
   const ownerSel = document.getElementById('init-owner');
   if (ownerSel) ownerSel.addEventListener('change', () => {
     const newOwner = ownerSel.value;
-    // Remove the new owner from collaborators if present
     editingInitiativeCollab = editingInitiativeCollab.filter(uid => uid !== newOwner);
-    renderInitiativeCollabGrid(newOwner);
+    renderInitCollabChips();
   });
 });
 
-// === Initiatives sidebar (temporary Phase 1 entry point) ===
-function toggleSidebarInitiatives() {
-  const subnav = document.getElementById('initiatives-subnav');
-  const caret = document.getElementById('initiatives-caret');
-  if (!subnav || !caret) return;
-  const isCollapsed = subnav.classList.contains('collapsed');
-  subnav.classList.toggle('collapsed', !isCollapsed);
-  caret.innerHTML = isCollapsed ? '&#9662;' : '&#9656;';
+// === Roadmap view (Phase 1: grid of initiative cards; Phase 2 will replace with timeline) ===
+function showRoadmapView() {
+  renderRoadmapGrid();
 }
 
-function renderSidebarInitiatives() {
-  const section = document.getElementById('sidebar-initiatives-section');
-  const list = document.getElementById('sidebar-initiatives-list');
-  if (!section || !list) return;
-  const isLeader = myProfile && (myProfile.role === 'cmo' || myProfile.role === 'lead');
-  const hasAny = (initiatives || []).length > 0;
-  section.style.display = (isLeader || hasAny) ? '' : 'none';
-  list.innerHTML = (initiatives || []).map(i => {
-    const deptKey = (i.department || '').toLowerCase().replace(/\s+/g, '-').replace('all-marketing', 'allmkt');
-    return `<button class="sidebar-dept-item" data-edit-init="${i.id}">
-      <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--color-${deptKey === 'b2b-marketing' ? 'b2b' : deptKey === 'b2c-marketing' ? 'b2c' : deptKey === 'rev-ops' ? 'revops' : deptKey === 'allmkt' ? 'b2b' : 'personal'});margin-right:0.4rem;flex-shrink:0;"></span>
-      ${escapeHtml(i.name)}
-    </button>`;
+function deptKeyFor(department) {
+  const m = {
+    'All Marketing': 'allmkt',
+    'B2B Marketing': 'b2b',
+    'B2C Marketing': 'b2c',
+    'Personal': 'personal',
+    'Rev Ops': 'revops'
+  };
+  return m[department] || 'allmkt';
+}
+
+function renderRoadmapGrid() {
+  const grid = document.getElementById('rm-grid');
+  const empty = document.getElementById('rm-empty');
+  if (!grid || !empty) return;
+  if (!initiatives || initiatives.length === 0) {
+    grid.innerHTML = '';
+    empty.style.display = '';
+    return;
+  }
+  empty.style.display = 'none';
+  grid.innerHTML = initiatives.map(i => {
+    const dk = deptKeyFor(i.department);
+    const owner = teamMembers.find(m => m.userId === i.ownerId);
+    const ownerName = owner ? owner.displayName : (i.ownerId === (myProfile && myProfile.userId) ? (myProfile.name || 'Me') : 'Unassigned');
+    const pct = Math.round((Number(i.progress) || 0) * 100);
+    const dates = `${i.start} → ${i.end}`;
+    const healthLabel = { 'on-track': 'On track', 'at-risk': 'At risk', 'off-track': 'Off track' }[i.health] || 'On track';
+    return `
+      <div class="rm-card dept-${dk} health-${i.health}" data-init-id="${i.id}">
+        <div class="rm-card__head">
+          <div class="rm-card__title">${escapeHtml(i.name)}</div>
+          <span class="rm-card__health health-${i.health}">${escapeHtml(healthLabel)}</span>
+        </div>
+        <div class="rm-card__thesis">${escapeHtml(i.thesis || '')}</div>
+        <div class="rm-card__meta">
+          <span>${escapeHtml(i.department)}</span>
+          <span>·</span>
+          <span>${escapeHtml(ownerName)}</span>
+        </div>
+        <div class="rm-card__meta"><span>${escapeHtml(dates)}</span></div>
+        <div class="rm-card__progress"><div class="rm-card__progress-bar" style="width:${pct}%"></div></div>
+        <div class="rm-card__progress-label">${pct}% complete</div>
+      </div>`;
   }).join('');
-  list.querySelectorAll('[data-edit-init]').forEach(b => {
-    b.addEventListener('click', () => {
-      openInitiativeForm(b.dataset.editInit);
-      closeSidebar();
-    });
+  grid.querySelectorAll('.rm-card[data-init-id]').forEach(card => {
+    card.addEventListener('click', () => openInitiativeForm(card.dataset.initId));
   });
 }
 
+// === Initiative form: type-ahead collaborator handlers ===
+function renderInitCollabChips() {
+  const chips = document.getElementById('init-collab-chips');
+  if (!chips) return;
+  chips.innerHTML = editingInitiativeCollab.map(uid => {
+    const m = teamMembers.find(x => x.userId === uid);
+    const me = myProfile && uid === myProfile.userId;
+    const name = m ? m.displayName : (me ? (myProfile.name || 'Me') : 'Unknown');
+    return `<span class="contributor-chip" data-uid="${uid}">${escapeHtml(name)} <span class="contributor-chip-remove" data-remove-uid="${uid}" title="Remove">×</span></span>`;
+  }).join('');
+}
+
+let initCollabActiveSuggestionIdx = -1;
+function showInitCollabSuggestions(query) {
+  const sugg = document.getElementById('init-collab-suggestions');
+  if (!sugg) return;
+  const q = (query || '').trim().toLowerCase();
+  if (!q) { sugg.style.display = 'none'; initCollabActiveSuggestionIdx = -1; return; }
+  const ownerId = document.getElementById('init-owner').value;
+  const list = (teamMembers || [])
+    .filter(m => (m.status === 'active' || !m.status))
+    .filter(m => m.userId !== ownerId)
+    .filter(m => !editingInitiativeCollab.includes(m.userId))
+    .filter(m => (m.displayName || '').toLowerCase().includes(q) || (m.email || '').toLowerCase().includes(q))
+    .slice(0, 8);
+  if (list.length === 0) {
+    sugg.innerHTML = `<div class="contributor-suggestion" style="cursor:default;color:var(--color-text-muted);">No matches</div>`;
+    sugg.style.display = '';
+    initCollabActiveSuggestionIdx = -1;
+    return;
+  }
+  sugg.innerHTML = list.map((m, idx) =>
+    `<div class="contributor-suggestion${idx === 0 ? ' active' : ''}" data-uid="${m.userId}">${escapeHtml(m.displayName || m.email)}<span class="suggest-email">${escapeHtml(m.email || '')}</span></div>`
+  ).join('');
+  sugg.style.display = '';
+  initCollabActiveSuggestionIdx = 0;
+}
+
+function addInitCollab(uid) {
+  if (!uid || editingInitiativeCollab.includes(uid)) return;
+  editingInitiativeCollab.push(uid);
+  renderInitCollabChips();
+  const input = document.getElementById('init-collab-input');
+  if (input) input.value = '';
+  const sugg = document.getElementById('init-collab-suggestions');
+  if (sugg) sugg.style.display = 'none';
+}
+
+function removeInitCollab(uid) {
+  editingInitiativeCollab = editingInitiativeCollab.filter(u => u !== uid);
+  renderInitCollabChips();
+}
+
 document.addEventListener('DOMContentLoaded', () => {
-  const newBtn = document.getElementById('btn-add-initiative');
+  const newBtn = document.getElementById('btn-new-initiative-from-roadmap');
   if (newBtn) newBtn.addEventListener('click', () => openInitiativeForm(null));
+
+  // Type-ahead handlers
+  const cInput = document.getElementById('init-collab-input');
+  const cSugg = document.getElementById('init-collab-suggestions');
+  const cWrap = document.getElementById('init-collab-wrap');
+  const cChips = document.getElementById('init-collab-chips');
+
+  if (cInput) {
+    cInput.addEventListener('input', () => showInitCollabSuggestions(cInput.value));
+    cInput.addEventListener('focus', () => { if (cInput.value) showInitCollabSuggestions(cInput.value); });
+    cInput.addEventListener('keydown', (e) => {
+      const items = cSugg ? Array.from(cSugg.querySelectorAll('.contributor-suggestion[data-uid]')) : [];
+      if (e.key === 'ArrowDown' && items.length) {
+        e.preventDefault();
+        initCollabActiveSuggestionIdx = Math.min(initCollabActiveSuggestionIdx + 1, items.length - 1);
+        items.forEach((el, i) => el.classList.toggle('active', i === initCollabActiveSuggestionIdx));
+      } else if (e.key === 'ArrowUp' && items.length) {
+        e.preventDefault();
+        initCollabActiveSuggestionIdx = Math.max(initCollabActiveSuggestionIdx - 1, 0);
+        items.forEach((el, i) => el.classList.toggle('active', i === initCollabActiveSuggestionIdx));
+      } else if (e.key === 'Enter') {
+        if (items.length) {
+          e.preventDefault();
+          const idx = initCollabActiveSuggestionIdx >= 0 ? initCollabActiveSuggestionIdx : 0;
+          const uid = items[idx].dataset.uid;
+          if (uid) addInitCollab(uid);
+        }
+      } else if (e.key === 'Backspace' && !cInput.value && editingInitiativeCollab.length) {
+        e.preventDefault();
+        removeInitCollab(editingInitiativeCollab[editingInitiativeCollab.length - 1]);
+      } else if (e.key === 'Escape') {
+        if (cSugg) cSugg.style.display = 'none';
+      }
+    });
+  }
+  if (cSugg) {
+    cSugg.addEventListener('mousedown', (e) => {
+      const item = e.target.closest('.contributor-suggestion[data-uid]');
+      if (item) {
+        e.preventDefault();
+        addInitCollab(item.dataset.uid);
+      }
+    });
+  }
+  if (cChips) {
+    cChips.addEventListener('click', (e) => {
+      const r = e.target.closest('[data-remove-uid]');
+      if (r) removeInitCollab(r.dataset.removeUid);
+    });
+  }
+  // Click outside closes suggestions
+  document.addEventListener('mousedown', (e) => {
+    if (cWrap && !cWrap.contains(e.target) && cSugg) cSugg.style.display = 'none';
+  });
 });
