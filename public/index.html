@@ -627,6 +627,40 @@
       </div>
     </div>
 
+    <!-- Initiative Detail Modal -->
+    <div class="modal-overlay" id="modal-initiative-detail" style="display: none;">
+      <div class="modal id-modal">
+        <div class="modal-header id-modal__header">
+          <div style="flex:1;min-width:0;">
+            <span class="badge" id="id-detail-dept-badge">—</span>
+            <h2 id="id-detail-name" style="font-family:'IBM Plex Serif',Georgia,serif;font-weight:500;margin:0.4rem 0 0.35rem;color:var(--follett-dark-blue);">Initiative</h2>
+            <p class="id-thesis" id="id-detail-thesis"></p>
+          </div>
+          <button class="modal-close" data-close="modal-initiative-detail">&times;</button>
+        </div>
+        <div class="id-modal__meta">
+          <div class="id-meta-item"><span class="id-meta-lbl">Owner</span><span class="id-meta-val" id="id-detail-owner">—</span></div>
+          <div class="id-meta-item"><span class="id-meta-lbl">Dates</span><span class="id-meta-val" id="id-detail-dates">—</span></div>
+          <div class="id-meta-item"><span class="id-meta-lbl">Health</span><span class="id-meta-val" id="id-detail-health">—</span></div>
+          <div class="id-meta-item"><span class="id-meta-lbl">Progress</span><span class="id-meta-val" id="id-detail-progress">—</span></div>
+        </div>
+        <div class="id-modal__body">
+          <div class="id-section">
+            <div class="id-section__head">
+              <h3 class="id-section__title">Tasks <span id="id-detail-task-count" class="id-section__count">0</span></h3>
+              <button type="button" class="btn btn-primary btn-sm" id="btn-add-task-to-init">+ Add task</button>
+            </div>
+            <div id="id-detail-task-list" class="id-task-list"></div>
+          </div>
+        </div>
+        <div class="if-modal__actions">
+          <button type="button" class="btn btn-ghost" data-close="modal-initiative-detail">Close</button>
+          <div style="flex:1;"></div>
+          <button type="button" class="btn btn-secondary" id="btn-edit-from-detail">Edit details</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Create/Edit Initiative Modal -->
     <div class="modal-overlay" id="modal-initiative" style="display: none;">
       <div class="modal if-modal">

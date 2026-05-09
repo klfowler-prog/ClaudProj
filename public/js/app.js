@@ -5604,6 +5604,7 @@ async function saveInitiativeFromForm(e) {
   }
   try {
     let saved;
+    const wasNew = !editingInitiativeId;
     if (editingInitiativeId) {
       saved = await api('PUT', '/api/initiatives/' + editingInitiativeId, payload);
     } else {
@@ -5614,7 +5615,11 @@ async function saveInitiativeFromForm(e) {
     // Re-render whatever's on screen so pills refresh
     if (typeof render === 'function') render();
     if (typeof renderKanban === 'function' && document.getElementById('view-tasks').style.display !== 'none') renderKanban();
-    showToast(editingInitiativeId ? 'Initiative updated' : 'Initiative created', 'success');
+    showToast(wasNew ? 'Initiative created — add tasks below' : 'Initiative updated', 'success');
+    // After creating, auto-open the detail so the user can add tasks immediately.
+    if (wasNew && saved && saved.id) {
+      setTimeout(() => openInitiativeDetail(saved.id), 80);
+    }
   } catch (err) {
     showToast('Failed: ' + err.message, 'error');
   }
@@ -5709,7 +5714,7 @@ function renderRoadmapGrid() {
       </div>`;
   }).join('');
   grid.querySelectorAll('.rm-card[data-init-id]').forEach(card => {
-    card.addEventListener('click', () => openInitiativeForm(card.dataset.initId));
+    card.addEventListener('click', () => openInitiativeDetail(card.dataset.initId));
   });
 }
 
@@ -5822,5 +5827,130 @@ document.addEventListener('DOMContentLoaded', () => {
   // Click outside closes suggestions
   document.addEventListener('mousedown', (e) => {
     if (cWrap && !cWrap.contains(e.target) && cSugg) cSugg.style.display = 'none';
+  });
+});
+
+// === Initiative Detail panel ===
+let detailOpenInitiativeId = null;
+
+async function openInitiativeDetail(initiativeId) {
+  const init = initiativesById[initiativeId];
+  if (!init) return;
+  detailOpenInitiativeId = initiativeId;
+
+  // Header
+  document.getElementById('id-detail-name').textContent = init.name || 'Untitled initiative';
+  document.getElementById('id-detail-thesis').textContent = init.thesis || '';
+  const deptBadge = document.getElementById('id-detail-dept-badge');
+  deptBadge.className = `badge dept-${deptKeyFor(init.department)}`;
+  deptBadge.textContent = init.department || '';
+
+  // Meta
+  const owner = teamMembers.find(m => m.userId === init.ownerId);
+  const ownerName = owner ? owner.displayName : (init.ownerId === (myProfile && myProfile.userId) ? (myProfile.name || 'Me') : 'Unassigned');
+  document.getElementById('id-detail-owner').textContent = ownerName;
+  document.getElementById('id-detail-dates').textContent = `${init.start || '—'} → ${init.end || '—'}`;
+  const healthLabel = { 'on-track': 'On Track', 'at-risk': 'At Risk', 'off-track': 'Off Track' }[init.health] || 'On Track';
+  document.getElementById('id-detail-health').textContent = healthLabel;
+  const pct = Math.round((Number(init.progress) || 0) * 100);
+  document.getElementById('id-detail-progress').textContent = `${pct}%`;
+
+  // Tasks
+  await renderInitiativeDetailTasks(initiativeId);
+
+  openModal('modal-initiative-detail');
+}
+
+async function renderInitiativeDetailTasks(initiativeId) {
+  const list = document.getElementById('id-detail-task-list');
+  const countEl = document.getElementById('id-detail-task-count');
+  let initTasks = [];
+  try { initTasks = await api('GET', '/api/initiatives/' + initiativeId + '/tasks'); }
+  catch { initTasks = []; }
+  countEl.textContent = String(initTasks.length);
+  if (initTasks.length === 0) {
+    list.innerHTML = '<p style="color:var(--color-text-muted);font-size:0.85rem;margin:0;padding:0.6rem;background:var(--color-bg);border-radius:6px;text-align:center;">No tasks yet — click <strong>+ Add task</strong> to start.</p>';
+    return;
+  }
+  // Sort by due date (no date last), then status order
+  const statusOrder = ['In Progress', 'Blocked', 'Not Started', 'Approved', 'Backlog', 'Completed', 'Delegated'];
+  initTasks.sort((a, b) => {
+    const sa = statusOrder.indexOf(a.status);
+    const sb = statusOrder.indexOf(b.status);
+    if (sa !== sb) return sa - sb;
+    return (a.dueDate || '￿').localeCompare(b.dueDate || '￿');
+  });
+  list.innerHTML = initTasks.map(t => {
+    const sk = STATUS_KEYS[t.status] || 'not-started';
+    const owner = teamMembers.find(m => m.userId === t.assignedTo);
+    const ownerName = owner ? owner.displayName.split(' ')[0] : '';
+    const due = t.dueDate ? `<span class="id-task-row-due">${escapeHtml(t.dueDate)}</span>` : '';
+    return `<div class="id-task-row status-${sk}" data-task-id="${t.id}">
+      <span class="task-status-dot status-${sk}"></span>
+      <span class="id-task-row-title">${escapeHtml(t.title)}</span>
+      <span class="id-task-row-priority pri-${(t.priority || 'medium').toLowerCase()}">${escapeHtml(t.priority || 'Medium')}</span>
+      ${due}
+      ${ownerName ? `<span class="id-task-row-owner">${escapeHtml(ownerName)}</span>` : ''}
+    </div>`;
+  }).join('');
+  list.querySelectorAll('[data-task-id]').forEach(row => {
+    row.addEventListener('click', () => {
+      const tid = row.dataset.taskId;
+      closeModal('modal-initiative-detail');
+      setTimeout(() => showTaskDetail(tid), 30);
+    });
+  });
+}
+
+// Open the existing task add modal with the initiative pre-selected.
+function openAddTaskForInitiative(initiativeId) {
+  const init = initiativesById[initiativeId];
+  if (!init) return;
+  // Use the existing add-task button to handle setup, then override the initiative dropdown.
+  if (typeof openAddTaskModal === 'function') {
+    openAddTaskModal();
+  } else {
+    // Fallback: click the existing add-task button to trigger its handler
+    const addBtn = document.getElementById('btn-add-task');
+    if (addBtn) addBtn.click();
+    else {
+      showToast('Add Task button not available', 'error');
+      return;
+    }
+  }
+  // Ensure modal is open and form populated, then set the initiative dropdown
+  setTimeout(() => {
+    const initSelect = document.getElementById('input-initiative');
+    if (initSelect) {
+      // Make sure the option exists
+      const has = [...initSelect.options].some(o => o.value === initiativeId);
+      if (!has) {
+        const opt = document.createElement('option');
+        opt.value = initiativeId; opt.textContent = init.name;
+        initSelect.appendChild(opt);
+      }
+      initSelect.value = initiativeId;
+    }
+    // Default department to the initiative's department for sensible UX
+    const deptSelect = document.getElementById('input-department');
+    if (deptSelect && init.department && [...deptSelect.options].some(o => o.value === init.department)) {
+      deptSelect.value = init.department;
+    }
+  }, 50);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const addTaskBtn = document.getElementById('btn-add-task-to-init');
+  if (addTaskBtn) addTaskBtn.addEventListener('click', () => {
+    if (!detailOpenInitiativeId) return;
+    closeModal('modal-initiative-detail');
+    openAddTaskForInitiative(detailOpenInitiativeId);
+  });
+  const editBtn = document.getElementById('btn-edit-from-detail');
+  if (editBtn) editBtn.addEventListener('click', () => {
+    if (!detailOpenInitiativeId) return;
+    const id = detailOpenInitiativeId;
+    closeModal('modal-initiative-detail');
+    setTimeout(() => openInitiativeForm(id), 30);
   });
 });
