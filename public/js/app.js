@@ -5879,7 +5879,7 @@ async function renderRoadmapTimeline() {
       const clamped = rmClampToScale(init.start, init.end, scale);
       let barHtml = '';
       if (clamped) {
-        barHtml = `<button type="button" class="rm-init-bar dept-${dk} health-${init.health} ${isOpen ? 'is-open' : ''}" data-toggle-init="${init.id}" style="left:${clamped.left}px;width:${clamped.width}px;" title="${escapeHtml(init.thesis || init.name)}">
+        barHtml = `<button type="button" class="rm-init-bar dept-${dk} health-${init.health} ${isOpen ? 'is-open' : ''}" data-open-init="${init.id}" style="left:${clamped.left}px;width:${clamped.width}px;" title="${escapeHtml(init.thesis || init.name)} — click to open">
           <span class="rm-init-bar__fill" style="width:${pct}%;"></span>
           <span class="rm-init-bar__content">
             <span class="rm-init-bar__title">${escapeHtml(init.name)}</span>
@@ -5905,9 +5905,15 @@ async function renderRoadmapTimeline() {
       }
       rowsHtml += `<div class="rm-lane-track">${barHtml}${msHtml}</div>`;
 
-      // If expanded, render task rows
+      // If expanded, render task rows (or an empty-state nudge if there are none)
       if (isOpen) {
         const tasks = rmTasksByInit[init.id] || [];
+        if (tasks.length === 0) {
+          lanesHtml += `<div class="rm-task-meta-row rm-task-meta-row--empty" data-open-init="${init.id}">
+            <span class="rm-task-meta-row__title" style="color:var(--color-text-muted);font-style:italic;">No tasks yet — click to add</span>
+          </div>`;
+          rowsHtml += `<div class="rm-task-track rm-task-track--empty"></div>`;
+        }
         for (const t of tasks) {
           const sk = STATUS_KEYS[t.status] || 'not-started';
           lanesHtml += `<div class="rm-task-meta-row" data-open-task="${t.id}">
@@ -5953,21 +5959,16 @@ async function renderRoadmapTimeline() {
     else { rmExpanded.add(id); await rmEnsureTasksFor(id); }
     renderRoadmapTimeline();
   };
+  // Caret in left rail → toggle inline expansion
   lanesEl.querySelectorAll('[data-toggle-init]').forEach(btn => {
-    btn.addEventListener('click', () => onToggleInit(btn.dataset.toggleInit));
+    btn.addEventListener('click', (e) => { e.stopPropagation(); onToggleInit(btn.dataset.toggleInit); });
   });
-  rowsEl.querySelectorAll('[data-toggle-init]').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      onToggleInit(btn.dataset.toggleInit);
-    });
-  });
-  // 3. Title click → open detail panel
+  // Title in left rail AND bar in canvas → open detail panel
   lanesEl.querySelectorAll('[data-open-init]').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      openInitiativeDetail(btn.dataset.openInit);
-    });
+    btn.addEventListener('click', (e) => { e.stopPropagation(); openInitiativeDetail(btn.dataset.openInit); });
+  });
+  rowsEl.querySelectorAll('[data-open-init]').forEach(btn => {
+    btn.addEventListener('click', (e) => { e.stopPropagation(); openInitiativeDetail(btn.dataset.openInit); });
   });
   // 4. Task row / task pin click → open task detail
   const openTaskHandler = (id) => {
