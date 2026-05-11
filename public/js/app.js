@@ -1242,6 +1242,7 @@ async function editTask(id) {
   if (initSelect) {
     initSelect.innerHTML = '<option value="">— None (Inbox task) —</option>' +
       initiatives.map(i => `<option value="${i.id}" ${i.id === task.initiativeId ? 'selected' : ''}>${escapeHtml(i.name)}</option>`).join('');
+    refreshInitiativeDatesHint(task.dueDate);
   }
 
   // Load existing attachments into pending lists
@@ -1329,7 +1330,22 @@ function resetAddForm() {
   if (initSelect) {
     initSelect.innerHTML = '<option value="">— None (Inbox task) —</option>' +
       initiatives.map(i => `<option value="${i.id}">${escapeHtml(i.name)}</option>`).join('');
+    refreshInitiativeDatesHint('');
   }
+}
+
+// Show the parent initiative's date range under the dropdown; flag if due date is outside.
+function refreshInitiativeDatesHint(dueDate) {
+  const sel = document.getElementById('input-initiative');
+  const hint = document.getElementById('input-initiative-dates');
+  if (!sel || !hint) return;
+  const init = initiativesById[sel.value];
+  if (!init) { hint.style.display = 'none'; hint.innerHTML = ''; return; }
+  const due = dueDate || (document.getElementById('input-due-date') || {}).value || '';
+  const outOfRange = due && (due < init.start || due > init.end);
+  hint.style.display = '';
+  hint.innerHTML = `Initiative runs <strong>${escapeHtml(init.start || '—')} → ${escapeHtml(init.end || '—')}</strong>` +
+    (outOfRange ? `<span style="color:var(--follett-coral);"> · Task due date is outside this range</span>` : '');
 }
 
 function renderTaskFormTags() {
@@ -1536,6 +1552,21 @@ function showTaskDetail(id) {
           <option value="" ${!task.workspaceId ? 'selected' : ''}>None</option>
           ${workspaces.map(w => `<option value="${w.id}" ${w.id === task.workspaceId ? 'selected' : ''}>${escapeHtml(w.name)}</option>`).join('')}
         </select>
+      </div>
+      <div>
+        <div class="detail-section-title">Initiative</div>
+        <select class="filter-select-compact" onchange="moveTaskInitiative('${task.id}', this.value)" style="font-size:0.8rem;">
+          <option value="" ${!task.initiativeId ? 'selected' : ''}>— None (Inbox) —</option>
+          ${initiatives.map(i => `<option value="${i.id}" ${i.id === task.initiativeId ? 'selected' : ''}>${escapeHtml(i.name)}</option>`).join('')}
+        </select>
+        ${(() => {
+          const init = initiativesById[task.initiativeId];
+          if (!init) return '';
+          return `<div style="font-size:0.7rem;color:var(--color-text-muted);margin-top:0.25rem;line-height:1.35;">
+            Runs <strong>${escapeHtml(init.start || '—')} → ${escapeHtml(init.end || '—')}</strong>
+            ${task.dueDate && (task.dueDate < init.start || task.dueDate > init.end) ? `<span style="color:var(--follett-coral);"> · Task is outside initiative range</span>` : ''}
+          </div>`;
+        })()}
       </div>
       <div>
         <div class="detail-section-title">${task.startDate ? 'Dates' : 'Due Date'}</div>
@@ -1891,6 +1922,20 @@ async function moveTaskWorkspace(taskId, newWsId) {
     render();
     const ws = workspaces.find(w => w.id === newWsId);
     showToast(newWsId ? 'Moved to ' + ws.name : 'Removed from workspace');
+  } catch (err) { showToast('Failed to move task', 'error'); }
+}
+
+async function moveTaskInitiative(taskId, newInitId) {
+  try {
+    await api('PUT', `/api/tasks/${taskId}`, { initiativeId: newInitId || null });
+    const task = tasks.find(t => t.id === taskId);
+    if (task) task.initiativeId = newInitId || null;
+    // Invalidate the timeline's cached tasks so re-render picks up the move
+    if (typeof rmTasksByInit !== 'undefined') rmTasksByInit = {};
+    render();
+    if (currentView === 'roadmap' && typeof renderRoadmapTimeline === 'function') renderRoadmapTimeline();
+    const init = initiativesById[newInitId];
+    showToast(newInitId ? 'Linked to ' + init.name : 'Moved to Inbox');
   } catch (err) { showToast('Failed to move task', 'error'); }
 }
 
@@ -5924,7 +5969,9 @@ async function renderRoadmapTimeline() {
           if (t.dueDate) {
             const x = rmDateXOnScale(t.dueDate, scale);
             if (x !== null) {
-              pinHtml = `<button type="button" class="rm-task-pin status-${sk}" data-open-task="${t.id}" style="left:${Math.max(0, x - 100)}px;" title="${escapeHtml(t.title)} · due ${escapeHtml(t.dueDate)}">
+              // Anchor the pin's left edge at the due-date pixel — this is the same convention
+              // the parent initiative bar uses for its start date, so they line up visually.
+              pinHtml = `<button type="button" class="rm-task-pin status-${sk}" data-open-task="${t.id}" style="left:${x}px;" title="${escapeHtml(t.title)} · due ${escapeHtml(t.dueDate)}">
                 <span class="rm-task-pin__dot status-${sk}"></span>
                 <span class="rm-task-pin__title">${escapeHtml(t.title)}</span>
               </button>`;
@@ -6255,4 +6302,12 @@ document.addEventListener('DOMContentLoaded', () => {
     closeModal('modal-initiative-detail');
     setTimeout(() => openInitiativeForm(id), 30);
   });
+});
+
+// Live-refresh initiative dates hint when user changes either the dropdown or the due date.
+document.addEventListener('DOMContentLoaded', () => {
+  const initSel = document.getElementById('input-initiative');
+  if (initSel) initSel.addEventListener('change', () => refreshInitiativeDatesHint(''));
+  const dueInput = document.getElementById('input-due-date');
+  if (dueInput) dueInput.addEventListener('change', () => refreshInitiativeDatesHint(dueInput.value));
 });
