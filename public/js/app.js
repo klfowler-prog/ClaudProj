@@ -1,5 +1,5 @@
 // === Constants ===
-const DEPARTMENTS = ['B2B Marketing', 'B2C Marketing', 'All Marketing', 'Personal'];
+const DEPARTMENTS = ['All Marketing', 'B2B Marketing', 'B2C Marketing', 'Personal', 'Rev Ops'];
 const SUB_DEPARTMENTS = {
   'B2B Marketing': ['Biz Dev', 'Growth & Brand', 'Rev Ops', 'Internal Comms'],
   'B2C Marketing': []

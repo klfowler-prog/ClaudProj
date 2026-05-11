@@ -206,10 +206,11 @@
       <!-- Hidden dept filter (used by sidebar clicks) -->
       <select id="filter-department" style="display:none;">
         <option value="all">All Departments</option>
+        <option value="All Marketing">All Marketing</option>
         <option value="B2B Marketing">B2B Marketing</option>
         <option value="B2C Marketing">B2C Marketing</option>
-        <option value="All Marketing">All Marketing</option>
         <option value="Personal">Personal</option>
+        <option value="Rev Ops">Rev Ops</option>
       </select>
 
       <!-- Task Actions -->
@@ -500,8 +501,11 @@
           <div class="form-group">
             <label>Department <span class="required">*</span></label>
             <div id="invite-depts" style="display: flex; flex-direction: column; gap: 0.25rem;">
+              <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;text-transform:none;font-weight:400;color:var(--color-text);"><input type="checkbox" class="invite-dept-cb" value="All Marketing"> All Marketing</label>
               <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;text-transform:none;font-weight:400;color:var(--color-text);"><input type="checkbox" class="invite-dept-cb" value="B2B Marketing"> B2B Marketing</label>
               <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;text-transform:none;font-weight:400;color:var(--color-text);"><input type="checkbox" class="invite-dept-cb" value="B2C Marketing"> B2C Marketing</label>
+              <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;text-transform:none;font-weight:400;color:var(--color-text);"><input type="checkbox" class="invite-dept-cb" value="Personal"> Personal</label>
+              <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;text-transform:none;font-weight:400;color:var(--color-text);"><input type="checkbox" class="invite-dept-cb" value="Rev Ops"> Rev Ops</label>
             </div>
           </div>
           <div class="form-group">
@@ -914,13 +918,11 @@
         </select>
         <select id="search-filter-dept" class="filter-select-compact">
           <option value="all">All Departments</option>
+          <option value="All Marketing">All Marketing</option>
           <option value="B2B Marketing">B2B Marketing</option>
           <option value="B2C Marketing">B2C Marketing</option>
           <option value="Personal">Personal</option>
-          <option value="Biz Dev">Biz Dev</option>
-          <option value="Growth & Brand">Growth & Brand</option>
           <option value="Rev Ops">Rev Ops</option>
-          <option value="Internal Comms">Internal Comms</option>
         </select>
         <select id="search-filter-date" class="filter-select-compact">
           <option value="all">Any Time</option>
@@ -953,10 +955,11 @@
           <div class="form-group">
             <label for="input-department">Department <span class="required">*</span></label>
             <select id="input-department" required>
+              <option value="All Marketing">All Marketing</option>
               <option value="B2B Marketing">B2B Marketing</option>
               <option value="B2C Marketing">B2C Marketing</option>
-              <option value="All Marketing">All Marketing</option>
               <option value="Personal">Personal</option>
+              <option value="Rev Ops">Rev Ops</option>
             </select>
           </div>
           <div class="form-group">
