@@ -755,6 +755,19 @@ function closeSidebar() {
   document.getElementById('sidebar-overlay').classList.remove('active');
 }
 
+const SIDEBAR_COLLAPSED_KEY = 'sidebarCollapsed';
+function setSidebarCollapsed(collapsed) {
+  document.getElementById('app-container').classList.toggle('sidebar-collapsed', collapsed);
+  try { localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? '1' : '0'); } catch {}
+}
+// Restore the saved collapsed state (runs at load, before the app is revealed, so no flash)
+function restoreSidebarCollapsed() {
+  let collapsed = false;
+  try { collapsed = localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1'; } catch {}
+  document.getElementById('app-container').classList.toggle('sidebar-collapsed', collapsed);
+}
+restoreSidebarCollapsed();
+
 function renderTaskItem(task) {
   const deptKey = DEPT_KEYS[task.department] || 'b2b';
   const statusKey = STATUS_KEYS[task.status] || 'not-started';
@@ -3574,6 +3587,12 @@ async function init() {
   document.getElementById('sidebar-toggle').addEventListener('click', openSidebar);
   document.getElementById('sidebar-close').addEventListener('click', closeSidebar);
   document.getElementById('sidebar-overlay').addEventListener('click', closeSidebar);
+
+  // Sidebar collapse (desktop) — persisted across reloads for more working space
+  const collapseBtn = document.getElementById('sidebar-collapse');
+  const expandBtn = document.getElementById('sidebar-expand');
+  if (collapseBtn) collapseBtn.addEventListener('click', () => setSidebarCollapsed(true));
+  if (expandBtn) expandBtn.addEventListener('click', () => setSidebarCollapsed(false));
 
   // Notes event listeners
   document.getElementById('btn-new-note').addEventListener('click', createNote);
