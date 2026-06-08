@@ -3281,21 +3281,29 @@ function cmdbarContextLabel() {
   return names[c.view] || '';
 }
 
+function isCommandBarOpen() {
+  const d = document.getElementById('ai-drawer');
+  return !!(d && d.classList.contains('open'));
+}
+
 function openCommandBar(prefill) {
-  const overlay = document.getElementById('cmdbar-overlay');
-  if (!overlay) return;
-  overlay.style.display = 'flex';
+  const drawer = document.getElementById('ai-drawer');
+  if (!drawer) return;
+  drawer.classList.add('open');
   const fab = document.getElementById('ai-fab');
   if (fab) fab.classList.add('is-hidden');
-  document.getElementById('cmdbar-context').textContent = cmdbarContextLabel();
+  const label = cmdbarContextLabel();
+  document.getElementById('cmdbar-context').textContent = label;
+  const emptySub = document.getElementById('cmdbar-empty-context');
+  if (emptySub) emptySub.textContent = label ? `Focused on: ${label}` : '';
   const input = document.getElementById('cmdbar-input');
   if (prefill) input.value = prefill;
-  setTimeout(() => { input.focus(); input.select(); }, 30);
+  setTimeout(() => { input.focus(); input.select(); }, 60);
 }
 
 function closeCommandBar() {
-  const overlay = document.getElementById('cmdbar-overlay');
-  if (overlay) overlay.style.display = 'none';
+  const drawer = document.getElementById('ai-drawer');
+  if (drawer) drawer.classList.remove('open');
   const fab = document.getElementById('ai-fab');
   if (fab) fab.classList.remove('is-hidden');
 }
@@ -3303,15 +3311,15 @@ function closeCommandBar() {
 function resetCommandBar() {
   cmdbarHistory = [];
   const body = document.getElementById('cmdbar-body');
-  if (body) { body.innerHTML = ''; body.style.display = 'none'; }
+  if (body) body.querySelectorAll('.cmdbar-msg').forEach(el => el.remove());
   const hint = document.getElementById('cmdbar-hint');
   if (hint) hint.style.display = '';
 }
 
 function cmdbarAddMessage(role, text) {
   const body = document.getElementById('cmdbar-body');
-  body.style.display = 'block';
-  document.getElementById('cmdbar-hint').style.display = 'none';
+  const hint = document.getElementById('cmdbar-hint');
+  if (hint) hint.style.display = 'none';
   const div = document.createElement('div');
   div.className = `cmdbar-msg cmdbar-msg-${role === 'user' ? 'user' : 'ai'}`;
   div.innerHTML = role === 'user' ? escapeHtml(text) : renderMarkdown(text);
@@ -3364,35 +3372,38 @@ function askAiAboutCurrentTask(prompt) {
 }
 
 function wireCommandBar() {
-  // Cmd/Ctrl+K toggles the command bar from anywhere (unless typing in a field)
+  // Cmd/Ctrl+K toggles the assistant drawer from anywhere
   document.addEventListener('keydown', (e) => {
     if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
       e.preventDefault();
-      const overlay = document.getElementById('cmdbar-overlay');
-      if (overlay && overlay.style.display === 'flex') closeCommandBar();
-      else openCommandBar();
+      if (isCommandBarOpen()) closeCommandBar(); else openCommandBar();
     }
-    if (e.key === 'Escape') {
-      const overlay = document.getElementById('cmdbar-overlay');
-      if (overlay && overlay.style.display === 'flex') closeCommandBar();
-    }
+    if (e.key === 'Escape' && isCommandBarOpen()) closeCommandBar();
   });
-  const overlay = document.getElementById('cmdbar-overlay');
   const input = document.getElementById('cmdbar-input');
   const body = document.getElementById('cmdbar-body');
-  if (overlay) overlay.addEventListener('click', (e) => { if (e.target === overlay) closeCommandBar(); });
   document.getElementById('cmdbar-close').addEventListener('click', closeCommandBar);
   const fab = document.getElementById('ai-fab');
-  if (fab) fab.addEventListener('click', () => openCommandBar());
+  if (fab) fab.addEventListener('click', () => { if (isCommandBarOpen()) closeCommandBar(); else openCommandBar(); });
+  const sendBtn = document.getElementById('cmdbar-send');
+  if (sendBtn) sendBtn.addEventListener('click', () => sendCommandBarMessage());
+  // Enter sends; Shift+Enter inserts a newline
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); sendCommandBarMessage(); }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendCommandBarMessage(); }
   });
   document.querySelectorAll('#cmdbar-hint .cmdbar-chip').forEach(chip => {
     chip.addEventListener('click', () => sendCommandBarMessage(chip.dataset.q));
   });
-  // Close the bar when the user clicks a task/note link in a reply (the global handler opens it)
+  // Links in replies open the task/note (handled by the global click handler); the
+  // drawer stays docked so you can keep asking about what you just opened. Refresh the
+  // context chip when an item opens so it reflects the newly-focused entity.
   if (body) body.addEventListener('click', (e) => {
-    if (e.target.closest('.ai-link, [data-task-id], [data-note-id]')) closeCommandBar();
+    if (e.target.closest('.ai-link, [data-task-id], [data-note-id]')) {
+      setTimeout(() => {
+        const label = cmdbarContextLabel();
+        document.getElementById('cmdbar-context').textContent = label;
+      }, 80);
+    }
   });
 }
 

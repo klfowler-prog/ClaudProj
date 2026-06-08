@@ -3325,48 +3325,35 @@ body {
   .ai-fab-label, .ai-fab-kbd { display: none; }
 }
 
-/* === Global AI command bar (Cmd/Ctrl+K) === */
-.cmdbar-overlay {
+/* === Context-aware AI assistant drawer === */
+.ai-drawer {
   position: fixed;
-  inset: 0;
-  z-index: 400;
-  background: rgba(8, 31, 33, 0.45);
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 12vh 1rem 1rem;
-}
-.cmdbar {
-  width: 100%;
-  max-width: 640px;
+  top: 0;
+  right: 0;
+  height: 100vh;
+  height: 100dvh;
+  width: 400px;
+  max-width: 92vw;
   background: var(--color-surface, #fff);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 20px 60px rgba(8, 31, 33, 0.35);
-  overflow: hidden;
+  border-left: 1px solid var(--color-border);
+  box-shadow: -8px 0 30px rgba(8, 31, 33, 0.18);
+  z-index: 1200; /* above task/initiative modals (1000) so per-task AI and link-opens stay visible */
   display: flex;
   flex-direction: column;
-  max-height: 70vh;
-  animation: cmdbar-pop 0.12s ease-out;
+  transform: translateX(100%);
+  transition: transform 0.22s ease;
 }
-@keyframes cmdbar-pop { from { transform: translateY(-8px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-.cmdbar-input-row {
+.ai-drawer.open { transform: translateX(0); }
+.ai-drawer-header {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   padding: 0.85rem 1rem;
   border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
 }
-.cmdbar-spark { color: var(--follett-medium-blue); font-size: 1.1rem; flex-shrink: 0; }
-.cmdbar-input {
-  flex: 1;
-  border: none;
-  outline: none;
-  font-size: 1.05rem;
-  font-family: inherit;
-  color: var(--color-text);
-  background: transparent;
-  min-width: 0;
-}
+.ai-drawer-title { font-weight: 700; color: var(--follett-dark-blue); font-size: 0.95rem; display: inline-flex; align-items: center; gap: 0.35rem; }
+.cmdbar-spark { color: var(--follett-medium-blue); font-size: 1.05rem; line-height: 1; }
 .cmdbar-context {
   font-size: 0.7rem;
   color: var(--follett-dark-blue);
@@ -3374,48 +3361,82 @@ body {
   border-radius: 999px;
   padding: 0.15rem 0.55rem;
   white-space: nowrap;
-  max-width: 40%;
+  max-width: 45%;
   overflow: hidden;
   text-overflow: ellipsis;
-  flex-shrink: 0;
+  margin-left: auto;
 }
 .cmdbar-context:empty { display: none; }
 .cmdbar-close { background: none; border: none; font-size: 1.4rem; line-height: 1; color: var(--color-text-muted); cursor: pointer; padding: 0 0.15rem; }
 .cmdbar-close:hover { color: var(--color-text); }
-.cmdbar-body {
-  padding: 0.75rem 1rem;
+.ai-drawer-body {
+  flex: 1;
+  padding: 0.85rem 1rem;
   overflow-y: auto;
   font-size: 0.9rem;
   line-height: 1.5;
 }
-.cmdbar-msg { margin-bottom: 0.75rem; }
-.cmdbar-msg-user { font-weight: 600; color: var(--follett-dark-blue); }
+.cmdbar-msg { margin-bottom: 0.85rem; }
+.cmdbar-msg-user {
+  font-weight: 500;
+  color: var(--follett-dark-blue);
+  background: var(--follett-light-gray, #eef2f4);
+  border-radius: var(--radius);
+  padding: 0.45rem 0.65rem;
+}
 .cmdbar-msg-ai { color: var(--color-text); }
 .cmdbar-msg-ai.loading { color: var(--color-text-muted); font-style: italic; }
-.cmdbar-hint {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
-  border-top: 1px solid var(--color-border);
-  flex-wrap: wrap;
-}
-.cmdbar-suggestions { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+.ai-drawer-empty { padding: 0.5rem 0.1rem; }
+.ai-drawer-empty-title { font-weight: 600; color: var(--color-text); margin-bottom: 0.15rem; }
+.ai-drawer-empty-sub { font-size: 0.78rem; color: var(--color-text-muted); margin-bottom: 0.75rem; }
+.ai-drawer-empty-sub:empty { display: none; }
+.cmdbar-suggestions { display: flex; gap: 0.4rem; flex-wrap: wrap; }
 .cmdbar-chip {
-  font-size: 0.72rem;
+  font-size: 0.74rem;
   border: 1px solid var(--color-border);
   background: var(--color-bg);
   color: var(--color-text);
   border-radius: 999px;
-  padding: 0.2rem 0.6rem;
+  padding: 0.25rem 0.65rem;
   cursor: pointer;
 }
 .cmdbar-chip:hover { background: var(--follett-light-gray, #eef2f4); border-color: var(--follett-medium-blue); }
-.cmdbar-kbd { font-size: 0.68rem; color: var(--color-text-muted); white-space: nowrap; }
+.ai-drawer-input {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.4rem;
+  padding: 0.6rem 0.75rem;
+  border-top: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+.ai-drawer-textarea {
+  flex: 1;
+  resize: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.65rem;
+  font-family: inherit;
+  font-size: 0.88rem;
+  line-height: 1.4;
+  color: var(--color-text);
+  max-height: 140px;
+  outline: none;
+}
+.ai-drawer-textarea:focus { border-color: var(--follett-medium-blue); }
+.ai-drawer-send {
+  flex-shrink: 0;
+  border: none;
+  background: var(--follett-medium-blue);
+  color: #fff;
+  border-radius: var(--radius);
+  width: 38px;
+  height: 38px;
+  font-size: 1rem;
+  cursor: pointer;
+}
+.ai-drawer-send:hover { background: var(--follett-dark-blue); }
 @media (max-width: 768px) {
-  .cmdbar-overlay { padding-top: 8vh; }
-  .cmdbar-context { display: none; }
+  .ai-drawer { width: 100vw; max-width: 100vw; }
 }
 .sidebar-overlay.active {
   display: block;

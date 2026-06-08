@@ -145,26 +145,29 @@
   <!-- Desktop: re-open button shown when sidebar is collapsed -->
   <button id="sidebar-expand" class="sidebar-expand" title="Expand sidebar" aria-label="Expand sidebar">&#187;</button>
 
-  <!-- Global AI command bar (Cmd/Ctrl+K) -->
-  <div id="cmdbar-overlay" class="cmdbar-overlay" style="display:none;">
-    <div class="cmdbar" role="dialog" aria-label="AI command bar" aria-modal="true">
-      <div class="cmdbar-input-row">
-        <span class="cmdbar-spark">&#10022;</span>
-        <input type="text" id="cmdbar-input" class="cmdbar-input" placeholder="Ask AI anything, or tell it what to do&hellip;" autocomplete="off" spellcheck="false">
-        <span class="cmdbar-context" id="cmdbar-context"></span>
-        <button class="cmdbar-close" id="cmdbar-close" title="Close (Esc)" aria-label="Close">&times;</button>
-      </div>
-      <div class="cmdbar-body" id="cmdbar-body" style="display:none;"></div>
-      <div class="cmdbar-hint" id="cmdbar-hint">
-        <span class="cmdbar-suggestions">
+  <!-- Context-aware AI assistant drawer (Cmd/Ctrl+K or the Ask AI button) -->
+  <aside id="ai-drawer" class="ai-drawer" role="complementary" aria-label="AI assistant">
+    <div class="ai-drawer-header">
+      <span class="ai-drawer-title"><span class="cmdbar-spark">&#10022;</span> Assistant</span>
+      <span class="cmdbar-context" id="cmdbar-context"></span>
+      <button class="cmdbar-close" id="cmdbar-close" title="Close (Esc)" aria-label="Close">&times;</button>
+    </div>
+    <div class="ai-drawer-body" id="cmdbar-body">
+      <div class="ai-drawer-empty" id="cmdbar-hint">
+        <p class="ai-drawer-empty-title">How can I help?</p>
+        <p class="ai-drawer-empty-sub" id="cmdbar-empty-context"></p>
+        <div class="cmdbar-suggestions">
           <button class="cmdbar-chip" data-q="What should I focus on today?">Focus today</button>
           <button class="cmdbar-chip" data-q="What's overdue or blocked right now?">Overdue / blocked</button>
           <button class="cmdbar-chip" data-q="Summarize what's happening across the team this week">Team this week</button>
-        </span>
-        <span class="cmdbar-kbd">Enter to send &middot; Esc to close</span>
+        </div>
       </div>
     </div>
-  </div>
+    <div class="ai-drawer-input">
+      <textarea id="cmdbar-input" class="ai-drawer-textarea" rows="1" placeholder="Ask AI anything, or tell it what to do&hellip;" spellcheck="false"></textarea>
+      <button id="cmdbar-send" class="ai-drawer-send" title="Send (Enter)" aria-label="Send">&#10148;</button>
+    </div>
+  </aside>
 
   <!-- Floating "Ask AI" button (opens the context-aware command bar on every page) -->
   <button id="ai-fab" class="ai-fab" title="Ask AI (Cmd/Ctrl+K)" aria-label="Ask AI">
