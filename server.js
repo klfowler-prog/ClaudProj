@@ -360,7 +360,10 @@ app.get('/api/tasks', auth, async (req, res) => {
 
     // Optional: filter to "my tasks" only
     if (req.query.mine === 'true') {
-      tasks = tasks.filter(t => t.assignedTo === req.userId || t.createdBy === req.userId);
+      // "My Tasks" = stuff I need to DO. If I created a task and delegated it
+      // to someone else, it's not mine anymore — only show creator-owned tasks
+      // when they're still unassigned (effectively unowned).
+      tasks = tasks.filter(t => t.assignedTo === req.userId || (!t.assignedTo && t.createdBy === req.userId));
     }
 
     // Department filtering happens client-side via getFilteredTasks()
@@ -533,6 +536,9 @@ app.post('/api/tasks/batch', authWrite, async (req, res) => {
         recurring: task.recurring || 'none',
         createdBy: req.userId, assignedTo: task.assignedTo || req.userId, sharedWith: [],
         subDepartment: task.subDepartment || '', parentTaskId: task.parentTaskId || '',
+        workspaceId: task.workspaceId || '',
+        initiativeId: task.initiativeId || null,
+        tags: Array.isArray(task.tags) ? task.tags : [],
         watchers: []
       };
       batch.set(docRef, taskData);
@@ -1312,6 +1318,150 @@ app.delete('/api/workspaces/:id', authWrite, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Failed to archive workspace' }); }
 });
 
+// GET /api/workspaces/:id/promote-defaults — Pre-filled values for the promote-to-initiative form (leader only)
+app.get('/api/workspaces/:id/promote-defaults', auth, async (req, res) => {
+  if (req.memberRole !== 'cmo' && req.memberRole !== 'lead') {
+    return res.status(403).json({ error: 'Only leaders can promote workspaces' });
+  }
+  try {
+    const wsDoc = await orgCol(req, 'workspaces').doc(req.params.id).get();
+    if (!wsDoc.exists) return res.status(404).json({ error: 'Workspace not found' });
+    const ws = wsDoc.data();
+
+    // Pull workspace tasks to infer dept, dates, progress.
+    const taskSnap = await orgCol(req, 'tasks').where('workspaceId', '==', req.params.id).get();
+    const tasks = taskSnap.docs.map(d => d.data());
+
+    // Inferred department: mode across task departments
+    const deptCounts = {};
+    for (const t of tasks) {
+      if (t.department && INITIATIVE_DEPARTMENTS.includes(t.department)) {
+        deptCounts[t.department] = (deptCounts[t.department] || 0) + 1;
+      }
+    }
+    let inferredDept = '';
+    let maxCount = 0;
+    for (const [d, c] of Object.entries(deptCounts)) {
+      if (c > maxCount) { maxCount = c; inferredDept = d; }
+    }
+
+    // Date range from task start/due dates
+    const today = new Date().toISOString().slice(0, 10);
+    const starts = tasks.map(t => t.startDate).filter(Boolean).sort();
+    const dues = tasks.map(t => t.dueDate).filter(Boolean).sort();
+    const inferredStart = starts[0] || today;
+    const ninetyDaysOut = new Date();
+    ninetyDaysOut.setDate(ninetyDaysOut.getDate() + 90);
+    const inferredEnd = dues.length ? dues[dues.length - 1] : ninetyDaysOut.toISOString().slice(0, 10);
+
+    // Progress: % of tasks completed
+    const completed = tasks.filter(t => t.status === 'Completed').length;
+    const inferredProgress = tasks.length ? completed / tasks.length : 0;
+
+    res.json({
+      workspaceId: req.params.id,
+      name: ws.name || '',
+      thesis: ws.description || '',
+      department: inferredDept,
+      ownerId: ws.ownerId || req.userId,
+      collaborators: (ws.members || []).filter(m => m !== ws.ownerId),
+      start: inferredStart,
+      end: inferredEnd,
+      progress: inferredProgress,
+      taskCount: tasks.length,
+      alreadyLinked: !!ws.initiativeId,
+      linkedInitiativeId: ws.initiativeId || ''
+    });
+  } catch (err) {
+    console.error('Promote defaults failed:', err);
+    res.status(500).json({ error: 'Failed to compute defaults' });
+  }
+});
+
+// POST /api/workspaces/:id/promote — Create an initiative from a workspace and bulk-stamp tasks/notes (leader only)
+app.post('/api/workspaces/:id/promote', authWrite, async (req, res) => {
+  if (req.memberRole !== 'cmo' && req.memberRole !== 'lead') {
+    return res.status(403).json({ error: 'Only leaders can promote workspaces' });
+  }
+  try {
+    const wsRef = orgCol(req, 'workspaces').doc(req.params.id);
+    const wsDoc = await wsRef.get();
+    if (!wsDoc.exists) return res.status(404).json({ error: 'Workspace not found' });
+    const ws = wsDoc.data();
+    if (ws.initiativeId) return res.status(409).json({ error: 'Workspace is already linked to an initiative', initiativeId: ws.initiativeId });
+
+    // Validate the initiative payload (reuses the existing validator)
+    const validationErr = validateInitiativePayload(req.body, { partial: false });
+    if (validationErr) return res.status(400).json({ error: validationErr });
+
+    // Auto-add the workspace owner as a collaborator if they're not the new initiative owner
+    const collabs = Array.isArray(req.body.collaborators) ? req.body.collaborators.slice() : [];
+    if (ws.ownerId && ws.ownerId !== (req.body.ownerId || req.userId) && !collabs.includes(ws.ownerId)) {
+      collabs.push(ws.ownerId);
+    }
+
+    const now = new Date().toISOString();
+    const initiative = {
+      name: req.body.name.trim(),
+      thesis: req.body.thesis.trim(),
+      department: req.body.department,
+      ownerId: req.body.ownerId || req.userId,
+      collaborators: collabs,
+      priority: ['High', 'Medium', 'Low'].includes(req.body.priority) ? req.body.priority : 'Medium',
+      status: INITIATIVE_STATUS.includes(req.body.status) ? req.body.status : 'On Track',
+      health: INITIATIVE_HEALTH.includes(req.body.health) ? req.body.health : 'on-track',
+      start: req.body.start,
+      end: req.body.end,
+      progress: typeof req.body.progress === 'number' ? Math.max(0, Math.min(1, req.body.progress)) : 0,
+      milestones: Array.isArray(req.body.milestones) ? req.body.milestones : [],
+      suggestedMilestones: [],
+      workspaceId: req.params.id,
+      archived: false,
+      createdBy: req.userId,
+      createdAt: now,
+      updatedAt: now
+    };
+
+    // Create the initiative first
+    const initRef = await orgCol(req, 'initiatives').add(initiative);
+    const initiativeId = initRef.id;
+
+    // Bulk-stamp initiativeId onto every task and note in the workspace.
+    // Firestore batches max out at 500 ops, so chunk.
+    async function stampCollection(collName) {
+      const snap = await orgCol(req, collName).where('workspaceId', '==', req.params.id).get();
+      const docs = snap.docs;
+      let stamped = 0;
+      for (let i = 0; i < docs.length; i += 400) {
+        const batch = orgCol(req, collName).firestore.batch();
+        for (const d of docs.slice(i, i + 400)) {
+          batch.update(d.ref, { initiativeId });
+          stamped++;
+        }
+        await batch.commit();
+      }
+      return stamped;
+    }
+
+    const [tasksStamped, notesStamped] = await Promise.all([
+      stampCollection('tasks'),
+      stampCollection('notes')
+    ]);
+
+    // Link the workspace back
+    await wsRef.update({ initiativeId, updatedAt: now });
+
+    res.status(201).json({
+      initiative: { id: initiativeId, ...initiative },
+      tasksStamped,
+      notesStamped
+    });
+  } catch (err) {
+    console.error('Workspace promote failed:', err);
+    res.status(500).json({ error: 'Failed to promote workspace: ' + (err.message || 'unknown') });
+  }
+});
+
 // === Task Templates ===
 
 // GET /api/templates — List templates visible to the user
@@ -1603,6 +1753,8 @@ app.get('/api/notes', auth, async (req, res) => {
       return {
         id: doc.id, title: d.title, folderId, source: d.source,
         workspaceId: d.workspaceId || '',
+        initiativeId: d.initiativeId || '',
+        links: d.links || [],
         updatedAt: d.updatedAt, createdAt: d.createdAt, createdBy: d.createdBy,
         sharedWith: d.sharedWith || [],
         authorName: memberNames[d.createdBy] || 'Unknown',
@@ -1630,9 +1782,11 @@ app.get('/api/notes', auth, async (req, res) => {
     // Filter by workspace if requested
     if (req.query.workspaceId) {
       notes = notes.filter(n => n.workspaceId === req.query.workspaceId);
+    } else if (req.query.initiativeId) {
+      notes = notes.filter(n => n.initiativeId === req.query.initiativeId);
     } else if (!req.query.mine) {
-      // When not viewing a workspace or "my notes", exclude workspace notes from general views
-      notes = notes.filter(n => !n.workspaceId || n.workspaceId === '');
+      // When not viewing a workspace, initiative, or "my notes", exclude scoped notes
+      notes = notes.filter(n => (!n.workspaceId || n.workspaceId === '') && (!n.initiativeId || n.initiativeId === ''));
     }
 
     // Hide private notes from anyone except the creator
@@ -1699,7 +1853,8 @@ app.post('/api/notes', authWrite, async (req, res) => {
       pinned: false,
       private: req.body.private || false,
       tags: req.body.tags || [],
-      workspaceId: req.body.workspaceId || ''
+      workspaceId: req.body.workspaceId || '',
+      initiativeId: req.body.initiativeId || ''
     };
     const ref = await orgCol(req, 'notes').add(note);
     res.status(201).json({ id: ref.id, ...note });
@@ -1736,7 +1891,7 @@ app.put('/api/notes/:id', authWrite, async (req, res) => {
     }
 
     const updates = { updatedAt: new Date().toISOString() };
-    const allowed = ['title', 'content', 'folderId', 'aiSummary', 'sharedWith', 'links', 'pinned', 'archived', 'private', 'allowEditing', 'tags', 'workspaceId'];
+    const allowed = ['title', 'content', 'folderId', 'aiSummary', 'sharedWith', 'links', 'pinned', 'archived', 'private', 'allowEditing', 'tags', 'workspaceId', 'initiativeId'];
     for (const f of allowed) { if (req.body[f] !== undefined) updates[f] = req.body[f]; }
     await ref.update(updates);
 
@@ -1849,9 +2004,28 @@ app.get('/api/search', auth, async (req, res) => {
       });
     }
 
+    // Search initiatives (org-wide; visible to everyone, server permission gates apply on edit only)
+    const initSnap = await orgCol(req, 'initiatives').get();
+    const initResults = initSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+      .filter(i => !i.archived)
+      .filter(i => `${i.name || ''} ${i.thesis || ''} ${i.department || ''}`.toLowerCase().includes(q))
+      .map(i => ({
+        id: i.id,
+        name: i.name,
+        department: i.department,
+        ownerId: i.ownerId,
+        ownerName: memberNames[i.ownerId] || 'Unassigned',
+        start: i.start,
+        end: i.end,
+        health: i.health,
+        progress: i.progress || 0,
+        thesis: (i.thesis || '').substring(0, 160)
+      }));
+
     res.json({
       tasks: taskResults.slice(0, 20),
-      notes: noteResults.slice(0, 20)
+      notes: noteResults.slice(0, 20),
+      initiatives: initResults.slice(0, 20)
     });
   } catch (err) {
     console.error('Search failed:', err); res.status(500).json({ error: 'Search failed. Please try again.' });
@@ -2067,6 +2241,14 @@ app.post('/api/ai/quick-add', aiLimiter, auth, async (req, res) => {
       return `${m.displayName} (userId: ${m.userId})`;
     }).join(', ');
 
+    // Get active initiatives for initiative matching
+    const initsSnap = await orgCol(req, 'initiatives').get();
+    const initiativeList = initsSnap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .filter(i => !i.archived)
+      .map(i => `${i.name} (id: ${i.id}, dept: ${i.department}, runs ${i.start} to ${i.end})`)
+      .join('; ') || '(none yet)';
+
     const today = new Date().toISOString().split('T')[0];
     const model = getGeminiModel();
     const result = await model.generateContent({
@@ -2074,12 +2256,13 @@ app.post('/api/ai/quick-add', aiLimiter, auth, async (req, res) => {
 
 Return ONLY a JSON object (no markdown, no code fences) with these fields:
 - "title": string (clear, concise task title)
-- "department": one of "B2B Marketing", "B2C Marketing", "All Marketing", "Personal" (infer from context. Use "All Marketing" if it spans both B2B and B2C. Default to "Personal" if unclear)
+- "department": one of "All Marketing", "B2B Marketing", "B2C Marketing", "Personal", "Rev Ops" (infer from context. Use "All Marketing" if it spans both B2B and B2C. Use "Rev Ops" for revenue operations, CRM, HubSpot, Salesforce, data pipeline, attribution, or marketing-ops tooling. Default to "Personal" if unclear)
 - "tags": array of strings. Use relevant tags from: "Biz Dev", "Growth & Brand", "Rev Ops", "Internal Comms", "Social Media", "PR", "Conferences". Can be empty array [] if unclear. Can include multiple tags.
 - "priority": one of "High", "Medium", "Low" (infer from urgency words, default to "Medium")
 - "startDate": string in YYYY-MM-DD format (if the task has an explicit start date different from due date, e.g. "sale runs April 1-5" means startDate is April 1. If not mentioned, use "")
 - "dueDate": string in YYYY-MM-DD format (calculate from relative dates like "next Tuesday", "end of week", "tomorrow". For date ranges like "April 1-5", the end date is the dueDate. If no date mentioned, use "")
 - "assignedTo": string (match to a team member userId if a name is mentioned. Available team members: ${memberList}. If no name mentioned or no match, use "")
+- "initiativeId": string (match this task to an existing strategic initiative if the input references one by name or clear topic — e.g. "Campus Marketing Hub", "ESP RFP", "Responsys". Match by initiative name OR by topical alignment (a task about "Responsys vendor scoring" matches the "ESP RFP" initiative). Available initiatives: ${initiativeList}. Return the initiative's id, or "" if no clear match.)
 - "notes": string (any additional context from the input that doesn't fit in other fields, or "" if none)
 - "recurring": one of "none", "daily", "weekly", "biweekly", "monthly" (infer if words like "every week", "daily", "monthly" are used, default to "none")
 
@@ -2096,6 +2279,93 @@ Input: "${text}"` }] }]
     }
   } catch (err) {
     console.error('Quick add failed:', err); res.status(500).json({ error: 'Quick add failed. Please try again.' });
+  }
+});
+
+// POST /api/ai/parse-bulk-tasks — Parse a brain-dump into multiple task objects.
+// Returns the parsed list for client-side preview. Does NOT write anything.
+app.post('/api/ai/parse-bulk-tasks', aiLimiter, auth, async (req, res) => {
+  try {
+    const { text, initiativeId } = req.body;
+    if (!text || !text.trim()) return res.status(400).json({ error: 'Text is required' });
+
+    // Optional initiative anchor: provides default dept/owner and constrains dueDate range
+    let initiative = null;
+    if (initiativeId) {
+      const initDoc = await orgCol(req, 'initiatives').doc(initiativeId).get();
+      if (initDoc.exists) initiative = { id: initDoc.id, ...initDoc.data() };
+    }
+
+    const membersSnap = await orgCol(req, 'members').get();
+    const memberList = membersSnap.docs
+      .filter(d => d.data().status === 'active' || !d.data().status)
+      .map(d => {
+        const m = d.data();
+        return `${m.displayName} (userId: ${m.userId})`;
+      }).join(', ');
+
+    const today = new Date().toISOString().slice(0, 10);
+    const defaults = initiative ? {
+      department: initiative.department,
+      ownerId: initiative.ownerId,
+      start: initiative.start,
+      end: initiative.end,
+      name: initiative.name
+    } : null;
+
+    const model = getGeminiModel();
+    const result = await model.generateContent({
+      contents: [{ role: 'user', parts: [{ text: `You are parsing a brain-dump of tasks for the marketing team at Follett Higher Education. Today is ${today}.
+
+${defaults ? `These tasks belong to the initiative "${defaults.name}" (department: ${defaults.department}, runs ${defaults.start} to ${defaults.end}, owner: ${defaults.ownerId}). Use these as defaults when the user doesn't specify otherwise.` : ''}
+
+Return ONLY a JSON array of task objects (no markdown, no code fences, no commentary). Each task object has:
+- "title": string (clear, concise task title — the actionable verb phrase)
+- "dueDate": string in YYYY-MM-DD format. Parse relative dates ("by May 30", "next Friday", "end of Q3"). Default to "" if no date given. Stay within the initiative date range if specified.
+- "priority": "High" | "Medium" | "Low" (default "Medium"; "urgent"/"ASAP" → "High")
+- "assignedTo": userId from this list: ${memberList} — match names mentioned in the text. Default to "" (will assign to requester).
+- "department": "All Marketing" | "B2B Marketing" | "B2C Marketing" | "Personal" | "Rev Ops". ${defaults ? `Default to "${defaults.department}".` : 'Default to "Personal" if unclear.'}
+- "notes": optional string for extra context not in the title.
+
+Rules:
+- Split compound sentences into separate tasks. "Schedule demos with X, Y, and Z" → 3 tasks.
+- Preserve specific dates and names verbatim.
+- Skip non-task lines (header text, "and then", etc.).
+- Maximum 50 tasks.
+
+Input:
+${text}` }] }]
+    });
+
+    const responseText = result.response.text().trim();
+    const cleaned = responseText.replace(/^```json?\n?/i, '').replace(/\n?```$/i, '').trim();
+    let parsed;
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch {
+      return res.status(400).json({ error: 'AI returned invalid format. Try rephrasing.' });
+    }
+    if (!Array.isArray(parsed)) return res.status(400).json({ error: 'AI did not return a list.' });
+
+    // Sanitize / validate each task entry. Drop anything malformed.
+    const validDepts = ['All Marketing', 'B2B Marketing', 'B2C Marketing', 'Personal', 'Rev Ops'];
+    const validUserIds = new Set(membersSnap.docs.map(d => d.data().userId));
+    const tasks = parsed
+      .filter(t => t && typeof t.title === 'string' && t.title.trim())
+      .slice(0, 50)
+      .map(t => ({
+        title: String(t.title).trim(),
+        dueDate: typeof t.dueDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(t.dueDate) ? t.dueDate : '',
+        priority: ['High', 'Medium', 'Low'].includes(t.priority) ? t.priority : 'Medium',
+        assignedTo: t.assignedTo && validUserIds.has(t.assignedTo) ? t.assignedTo : '',
+        department: validDepts.includes(t.department) ? t.department : (defaults ? defaults.department : 'Personal'),
+        notes: typeof t.notes === 'string' ? t.notes.trim() : ''
+      }));
+
+    res.json({ tasks, initiativeId: initiativeId || null });
+  } catch (err) {
+    console.error('Bulk parse failed:', err);
+    res.status(500).json({ error: 'Bulk parse failed. Please try again.' });
   }
 });
 
@@ -2132,13 +2402,24 @@ app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
     const workspaceNames = {};
     workspacesSnap.docs.forEach(d => { workspaceNames[d.id] = d.data().name; });
 
+    // Build initiative lookup for AI context (active only)
+    const initSnap = await orgCol(req, 'initiatives').get();
+    const initiativeMap = {};
+    const initiativesActive = [];
+    initSnap.docs.forEach(d => {
+      const data = d.data();
+      initiativeMap[d.id] = data.name;
+      if (!data.archived) initiativesActive.push({ id: d.id, ...data });
+    });
+
     const allTasks = taskDocs.map(t => {
       const assignee = memberNames[t.assignedTo] || 'Unassigned';
       const creator = memberNames[t.createdBy] || 'Unknown';
       const attachments = (t.attachments || []).filter(a => a.type === 'file').map(a => `[filelink:${a.gcsPath}:${a.name}]`).join(' ');
       const wsLabel = t.workspaceId && workspaceNames[t.workspaceId] ? ` | Workspace: ${workspaceNames[t.workspaceId]}` : '';
+      const initLabel = t.initiativeId && initiativeMap[t.initiativeId] ? ` | Initiative: ${initiativeMap[t.initiativeId]}` : '';
       const tagsLabel = (t.tags && t.tags.length > 0) ? ` | Tags: ${t.tags.join(', ')}` : '';
-      return `[tasklink:${t.id}:${t.title}] [${t.status}] | Assigned: ${assignee} | Created by: ${creator} | Dept: ${t.department} | Priority: ${t.priority}${tagsLabel}${t.createdAt ? ' | Created: ' + t.createdAt.split('T')[0] : ''}${t.startDate ? ' | Start: ' + t.startDate : ''}${t.dueDate ? ' | Due: ' + t.dueDate : ''}${t.completedAt ? ' | Completed: ' + t.completedAt.split('T')[0] : ''}${t.blockedReason ? ' | Blocked: ' + t.blockedReason : ''}${wsLabel}${attachments ? ' | Files: ' + attachments : ''}${t.notes ? ' | Notes: ' + t.notes.substring(0, 200) : ''}`;
+      return `[tasklink:${t.id}:${t.title}] [${t.status}] | Assigned: ${assignee} | Created by: ${creator} | Dept: ${t.department} | Priority: ${t.priority}${tagsLabel}${t.createdAt ? ' | Created: ' + t.createdAt.split('T')[0] : ''}${t.startDate ? ' | Start: ' + t.startDate : ''}${t.dueDate ? ' | Due: ' + t.dueDate : ''}${t.completedAt ? ' | Completed: ' + t.completedAt.split('T')[0] : ''}${t.blockedReason ? ' | Blocked: ' + t.blockedReason : ''}${wsLabel}${initLabel}${attachments ? ' | Files: ' + attachments : ''}${t.notes ? ' | Notes: ' + t.notes.substring(0, 200) : ''}`;
     });
 
     // Gather notes — apply same access filtering as notes list
@@ -2237,17 +2518,28 @@ Always include these link tags when mentioning a specific task, note, or file. C
 
 ACTIONS: You can take actions on behalf of the user. Include action tags in your response and they will be executed automatically. Available actions:
 
-[ACTION:create_task:{"title":"Task title","department":"B2B Marketing","priority":"High","assignedTo":"userId or empty","dueDate":"YYYY-MM-DD or empty","links":["https://example.com"]}]
+[ACTION:create_task:{"title":"Task title","department":"B2B Marketing","priority":"High","assignedTo":"userId or empty","dueDate":"YYYY-MM-DD or empty","initiativeId":"INIT_ID or empty","links":["https://example.com"]}]
 [ACTION:update_task:{"taskId":"TASK_ID","status":"In Progress"}]
 [ACTION:update_task:{"taskId":"TASK_ID","assignedTo":"userId","status":"Delegated"}]
 [ACTION:update_task:{"taskId":"TASK_ID","dueDate":"YYYY-MM-DD"}]
 [ACTION:update_task:{"taskId":"TASK_ID","priority":"High"}]
+[ACTION:update_task:{"taskId":"TASK_ID","initiativeId":"INIT_ID"}]
 [ACTION:add_comment:{"taskId":"TASK_ID","text":"Comment text"}]
-[ACTION:create_note:{"title":"Note Title","content":"Note content here","folder":"All Team"}]
+[ACTION:create_note:{"title":"Note Title","content":"Note content here","folder":"All Team","initiativeId":"INIT_ID or empty"}]
+[ACTION:create_initiative:{"name":"Initiative name","thesis":"Why this matters","department":"Rev Ops","ownerId":"userId or empty","start":"YYYY-MM-DD","end":"YYYY-MM-DD","priority":"Medium","health":"on-track"}]
+[ACTION:update_initiative:{"initiativeId":"INIT_ID","health":"at-risk"}]
+[ACTION:update_initiative:{"initiativeId":"INIT_ID","progress":0.5}]
+[ACTION:update_initiative:{"initiativeId":"INIT_ID","end":"YYYY-MM-DD"}]
 
 Rules for actions:
+- create_task department must be one of: "All Marketing", "B2B Marketing", "B2C Marketing", "Personal", "Rev Ops". Use "Rev Ops" for CRM/HubSpot/Salesforce/marketing-ops work.
+- create_task initiativeId is OPTIONAL — set it when the task clearly belongs to a known initiative (match by name/topic from the INITIATIVES list below). Leave empty if no clear match.
+- create_initiative is LEADER-ONLY. If the user's role below is "team member", DO NOT include create_initiative actions; instead reply: "Only leaders can create initiatives. Reach out to your manager."
+- create_initiative department must be one of the 5 listed above. start and end are YYYY-MM-DD and required; if the user gives a quarter ("Q3 FY27"), translate it. health is one of "on-track" / "at-risk" / "off-track". priority is High/Medium/Low.
+- update_initiative may set: name, thesis, department, ownerId, start, end, health, status, progress (0-1), priority. The initiative owner OR a leader can update; otherwise it will fail server-side.
 - For create_note: use the user's exact words as content, don't summarize. Folder options: "All Team", "B2B Marketing", "B2C Marketing", "Personal". Default to "Personal" if not specified.
-- Only take actions when the user explicitly asks you to (e.g. "create a task for...", "assign this to...", "mark it as complete", "add a comment")
+- create_note initiativeId is OPTIONAL — set it when the note is clearly scoped to an initiative (e.g. "vendor scoring notes for the ESP RFP"). Leave empty otherwise.
+- Only take actions when the user explicitly asks you to (e.g. "create a task for...", "assign this to...", "mark it as complete", "add a comment", "spin up an initiative for...")
 - Never take actions unprompted — always confirm what you're about to do in your response text
 - You can include multiple actions in one response
 - After each action tag, explain what you did in plain text
@@ -2260,6 +2552,14 @@ Overdue: ${overdueCount} tasks past their due date
 
 TEAM MEMBERS (${teamList.length}):
 ${teamList.join('\n')}
+
+INITIATIVES (${initiativesActive.length} active — strategic bets on the Roadmap; tasks and notes can roll up to one via initiativeId):
+${initiativesActive.length === 0 ? '(no active initiatives)' : initiativesActive.map(i => {
+  const ownerName = memberNames[i.ownerId] || 'Unassigned';
+  const taskCount = taskDocs.filter(t => t.initiativeId === i.id).length;
+  const msCount = (i.milestones || []).length;
+  return `ID:${i.id} | "${i.name}" | Dept: ${i.department || '—'} | ${i.start || '—'} → ${i.end || '—'} | Owner: ${ownerName} | Health: ${i.health || 'on-track'} | Progress: ${Math.round((Number(i.progress) || 0) * 100)}% | Priority: ${i.priority || 'Medium'} | Tasks: ${taskCount} | Milestones: ${msCount}${i.thesis ? '\n  Thesis: ' + i.thesis.substring(0, 200) : ''}`;
+}).join('\n')}
 
 TASKS (${allTasks.length} total):
 ${allTasks.join('\n')}
@@ -2317,7 +2617,8 @@ ${allNotes.join('\n---\n')}`;
             source: 'ai', attachments, dueDate: p.dueDate || '',
             emailMessageId: '', recurring: 'none',
             createdBy: req.userId, assignedTo: p.assignedTo || req.userId,
-            sharedWith: [], parentTaskId: '', workspaceId: '', tags: []
+            sharedWith: [], parentTaskId: '', workspaceId: '', tags: [],
+            initiativeId: p.initiativeId || null
           };
           const ref = await orgCol(req, 'tasks').add(newTask);
           if (newTask.assignedTo !== req.userId) {
@@ -2336,6 +2637,7 @@ ${allNotes.join('\n---\n')}`;
           if (p.assignedTo) updates.assignedTo = p.assignedTo;
           if (p.dueDate) updates.dueDate = p.dueDate;
           if (p.priority) updates.priority = p.priority;
+          if (p.initiativeId !== undefined) updates.initiativeId = p.initiativeId || null;
           await orgCol(req, 'tasks').doc(p.taskId).update(updates);
           actionResults.push({ type: 'update_task', success: true, taskId: p.taskId });
           reply = reply.replace(action.raw, '');
@@ -2363,9 +2665,82 @@ ${allNotes.join('\n---\n')}`;
             title: p.title || 'Untitled', content: noteContent,
             folderId, source: 'ai', createdAt: now, updatedAt: now,
             aiSummary: '', createdBy: req.userId, links: [],
-            pinned: false, private: false, allowEditing: false
+            pinned: false, private: false, allowEditing: false,
+            initiativeId: p.initiativeId || ''
           });
           actionResults.push({ type: 'create_note', success: true, title: p.title, folder: folderName });
+          reply = reply.replace(action.raw, '');
+        } else if (action.type === 'create_initiative') {
+          if (req.memberRole !== 'cmo' && req.memberRole !== 'lead') {
+            actionResults.push({ type: 'create_initiative', success: false, error: 'Only leaders can create initiatives' });
+            reply = reply.replace(action.raw, '_(Skipped: only leaders can create initiatives.)_');
+            continue;
+          }
+          const p = action.params;
+          const validationErr = validateInitiativePayload(p, { partial: false });
+          if (validationErr) {
+            actionResults.push({ type: 'create_initiative', success: false, error: validationErr });
+            reply = reply.replace(action.raw, `_(Skipped: ${validationErr})_`);
+            continue;
+          }
+          const nowIso = new Date().toISOString();
+          const init = {
+            name: String(p.name).trim(),
+            thesis: String(p.thesis).trim(),
+            department: p.department,
+            ownerId: p.ownerId || req.userId,
+            collaborators: Array.isArray(p.collaborators) ? p.collaborators : [],
+            priority: ['High', 'Medium', 'Low'].includes(p.priority) ? p.priority : 'Medium',
+            status: INITIATIVE_STATUS.includes(p.status) ? p.status : 'On Track',
+            health: INITIATIVE_HEALTH.includes(p.health) ? p.health : 'on-track',
+            start: p.start,
+            end: p.end,
+            progress: typeof p.progress === 'number' ? Math.max(0, Math.min(1, p.progress)) : 0,
+            milestones: Array.isArray(p.milestones) ? p.milestones : [],
+            suggestedMilestones: [],
+            archived: false,
+            createdBy: req.userId,
+            createdAt: nowIso,
+            updatedAt: nowIso
+          };
+          const initRef = await orgCol(req, 'initiatives').add(init);
+          actionResults.push({ type: 'create_initiative', success: true, initiativeId: initRef.id, name: init.name });
+          reply = reply.replace(action.raw, `_(Created initiative: **${init.name}** — opens on the Roadmap in the ${init.department} lane.)_`);
+        } else if (action.type === 'update_initiative') {
+          const p = action.params;
+          if (!p.initiativeId) {
+            actionResults.push({ type: 'update_initiative', success: false, error: 'initiativeId required' });
+            reply = reply.replace(action.raw, '');
+            continue;
+          }
+          const ref = orgCol(req, 'initiatives').doc(p.initiativeId);
+          const initDoc = await ref.get();
+          if (!initDoc.exists) {
+            actionResults.push({ type: 'update_initiative', success: false, error: 'Initiative not found' });
+            reply = reply.replace(action.raw, '');
+            continue;
+          }
+          if (!canEditInitiative(req, initDoc.data())) {
+            actionResults.push({ type: 'update_initiative', success: false, error: 'Permission denied' });
+            reply = reply.replace(action.raw, '_(Skipped: only leaders or the initiative owner can update.)_');
+            continue;
+          }
+          const validationErr = validateInitiativePayload(p, { partial: true });
+          if (validationErr) {
+            actionResults.push({ type: 'update_initiative', success: false, error: validationErr });
+            reply = reply.replace(action.raw, `_(Skipped: ${validationErr})_`);
+            continue;
+          }
+          const updates = { updatedAt: new Date().toISOString() };
+          const allowed = ['name', 'thesis', 'department', 'ownerId', 'collaborators',
+            'priority', 'status', 'health', 'start', 'end', 'progress', 'milestones'];
+          for (const f of allowed) {
+            if (p[f] === undefined) continue;
+            if (f === 'progress') updates[f] = Math.max(0, Math.min(1, Number(p[f])));
+            else updates[f] = p[f];
+          }
+          await ref.update(updates);
+          actionResults.push({ type: 'update_initiative', success: true, initiativeId: p.initiativeId });
           reply = reply.replace(action.raw, '');
         }
       } catch (actionErr) {
@@ -2968,6 +3343,7 @@ app.get('/api/briefing', auth, async (req, res) => {
 
       // Currently blocked
       const blocked = scopedTasks.filter(t => t.status === 'Blocked').map(t => ({
+        id: t.id,
         title: t.title,
         assignee: memberNames2[t.assignedTo] || 'Unassigned',
         reason: t.blockedReason || ''
@@ -3012,35 +3388,51 @@ app.get('/api/briefing', auth, async (req, res) => {
       const nameMap = {};
       membersSnap.docs.forEach(d => { nameMap[d.data().userId] = d.data().displayName; });
 
-      // Build a compact data blob for the AI
+      // Build a compact data blob for the AI, with IDs so it can emit [tasklink:ID:Title]
+      // tags. Anything the AI quotes that isn't in this set is a hallucination.
+      const realIdToTitle = new Map();
+      briefing.overdue.forEach(t => realIdToTitle.set(t.id, t.title));
+      briefing.dueToday.forEach(t => realIdToTitle.set(t.id, t.title));
+      briefing.comingThisWeek.forEach(t => realIdToTitle.set(t.id, t.title));
+      (briefing.weeklyDigest?.blocked || []).forEach(b => { if (b.id) realIdToTitle.set(b.id, b.title); });
+
       const overdueWithAge = briefing.overdue.map(t => {
         const daysOld = Math.floor((Date.now() - new Date(t.dueDate + 'T00:00:00').getTime()) / 86400000);
-        return `"${t.title}" (${daysOld} days overdue)`;
-      }).join(', ');
-      const dueTodayList = briefing.dueToday.map(t => `"${t.title}"`).join(', ');
+        return `ID=${t.id} "${t.title}" (${daysOld} days overdue)`;
+      }).join('\n');
+      const dueTodayList = briefing.dueToday.map(t => `ID=${t.id} "${t.title}"`).join('\n');
       const blockedStr = (briefing.weeklyDigest?.blocked || []).map(b =>
-        `"${b.title}" (${b.assignee}${b.reason ? ': ' + b.reason : ''})`
-      ).join(', ');
+        `${b.id ? 'ID=' + b.id + ' ' : ''}"${b.title}" (${b.assignee}${b.reason ? ': ' + b.reason : ''})`
+      ).join('\n');
       const teamOverdueStr = (briefing.teamOverdue || []).filter(p => p.count > 0)
         .sort((a, b) => b.count - a.count)
         .map(p => `${p.name}: ${p.count}`).join(', ');
 
       const prompt = `You are writing a friendly 1-3 sentence morning briefing for ${firstName}, who is a ${req.memberRole === 'cmo' ? 'CMO' : req.memberRole === 'lead' ? 'dept lead' : 'team member'} at Follett Higher Education's marketing team. Today is ${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}.
 
+CRITICAL RULES:
+- You MAY ONLY mention tasks listed in the Data section below. NEVER invent task names. If a task isn't in the data, you cannot reference it.
+- When you reference a specific task, you MUST emit it as a link tag in this exact format: [tasklink:TASK_ID:Title]. Use the ID shown next to each task. The user clicks the tag to open the task.
+- If you cannot find a task in the data that fits what you want to say, just speak in aggregate ("3 items past due") — do not name a specific one.
+
 Data:
-- Due today: ${dueTodayList || 'none'}
-- Overdue: ${overdueWithAge || 'none'}
-- Completed this week: ${briefing.completedCount}
-- Coming this week (next 7 days): ${briefing.comingThisWeek.length}
-${blockedStr ? '- Blocked items: ' + blockedStr : ''}
-${teamOverdueStr ? '- Team overdue counts: ' + teamOverdueStr : ''}
-${briefing.teamCompletedCount ? '- Team completed this week: ' + briefing.teamCompletedCount : ''}
+Due today:
+${dueTodayList || '(none)'}
+
+Overdue:
+${overdueWithAge || '(none)'}
+
+Coming this week (next 7 days): ${briefing.comingThisWeek.length} tasks
+Completed this week: ${briefing.completedCount}
+${blockedStr ? 'Blocked items:\n' + blockedStr : ''}
+${teamOverdueStr ? 'Team overdue counts: ' + teamOverdueStr : ''}
+${briefing.teamCompletedCount ? 'Team completed this week: ' + briefing.teamCompletedCount : ''}
 
 Tone: warm but concise, like a helpful colleague. Not corporate. Not robotic.
 
 Rules:
 - Lead with what needs attention TODAY. If nothing urgent, say so warmly.
-- If overdue items exist, mention the oldest one by name (with age).
+- If overdue items exist, mention the oldest one as a [tasklink:ID:Title] (with age).
 - If a CMO or lead has team overdue data, call out the person with the most overdue items if it's 3+.
 - Celebrate completions only if notable (5+ for individual, 10+ for team).
 - NEVER list everything — pick the 1-2 most important signals.
@@ -3050,15 +3442,38 @@ Rules:
 
 Examples of good output:
 - "Nothing due today and no overdue items. Three tasks coming up later this week."
-- "The Q3 budget review is 5 days past due — tackle that first. 2 other items due today."
-- "Katie has 4 overdue items including the Slack audit from last week. Otherwise a quiet morning."
+- "[tasklink:abc123:Q3 budget review] is 5 days past due — tackle that first. 2 other items due today."
+- "Katie has 4 overdue items. Otherwise a quiet morning."
 - "Big finish — your team closed 14 tasks this week. 1 due today, nothing overdue."
 
 Output only the narrative text, nothing else.`;
 
       const model = getGeminiModel();
       const result = await model.generateContent({ contents: [{ role: 'user', parts: [{ text: prompt }] }] });
-      briefing.narrative = result.response.text().trim();
+      let narrative = result.response.text().trim();
+
+      // === Hallucination defense ===
+      // Strip any [tasklink:ID:Title] where ID isn't a real task in this briefing.
+      narrative = narrative.replace(/\[tasklink:([^:\]]+):([^\]]+)\]/g, (whole, id, title) => {
+        if (realIdToTitle.has(id)) {
+          // Use the canonical title from our data so AI can't subtly rename the task
+          return `[tasklink:${id}:${realIdToTitle.get(id)}]`;
+        }
+        // Fabricated ID — drop the link, keep just the quoted title as a fallback
+        return `"${title}"`;
+      });
+
+      // Detect quoted phrases that don't substring-match ANY known task title. If
+      // any are found, the AI is hallucinating — fall back to the deterministic
+      // narrative below.
+      const allKnownTitles = Array.from(realIdToTitle.values()).map(t => t.toLowerCase());
+      const quotedPhrases = (narrative.match(/"([^"]+)"/g) || []).map(s => s.slice(1, -1).toLowerCase());
+      const fabricated = quotedPhrases.filter(q => !allKnownTitles.some(t => t.includes(q) || q.includes(t)));
+      if (fabricated.length > 0) {
+        console.warn('Briefing AI hallucination detected, falling back. Fabricated phrases:', fabricated);
+        throw new Error('hallucination_detected');
+      }
+      briefing.narrative = narrative;
     } catch (aiErr) {
       // Fallback narrative if AI fails
       if (briefing.overdue.length > 0) {
@@ -3748,10 +4163,27 @@ app.post('/api/slack/events', express.raw({ type: 'application/json' }), async (
       return (b.createdAt || '').localeCompare(a.createdAt || '');
     });
 
+    // Load active initiatives so the bot can talk about and act on them
+    const initSnapSlack = await db.collection('orgs').doc(orgId).collection('initiatives').get();
+    const initiativesSlack = initSnapSlack.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .filter(i => !i.archived);
+    const initNameByIdSlack = {};
+    initiativesSlack.forEach(i => { initNameByIdSlack[i.id] = i.name; });
+
+    const initiativeList = initiativesSlack.length === 0
+      ? '(no active initiatives)'
+      : initiativesSlack.map(i => {
+          const ownerName = memberNames[i.ownerId] || 'Unassigned';
+          const taskCount = taskDocs.filter(t => t.initiativeId === i.id).length;
+          return `ID:${i.id} | "${i.name}" | Dept: ${i.department || '—'} | ${i.start || '—'} → ${i.end || '—'} | Owner: ${ownerName} | Health: ${i.health || 'on-track'} | Progress: ${Math.round((Number(i.progress) || 0) * 100)}% | Tasks: ${taskCount}${i.thesis ? ' | Thesis: ' + i.thesis.substring(0, 120) : ''}`;
+        }).join('\n');
+
     // Include more tasks and richer context
     const taskList = taskDocs.slice(0, 200).map(t => {
       const notesSnippet = t.notes ? ` | Notes: ${t.notes.substring(0, 80).replace(/\n/g, ' ')}` : '';
-      return `ID:${t.id} | "${t.title}" | ${t.status} | Assigned: ${memberNames[t.assignedTo] || 'Unknown'} | Creator: ${memberNames[t.createdBy] || 'Unknown'} | Dept: ${t.department}${t.dueDate ? ' | Due: ' + t.dueDate : ''}${notesSnippet}`;
+      const initLbl = t.initiativeId && initNameByIdSlack[t.initiativeId] ? ` | Initiative: ${initNameByIdSlack[t.initiativeId]}` : '';
+      return `ID:${t.id} | "${t.title}" | ${t.status} | Assigned: ${memberNames[t.assignedTo] || 'Unknown'} | Creator: ${memberNames[t.createdBy] || 'Unknown'} | Dept: ${t.department}${t.dueDate ? ' | Due: ' + t.dueDate : ''}${initLbl}${notesSnippet}`;
     }).join('\n');
 
     const today = new Date().toISOString().split('T')[0];
@@ -3772,17 +4204,21 @@ CRITICAL RULES FOR FINDING TASKS:
 You can take actions. Include action tags and they will be executed:
 [ACTION:update_task:{"taskId":"TASK_ID","status":"Completed"}]
 [ACTION:update_task:{"taskId":"TASK_ID","status":"In Progress"}]
+[ACTION:update_task:{"taskId":"TASK_ID","initiativeId":"INIT_ID"}]
 [ACTION:add_comment:{"taskId":"TASK_ID","text":"Comment text"}]
-[ACTION:create_task:{"title":"Title","department":"B2B Marketing","priority":"Medium","assignedTo":"userId","dueDate":"YYYY-MM-DD","status":"Not Started","links":["url"]}]
-[ACTION:create_note:{"title":"Note Title","content":"Note content here","folder":"All Team"}]
+[ACTION:create_task:{"title":"Title","department":"B2B Marketing","priority":"Medium","assignedTo":"userId","dueDate":"YYYY-MM-DD","status":"Not Started","initiativeId":"INIT_ID or empty","links":["url"]}]
+[ACTION:create_note:{"title":"Note Title","content":"Note content here","folder":"All Team","initiativeId":"INIT_ID or empty"}]
+[ACTION:create_initiative:{"name":"Initiative name","thesis":"Why this matters","department":"Rev Ops","ownerId":"userId or empty","start":"YYYY-MM-DD","end":"YYYY-MM-DD","priority":"Medium","health":"on-track"}]
+[ACTION:update_initiative:{"initiativeId":"INIT_ID","health":"at-risk"}]
+[ACTION:update_initiative:{"initiativeId":"INIT_ID","progress":0.5}]
 
 IMPORTANT create_task rules:
 - ALWAYS set assignedTo to "${userId}" (the person asking) unless they explicitly say "assign to [name]" or "add a task FOR [name]"
 - ALWAYS set status to "Not Started" unless the user says otherwise
-- department must be one of: "B2B Marketing", "B2C Marketing", "Personal"
-- If user says "B2C folder" or "B2C" → department is "B2C Marketing"
-- If user says "B2B folder" or "B2B" → department is "B2B Marketing"
-- If user says "personal" or doesn't specify → department is "Personal"
+- department must be one of: "All Marketing", "B2B Marketing", "B2C Marketing", "Personal", "Rev Ops"
+- If user says "B2C" / "B2C folder" → "B2C Marketing"; "B2B" → "B2B Marketing"; "rev ops" / "CRM" / "HubSpot" / "Salesforce" / "marketing ops" → "Rev Ops"
+- If user says "personal" or doesn't specify → "Personal"
+- initiativeId is OPTIONAL — set it when the task clearly belongs to a known initiative (match name/topic against INITIATIVES below). Leave empty if no clear match.
 - Parse dates: "tomorrow" = ${new Date(Date.now()+86400000).toISOString().split('T')[0]}, "Friday" = next Friday, "next week" = 7 days from today
 
 IMPORTANT create_note rules:
@@ -3791,19 +4227,35 @@ IMPORTANT create_note rules:
 - folder must match a folder name: "All Team", "B2B Marketing", "B2C Marketing", "Personal", or any workspace/department name
 - If user doesn't specify a folder, default to "Personal"
 - If the user says "save this" or "note this down" with content, create a note
+- initiativeId is OPTIONAL — set it when the note is clearly scoped to a known initiative (e.g. "save the RFP responses for the ESP RFP initiative"). Leave empty otherwise.
+
+IMPORTANT create_initiative rules:
+- This action is LEADER-ONLY. The user's role is "${member.role}". If the role is NOT "cmo" or "lead", do NOT emit a create_initiative action — instead reply exactly: "Only leaders can create initiatives. Reach out to your manager"
+- department must be one of: "All Marketing", "B2B Marketing", "B2C Marketing", "Personal", "Rev Ops"
+- start and end are YYYY-MM-DD and required. If the user says a quarter ("Q3 FY27") or a horizon ("end of FY27"), translate to a date. If unclear, ASK before creating.
+- health is one of "on-track" / "at-risk" / "off-track". priority is High / Medium / Low.
+- Confirm the name, dept, and dates back to the user before/after creating.
+
+IMPORTANT update_initiative rules:
+- Only the initiative owner or a leader can update (the server will block it otherwise — fine to attempt, you'll see the failure).
+- Match the initiative by name from INITIATIVES below; use its ID exactly.
+- Useful patterns: "Mark the ESP RFP at risk" → update_initiative health=at-risk; "ESP RFP is now 60% done" → progress=0.6; "Push the ESP RFP end date to 7/31" → end="2027-07-31".
 
 General rules:
-- Match task names loosely (user may abbreviate or paraphrase)
+- Match task and initiative names loosely (user may abbreviate or paraphrase)
 - Only take actions when clearly asked
 - Be concise — this is Slack, not a document
 - Use Slack formatting (*bold*, _italic_, bullet points)
-- Don't include [tasklink:...] tags in Slack responses — just use the task title in bold
+- Don't include [tasklink:...] tags in Slack responses — just use the task or initiative title in bold
 
 TEAM MEMBERS (for reference when assigning):
 ${Object.entries(memberNames).map(([uid, name]) => `${name}: ${uid}`).join('\n')}
 
+INITIATIVES (${initiativesSlack.length} active — strategic bets on the Roadmap):
+${initiativeList}
+
 TASKS (showing ${Math.min(200, taskDocs.length)} of ${taskDocs.length}, user's tasks listed first):
-Format: ID:task_id | "title" | status | assigned | creator | dept | due | notes
+Format: ID:task_id | "title" | status | assigned | creator | dept | due | initiative | notes
 
 ${taskList}` }] },
       contents: [{ role: 'user', parts: [{ text: messageText }] }]
@@ -3826,6 +4278,7 @@ ${taskList}` }] },
           if (params.assignedTo) updates.assignedTo = params.assignedTo;
           if (params.dueDate) updates.dueDate = params.dueDate;
           if (params.priority) updates.priority = params.priority;
+          if (params.initiativeId !== undefined) updates.initiativeId = params.initiativeId || null;
           await db.collection('orgs').doc(orgId).collection('tasks').doc(params.taskId).update(updates);
           const updTask = taskDocs.find(t => t.id === params.taskId);
           actionResults.push(`✓ Updated: <${APP_BASE_URL}/?task=${params.taskId}|*${updTask ? updTask.title : 'Task'}*>`);
@@ -3861,9 +4314,12 @@ ${taskList}` }] },
             source: 'slack', attachments, dueDate: params.dueDate || '',
             emailMessageId: '', recurring: 'none',
             createdBy: userId, assignedTo: assignee,
-            sharedWith: [], parentTaskId: '', workspaceId: '', tags: []
+            sharedWith: [], parentTaskId: '', workspaceId: '', tags: [],
+            initiativeId: params.initiativeId || null
           });
-          actionResults.push(`✓ Created: <${APP_BASE_URL}/?task=${ref.id}|*${params.title}*> (${taskStatus}${assignee !== userId ? ', assigned to ' + memberNames[assignee] : ''})`);
+          const initLbl = params.initiativeId && initNameByIdSlack[params.initiativeId]
+            ? ` · rolls up to *${initNameByIdSlack[params.initiativeId]}*` : '';
+          actionResults.push(`✓ Created: <${APP_BASE_URL}/?task=${ref.id}|*${params.title}*> (${taskStatus}${assignee !== userId ? ', assigned to ' + memberNames[assignee] : ''})${initLbl}`);
         } else if (actionType === 'create_note') {
           // Find the target folder
           const folderName = params.folder || 'Personal';
@@ -3878,9 +4334,75 @@ ${taskList}` }] },
             title: params.title || 'Untitled', content: noteContent,
             folderId, source: 'slack', createdAt: now, updatedAt: now,
             aiSummary: '', createdBy: userId, links: [],
-            pinned: false, private: false, allowEditing: false
+            pinned: false, private: false, allowEditing: false,
+            initiativeId: params.initiativeId || ''
           });
           actionResults.push(`✓ Note saved: *${params.title || 'Untitled'}* in ${folderName}`);
+        } else if (actionType === 'create_initiative') {
+          // Leader-only gate — required copy if not authorized
+          if (member.role !== 'cmo' && member.role !== 'lead') {
+            actionResults.push(`Only leaders can create initiatives. Reach out to your manager`);
+          } else {
+            const validationErr = validateInitiativePayload(params, { partial: false });
+            if (validationErr) {
+              actionResults.push(`✗ Couldn't create initiative: ${validationErr}`);
+            } else {
+              const nowIso = new Date().toISOString();
+              const initRef = await db.collection('orgs').doc(orgId).collection('initiatives').add({
+                name: String(params.name).trim(),
+                thesis: String(params.thesis).trim(),
+                department: params.department,
+                ownerId: params.ownerId || userId,
+                collaborators: Array.isArray(params.collaborators) ? params.collaborators : [],
+                priority: ['High', 'Medium', 'Low'].includes(params.priority) ? params.priority : 'Medium',
+                status: INITIATIVE_STATUS.includes(params.status) ? params.status : 'On Track',
+                health: INITIATIVE_HEALTH.includes(params.health) ? params.health : 'on-track',
+                start: params.start,
+                end: params.end,
+                progress: typeof params.progress === 'number' ? Math.max(0, Math.min(1, params.progress)) : 0,
+                milestones: Array.isArray(params.milestones) ? params.milestones : [],
+                suggestedMilestones: [],
+                archived: false,
+                createdBy: userId,
+                createdAt: nowIso,
+                updatedAt: nowIso
+              });
+              actionResults.push(`✓ Initiative created: *${params.name}* (${params.department}, ${params.start} → ${params.end})`);
+            }
+          }
+        } else if (actionType === 'update_initiative') {
+          if (!params.initiativeId) {
+            actionResults.push(`✗ update_initiative needs initiativeId`);
+          } else {
+            const ref = db.collection('orgs').doc(orgId).collection('initiatives').doc(params.initiativeId);
+            const initDoc = await ref.get();
+            if (!initDoc.exists) {
+              actionResults.push(`✗ Initiative not found`);
+            } else {
+              const initData = initDoc.data();
+              const isLeader = member.role === 'cmo' || member.role === 'lead';
+              const isOwner = initData.ownerId === userId;
+              if (!isLeader && !isOwner) {
+                actionResults.push(`Only the initiative owner or a leader can update *${initData.name}*`);
+              } else {
+                const validationErr = validateInitiativePayload(params, { partial: true });
+                if (validationErr) {
+                  actionResults.push(`✗ ${validationErr}`);
+                } else {
+                  const updates = { updatedAt: new Date().toISOString() };
+                  const allowed = ['name', 'thesis', 'department', 'ownerId', 'collaborators',
+                    'priority', 'status', 'health', 'start', 'end', 'progress', 'milestones'];
+                  for (const f of allowed) {
+                    if (params[f] === undefined) continue;
+                    if (f === 'progress') updates[f] = Math.max(0, Math.min(1, Number(params[f])));
+                    else updates[f] = params[f];
+                  }
+                  await ref.update(updates);
+                  actionResults.push(`✓ Updated initiative: *${initData.name}*`);
+                }
+              }
+            }
+          }
         }
         reply = reply.replace(actionMatch[0], '');
       } catch (actionErr) {
@@ -4112,6 +4634,96 @@ function canEditInitiative(req, initiative) {
   return false;
 }
 
+
+// Auto-progress + auto-health computation. Runs on every read so the values
+// always reflect current task state without needing a background job.
+// Manual health is sticky for 7 days: if a leader manually set `health` and the
+// `healthManuallySetAt` timestamp is within that window, we don't override.
+async function enrichInitiativesWithTaskStats(req, inits) {
+  if (!Array.isArray(inits) || inits.length === 0) return inits;
+  const tasksSnap = await orgCol(req, 'tasks').get();
+  const allTasks = tasksSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const today = new Date().toISOString().slice(0, 10);
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  const byInit = {};
+  for (const t of allTasks) {
+    if (!t.initiativeId) continue;
+    (byInit[t.initiativeId] = byInit[t.initiativeId] || []).push(t);
+  }
+
+  const updates = []; // [{id, fields}] for any auto-updates we want to persist
+
+  for (const i of inits) {
+    const tasks = byInit[i.id] || [];
+    const total = tasks.length;
+    const done = tasks.filter(t => t.status === 'Completed').length;
+    const overdue = tasks.filter(t => t.dueDate && t.dueDate < today &&
+      t.status !== 'Completed' && t.status !== 'Delegated' && t.status !== 'Backlog').length;
+
+    // Computed progress (advisory + sticky persist)
+    const computedProgress = total > 0 ? done / total : (Number(i.progress) || 0);
+    i.computedProgress = computedProgress;
+    i.taskCount = total;
+    i.completedTaskCount = done;
+    i.overdueTaskCount = overdue;
+
+    // Auto-health logic
+    const manualRecent = i.healthManuallySetAt && i.healthManuallySetAt > sevenDaysAgo;
+    let computedHealth = 'on-track';
+    if (overdue >= 3) computedHealth = 'off-track';
+    else if (overdue >= 1) computedHealth = 'at-risk';
+    i.computedHealth = computedHealth;
+
+    // Persist changes when auto can fire (no recent manual)
+    const fields = {};
+    let healthFlipped = false;
+    if (!manualRecent && i.health !== computedHealth) {
+      fields.health = computedHealth;
+      fields.healthAutoSetAt = new Date().toISOString();
+      // Only notify once per distinct auto-health value (idempotent across reads)
+      if (i.lastAutoNotifiedHealth !== computedHealth) {
+        healthFlipped = true;
+        fields.lastAutoNotifiedHealth = computedHealth;
+      }
+    }
+    // Always persist progress when it differs (no manual sticky on progress)
+    if (total > 0 && Math.abs((Number(i.progress) || 0) - computedProgress) > 0.005) {
+      fields.progress = computedProgress;
+    }
+    if (Object.keys(fields).length > 0) updates.push({ id: i.id, fields, healthFlipped, computedHealth, name: i.name, ownerId: i.ownerId, collaborators: i.collaborators || [] });
+  }
+
+  // Persist in the background — don't block the response
+  if (updates.length > 0) {
+    const batch = db.batch();
+    const ref = orgCol(req, 'initiatives');
+    for (const u of updates) batch.update(ref.doc(u.id), u.fields);
+    batch.commit().catch(err => console.error('Auto-stats persist failed:', err));
+    // Reflect updates in the response too
+    for (const u of updates) {
+      const init = inits.find(x => x.id === u.id);
+      if (init) Object.assign(init, u.fields);
+    }
+    // Fire notifications for genuine auto-health flips (deduped above)
+    for (const u of updates) {
+      if (!u.healthFlipped) continue;
+      const label = { 'on-track': 'On Track', 'at-risk': 'At Risk', 'off-track': 'Off Track' }[u.computedHealth] || u.computedHealth;
+      const targets = new Set();
+      if (u.ownerId) targets.add(u.ownerId);
+      (u.collaborators || []).forEach(c => targets.add(c));
+      for (const uid of targets) {
+        createNotification(req.orgId, uid, {
+          type: 'initiative_health_auto',
+          title: `${u.name} auto-flipped to ${label} (overdue tasks)`,
+          taskId: '', fromUserId: '', fromName: 'System'
+        }).catch(err => console.error('Auto-health notif failed:', err));
+      }
+    }
+  }
+  return inits;
+}
+
 function validateMilestoneArray(arr, fieldName) {
   if (arr === undefined) return null;
   if (!Array.isArray(arr)) return `${fieldName} must be an array`;
@@ -4156,6 +4768,8 @@ app.get('/api/initiatives', auth, async (req, res) => {
   try {
     const snap = await orgCol(req, 'initiatives').get();
     let inits = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(i => !i.archived);
+    // Compute auto progress / health BEFORE filtering by health (so the health filter sees the latest).
+    await enrichInitiativesWithTaskStats(req, inits);
     if (req.query.department) inits = inits.filter(i => i.department === req.query.department);
     if (req.query.owner) inits = inits.filter(i => i.ownerId === req.query.owner);
     if (req.query.health) inits = inits.filter(i => i.health === req.query.health);
@@ -4175,7 +4789,9 @@ app.get('/api/initiatives/:id', auth, async (req, res) => {
   try {
     const doc = await orgCol(req, 'initiatives').doc(req.params.id).get();
     if (!doc.exists) return res.status(404).json({ error: 'Initiative not found' });
-    res.json({ id: doc.id, ...doc.data() });
+    const init = { id: doc.id, ...doc.data() };
+    await enrichInitiativesWithTaskStats(req, [init]);
+    res.json(init);
   } catch (err) {
     console.error('Initiative fetch failed:', err);
     res.status(500).json({ error: 'Failed to fetch initiative' });
@@ -4246,11 +4862,54 @@ app.put('/api/initiatives/:id', authWrite, async (req, res) => {
         updates[f] = req.body[f];
       }
     }
+    // Stamp manual-set timestamps so auto-health knows to respect a leader's call
+    // for 7 days. Triggered only when the field is in the payload AND the value actually changed.
+    if (req.body.health !== undefined && req.body.health !== ws.health) {
+      updates.healthManuallySetAt = new Date().toISOString();
+    }
     const newStart = updates.start !== undefined ? updates.start : ws.start;
     const newEnd = updates.end !== undefined ? updates.end : ws.end;
     if (newStart && newEnd && newStart > newEnd) return res.status(400).json({ error: 'End date must be on or after start date' });
 
     await ref.update(updates);
+    // === Notification side-effects ===
+    // Fire for health flip, owner change, or end-date shift >7 days. Recipients: owner + collaborators.
+    const notifyTargets = new Set();
+    if (ws.ownerId) notifyTargets.add(ws.ownerId);
+    if (updates.ownerId) notifyTargets.add(updates.ownerId);
+    (ws.collaborators || []).forEach(c => notifyTargets.add(c));
+    (updates.collaborators || []).forEach(c => notifyTargets.add(c));
+    notifyTargets.delete(req.userId); // don't notify the actor
+    const finalName = updates.name || ws.name;
+    if (updates.health !== undefined && updates.health !== ws.health) {
+      const label = { 'on-track': 'On Track', 'at-risk': 'At Risk', 'off-track': 'Off Track' }[updates.health] || updates.health;
+      for (const uid of notifyTargets) {
+        await createNotification(req.orgId, uid, {
+          type: 'initiative_health_changed',
+          title: `${finalName} marked ${label} by ${req.memberName}`,
+          taskId: '', fromUserId: req.userId, fromName: req.memberName
+        });
+      }
+    }
+    if (updates.ownerId && updates.ownerId !== ws.ownerId) {
+      await createNotification(req.orgId, updates.ownerId, {
+        type: 'initiative_owner_assigned',
+        title: `${req.memberName} assigned you as owner of ${finalName}`,
+        taskId: '', fromUserId: req.userId, fromName: req.memberName
+      });
+    }
+    if (updates.end && ws.end) {
+      const diffDays = Math.abs((new Date(updates.end + 'T00:00:00').getTime() - new Date(ws.end + 'T00:00:00').getTime()) / 86400000);
+      if (diffDays > 7) {
+        for (const uid of notifyTargets) {
+          await createNotification(req.orgId, uid, {
+            type: 'initiative_dates_shifted',
+            title: `${finalName} end date shifted to ${updates.end} (was ${ws.end})`,
+            taskId: '', fromUserId: req.userId, fromName: req.memberName
+          });
+        }
+      }
+    }
     res.json({ id: req.params.id, ...ws, ...updates });
   } catch (err) {
     console.error('Initiative update failed:', err);

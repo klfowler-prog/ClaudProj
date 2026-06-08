@@ -67,6 +67,14 @@
         </button>
       </div>
 
+      <!-- Roadmap nav item (initiatives + timeline live behind this) -->
+      <div class="sidebar-section">
+        <button class="sidebar-nav-item" id="btn-roadmap" data-view="roadmap">
+          <span class="sidebar-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M3 12h12"/><path d="M3 18h6"/><circle cx="20" cy="12" r="2"/><circle cx="14" cy="18" r="2"/></svg></span>
+          <span>Roadmap</span>
+        </button>
+      </div>
+
       <!-- Department Spaces -->
       <div class="sidebar-section-label">Departments</div>
       <div class="sidebar-section" id="sidebar-dept-spaces">
@@ -100,14 +108,6 @@
           <div id="sidebar-workspaces"></div>
           <button class="sidebar-add-folder" id="btn-add-workspace">+ New Workspace</button>
         </div>
-      </div>
-
-      <!-- Roadmap nav item (initiatives + timeline live behind this) -->
-      <div class="sidebar-section">
-        <button class="sidebar-nav-item" id="btn-roadmap" data-view="roadmap">
-          <span class="sidebar-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M3 12h12"/><path d="M3 18h6"/><circle cx="20" cy="12" r="2"/><circle cx="14" cy="18" r="2"/></svg></span>
-          <span>Roadmap</span>
-        </button>
       </div>
 
       <!-- Middle section items -->
@@ -147,14 +147,37 @@
   <!-- Main Content -->
   <main id="app-main" class="app-main">
 
+    <!-- Workspace Header — hoisted above view-tasks/view-notes so it persists
+         across the Tasks/Notes toggle. -->
+    <div id="workspace-header" class="workspace-header" style="display:none;">
+      <button class="btn btn-ghost btn-sm" id="btn-close-workspace">&larr; Back to Tasks</button>
+      <span class="workspace-header-name" id="workspace-header-name"></span>
+      <span id="workspace-init-badge" class="workspace-init-badge" style="display:none;" title="Open initiative">↗ Initiative</span>
+      <!-- Tasks / Notes toggle: makes notes discoverable instead of buried -->
+      <div class="workspace-toggle" id="workspace-toggle">
+        <button type="button" class="workspace-toggle-btn is-active" id="btn-ws-toggle-tasks" data-ws-view="tasks">Tasks</button>
+        <button type="button" class="workspace-toggle-btn" id="btn-ws-toggle-notes" data-ws-view="notes">
+          Notes <span class="workspace-toggle-count" id="workspace-toggle-notes-count">0</span>
+        </button>
+      </div>
+      <div style="flex:1;"></div>
+      <button class="btn-promote" id="btn-promote-workspace" style="display:none;" title="Turn this workspace into a strategic initiative on the Roadmap">
+        <span class="btn-promote__icon">↗</span>
+        <span class="btn-promote__label">Promote to initiative</span>
+      </button>
+      <button class="btn btn-ghost btn-sm" id="btn-open-linked-initiative" style="font-size:0.7rem;display:none;">Open initiative →</button>
+      <button class="btn btn-ghost btn-sm" id="btn-edit-workspace" style="font-size:0.7rem;">Edit</button>
+    </div>
+    <!-- Slim header strip with initiative chrome when linked -->
+    <div id="workspace-init-strip" class="workspace-init-strip" style="display:none;">
+      <span class="ws-strip-item"><span class="ws-strip-lbl">Dates</span><span id="ws-strip-dates">—</span></span>
+      <span class="ws-strip-item"><span class="ws-strip-lbl">Health</span><span id="ws-strip-health">—</span></span>
+      <span class="ws-strip-item"><span class="ws-strip-lbl">Progress</span><span id="ws-strip-progress">—</span></span>
+      <span class="ws-strip-item"><span class="ws-strip-lbl">Owner</span><span id="ws-strip-owner">—</span></span>
+    </div>
+
     <!-- Tasks View -->
     <div id="view-tasks">
-      <!-- Workspace Header (shown when inside a workspace) -->
-      <div id="workspace-header" class="workspace-header" style="display:none;">
-        <button class="btn btn-ghost btn-sm" id="btn-close-workspace">&larr; Back to Tasks</button>
-        <span class="workspace-header-name" id="workspace-header-name"></span>
-        <button class="btn btn-ghost btn-sm" id="btn-edit-workspace" style="font-size:0.7rem;">Edit</button>
-      </div>
 
       <!-- Daily Briefing Card -->
       <div id="briefing-card" class="briefing-card-top" style="display:none;">
@@ -649,18 +672,113 @@
           <div class="id-meta-item"><span class="id-meta-lbl">Progress</span><span class="id-meta-val" id="id-detail-progress">—</span></div>
         </div>
         <div class="id-modal__body">
-          <div class="id-section">
+          <div class="id-tabs" role="tablist">
+            <button type="button" class="id-tab is-active" data-tab="tasks" role="tab" aria-selected="true">
+              Tasks <span id="id-tab-tasks-count" class="id-tab__count">0</span>
+            </button>
+            <button type="button" class="id-tab" data-tab="notes" role="tab" aria-selected="false">
+              Notes &amp; Files <span id="id-tab-notes-count" class="id-tab__count">0</span>
+            </button>
+          </div>
+          <div class="id-tab-pane" data-pane="tasks">
             <div class="id-section__head">
-              <h3 class="id-section__title">Tasks <span id="id-detail-task-count" class="id-section__count">0</span></h3>
+              <h3 class="id-section__title" style="margin:0;">Tasks rolled up to this initiative</h3>
               <button type="button" class="btn btn-primary btn-sm" id="btn-add-task-to-init">+ Add task</button>
             </div>
             <div id="id-detail-task-list" class="id-task-list"></div>
+
+            <!-- Brain dump composer -->
+            <div class="id-braindump">
+              <div class="id-braindump__head">
+                <span class="id-braindump__title">✨ Brain dump</span>
+                <span class="id-braindump__hint">Paste a list, draft, or stream of consciousness — AI splits it into tasks.</span>
+              </div>
+              <div class="id-braindump__compose" data-state="compose">
+                <textarea id="id-braindump-text" class="id-braindump__textarea" rows="4" placeholder="e.g. Schedule demos with Klaviyo, Iterable, Bloomreach by 5/30. Build out RFP doc by 5/30. Define scoring criteria by 7/1. Loop in Brian for legal review next week."></textarea>
+                <div class="id-braindump__actions">
+                  <span id="id-braindump-error" class="id-braindump__error"></span>
+                  <button type="button" class="btn btn-primary btn-sm" id="btn-braindump-parse">Parse with AI</button>
+                </div>
+              </div>
+              <div class="id-braindump__preview" data-state="preview" style="display:none;">
+                <div class="id-braindump__preview-head">
+                  <span class="id-braindump__preview-title">Review &amp; commit</span>
+                  <span class="id-braindump__preview-sub" id="id-braindump-summary">0 tasks</span>
+                </div>
+                <div id="id-braindump-list" class="id-braindump__list"></div>
+                <div class="id-braindump__actions">
+                  <button type="button" class="btn btn-ghost btn-sm" id="btn-braindump-cancel">← Back</button>
+                  <div style="flex:1;"></div>
+                  <button type="button" class="btn btn-primary btn-sm" id="btn-braindump-commit">Create tasks</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="id-tab-pane" data-pane="notes" hidden>
+            <!-- LIST MODE -->
+            <div class="id-notes-mode" data-mode="list">
+              <div class="id-section__head">
+                <h3 class="id-section__title" style="margin:0;">Notebook</h3>
+                <button type="button" class="btn btn-primary btn-sm" id="btn-add-init-note">+ New note</button>
+              </div>
+              <p class="id-notes-hint">Drop the RFP, vendor docs, or meeting recaps here. Notes also appear in the main Notes hub, scoped to this initiative.</p>
+              <div id="id-detail-notes-list" class="id-notes-list"></div>
+            </div>
+            <!-- EDIT MODE -->
+            <div class="id-notes-mode" data-mode="edit" hidden>
+              <div class="id-note-editor__head">
+                <button type="button" class="id-note-editor__back" id="btn-init-note-back">← Back to notebook</button>
+                <span class="id-note-editor__saved" id="id-note-editor-saved"></span>
+                <button type="button" class="id-note-editor__delete" id="btn-init-note-delete" title="Delete note">🗑</button>
+              </div>
+              <input type="text" class="id-note-editor__title" id="id-note-editor-title" placeholder="Note title">
+              <textarea class="id-note-editor__content" id="id-note-editor-content" rows="10" placeholder="Write context, paste meeting notes, summarize a call…"></textarea>
+              <div class="id-note-editor__attach">
+                <div class="id-note-editor__attach-head">
+                  <span class="id-note-editor__attach-title">Attachments</span>
+                  <div style="flex:1;"></div>
+                  <label class="id-note-editor__attach-btn">
+                    <input type="file" id="id-note-editor-file-input" style="display:none;">
+                    📎 Attach file
+                  </label>
+                  <button type="button" class="id-note-editor__attach-btn" id="btn-init-note-link">🔗 Add link</button>
+                </div>
+                <div id="id-note-editor-link-row" class="id-note-editor__link-row" style="display:none;">
+                  <input type="text" id="id-note-editor-link-name" placeholder="Label (optional)">
+                  <input type="text" id="id-note-editor-link-url" placeholder="https://…">
+                  <button type="button" class="btn btn-secondary btn-sm" id="btn-init-note-link-save">Add</button>
+                  <button type="button" class="btn btn-ghost btn-sm" id="btn-init-note-link-cancel">Cancel</button>
+                </div>
+                <div id="id-note-editor-status" class="id-note-editor__status" style="display:none;"></div>
+                <div id="id-note-editor-attachments" class="id-note-editor__attachments"></div>
+              </div>
+            </div>
           </div>
         </div>
         <div class="if-modal__actions">
           <button type="button" class="btn btn-ghost" data-close="modal-initiative-detail">Close</button>
           <div style="flex:1;"></div>
           <button type="button" class="btn btn-secondary" id="btn-edit-from-detail">Edit details</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Roadmap Migration: bulk audit of workspaces -->
+    <div class="modal-overlay" id="modal-rm-migration" style="display: none;">
+      <div class="modal id-modal">
+        <div class="modal-header id-modal__header">
+          <div style="flex:1;min-width:0;">
+            <div class="if-modal__bread">Roadmap migration</div>
+            <h2 style="font-family:'IBM Plex Serif',Georgia,serif;font-weight:500;margin:0.4rem 0 0;color:var(--follett-dark-blue);">Audit your workspaces</h2>
+            <p class="id-thesis" style="margin-top:0.4rem;">Each workspace is either a strategic <strong>initiative</strong> (time-bound, on the Roadmap), a topical workspace that stays as-is, or done. Decide each.</p>
+          </div>
+          <button class="modal-close" data-close="modal-rm-migration">&times;</button>
+        </div>
+        <div class="id-modal__body">
+          <div id="rm-migration-list" class="rm-migration-list"></div>
+        </div>
+        <div class="if-modal__actions">
+          <button type="button" class="btn btn-ghost" data-close="modal-rm-migration">Close</button>
         </div>
       </div>
     </div>
@@ -676,6 +794,11 @@
           <button class="modal-close" data-close="modal-initiative">&times;</button>
         </div>
         <form id="form-initiative" class="if-form">
+          <div id="init-promote-banner" class="if-promote-banner" style="display:none;">
+            <strong>Promoting <span id="init-promote-ws-name">workspace</span> to an initiative.</strong>
+            Initiatives are time-bound bets. If this work is truly ongoing with no horizon, cancel and keep it as a workspace instead.
+            <span id="init-promote-stats" class="if-promote-stats"></span>
+          </div>
           <div class="if-grid">
             <label class="if-field if-field--full">
               <span class="if-label">Name <span class="required">*</span></span>
@@ -859,6 +982,7 @@
           <p class="rm-hero__sub">Big initiatives by department, with the tasks that bring them to life. Click an initiative to expand it.</p>
         </div>
         <div class="rm-hero__actions">
+          <button class="btn btn-ghost" id="btn-open-rm-migration" style="display:none;">↗ Audit workspaces</button>
           <button class="btn btn-primary" id="btn-new-initiative-from-roadmap">+ New Initiative</button>
         </div>
       </div>
@@ -905,6 +1029,7 @@
       <div class="search-filters">
         <select id="search-filter-type" class="filter-select-compact">
           <option value="all">All Results</option>
+          <option value="initiatives">Initiatives Only</option>
           <option value="tasks">Tasks Only</option>
           <option value="notes">Notes Only</option>
         </select>
@@ -932,6 +1057,7 @@
           <option value="quarter">This Quarter</option>
         </select>
       </div>
+      <div id="search-results-initiatives"></div>
       <div id="search-results-tasks"></div>
       <div id="search-results-notes"></div>
       <div id="search-no-results" style="display: none; text-align: center; padding: 2rem; color: var(--color-text-muted);">No results found</div>
@@ -1076,10 +1202,11 @@
             <div class="form-group">
               <label for="parsed-dept">Department</label>
               <select id="parsed-dept" class="filter-select-compact" style="width:100%;">
+                <option value="All Marketing">All Marketing</option>
                 <option value="B2B Marketing">B2B Marketing</option>
                 <option value="B2C Marketing">B2C Marketing</option>
-                <option value="All Marketing">All Marketing</option>
                 <option value="Personal">Personal</option>
+                <option value="Rev Ops">Rev Ops</option>
               </select>
             </div>
             <div class="form-group">
@@ -1090,6 +1217,12 @@
                 <option value="Low">Low</option>
               </select>
             </div>
+          </div>
+          <div class="form-group">
+            <label for="parsed-initiative">Initiative <span style="font-weight:400;color:var(--color-text-muted);font-size:0.7rem;">— rolls up to a strategic initiative</span></label>
+            <select id="parsed-initiative" class="filter-select-compact" style="width:100%;">
+              <option value="">— None (Inbox task) —</option>
+            </select>
           </div>
           <div class="form-row">
             <div class="form-group">

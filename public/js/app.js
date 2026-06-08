@@ -263,12 +263,12 @@ function renderKanban() {
       if (col.status === 'Not Started') return t.status === 'Not Started' || (t.status === 'Delegated' && t.assignedTo === (myProfile && myProfile.userId));
       return t.status === col.status;
     });
-    // Sort: high priority first, then by due date
+    // Sort within column: due date ASC (no-date last), then high priority first.
     colTasks.sort((a, b) => {
+      const da = (a.dueDate || '9999').localeCompare(b.dueDate || '9999');
+      if (da !== 0) return da;
       const prio = { High: 0, Medium: 1, Low: 2 };
-      const pd = (prio[a.priority] || 1) - (prio[b.priority] || 1);
-      if (pd !== 0) return pd;
-      return (a.dueDate || '9999').localeCompare(b.dueDate || '9999');
+      return (prio[a.priority] || 1) - (prio[b.priority] || 1);
     });
 
     const cardsHtml = colTasks.map(t => {
@@ -282,7 +282,9 @@ function renderKanban() {
         ${(t.tags || []).length > 0 ? `<div style="display:flex;gap:0.2rem;flex-wrap:wrap;margin-bottom:0.2rem;">${(t.tags || []).slice(0, 2).map(tg => renderTagChip(tg, { small: true })).join('')}</div>` : ''}
         <div class="kb-card-meta">
           ${assigneeName ? `<span>${escapeHtml(assigneeName)}</span>` : ''}
-          ${t.dueDate ? `<span class="${overdue ? 'kb-overdue' : ''}">${t.dueDate.substring(5)}</span>` : ''}
+          ${t.dueDate
+            ? `<span class="${overdue ? 'kb-overdue' : ''}">${t.dueDate.substring(5)}</span>`
+            : `<span class="kb-needs-date" title="No due date set — click the card to add one">+ date</span>`}
           <span class="kb-prio-dot kb-prio-dot-${t.priority.toLowerCase()}"></span>
         </div>
       </div>`;
@@ -393,6 +395,17 @@ function renderCalendar() {
     tasksByDate[t.dueDate].push(t);
   });
 
+  // Group initiative milestones by date
+  const milestonesByDate = {};
+  for (const i of (initiatives || [])) {
+    if (i.archived) continue;
+    for (const m of (i.milestones || [])) {
+      if (!m.date) continue;
+      if (!milestonesByDate[m.date]) milestonesByDate[m.date] = [];
+      milestonesByDate[m.date].push({ ...m, initiativeId: i.id, initiativeName: i.name, department: i.department });
+    }
+  }
+
   let html = '';
   // Day headers
   ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].forEach(d => {
@@ -435,6 +448,13 @@ function renderCalendar() {
       return (prio[a.priority] || 1) - (prio[b.priority] || 1);
     });
 
+    const dayMilestones = milestonesByDate[dateStr] || [];
+    const milestoneHtml = dayMilestones.map(m => {
+      const kind = m.kind || 'event';
+      const titleAttr = `◆ ${m.label} · ${m.initiativeName}`;
+      return `<div class="cal-milestone cal-milestone-${kind}" data-cal-init-id="${m.initiativeId}" title="${escapeHtml(titleAttr)}">◆ ${escapeHtml(m.label)}</div>`;
+    }).join('');
+
     const maxShow = 3;
     const taskHtml = dayTasks.slice(0, maxShow).map(t => {
       let cls = t.status === 'Completed' ? 'cal-task-completed' : `cal-task-${t.priority.toLowerCase()}`;
@@ -446,16 +466,25 @@ function renderCalendar() {
 
     html += `<div class="${classes.join(' ')}" data-date="${dateStr}">
       <div class="cal-day-num">${displayNum}</div>
-      ${taskHtml}${moreHtml}
+      ${milestoneHtml}${taskHtml}${moreHtml}
     </div>`;
   }
 
   document.getElementById('cal-grid').innerHTML = html;
 
+  // Milestone clicks → open the parent initiative detail
+  document.querySelectorAll('.cal-milestone[data-cal-init-id]').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const initId = el.dataset.calInitId;
+      if (initId && typeof openInitiativeDetail === 'function') openInitiativeDetail(initId);
+    });
+  });
+
   // Click empty day to quick-add with date
   document.querySelectorAll('.cal-day').forEach(cell => {
     cell.addEventListener('click', (e) => {
-      if (e.target.closest('.cal-task') || e.target.closest('.cal-more')) return;
+      if (e.target.closest('.cal-task') || e.target.closest('.cal-more') || e.target.closest('.cal-milestone')) return;
       const date = cell.dataset.date;
       document.getElementById('input-due-date').value = date;
       editingTaskId = null;
@@ -667,6 +696,19 @@ let currentView = 'tasks';
 function switchView(view) {
   currentView = view;
   if (currentUser) sessionStorage.setItem('appView_' + currentUser.uid, view);
+  // Workspace chrome (header + init strip) belongs to tasks/notes only — hide it on every other view.
+  const wsHeader = document.getElementById('workspace-header');
+  const wsStrip = document.getElementById('workspace-init-strip');
+  if (view !== 'tasks' && view !== 'notes') {
+    if (wsHeader) wsHeader.style.display = 'none';
+    if (wsStrip) wsStrip.style.display = 'none';
+  } else if (activeWorkspaceId) {
+    // Returning to tasks/notes with a workspace still active — re-show header.
+    if (wsHeader) wsHeader.style.display = 'flex';
+    // The strip's visibility is governed by renderWorkspaceInitiativeChrome — re-run it.
+    const ws = (workspaces || []).find(w => w.id === activeWorkspaceId);
+    if (ws && typeof renderWorkspaceInitiativeChrome === 'function') renderWorkspaceInitiativeChrome(ws);
+  }
   document.getElementById('view-tasks').style.display = view === 'tasks' ? 'block' : 'none';
   document.getElementById('view-notes').style.display = view === 'notes' ? 'flex' : 'none';
   document.getElementById('view-ai').style.display = view === 'ai' ? 'flex' : 'none';
@@ -1240,8 +1282,11 @@ async function editTask(id) {
   // Set initiative dropdown
   const initSelect = document.getElementById('input-initiative');
   if (initSelect) {
+    const isLeader = myProfile && (myProfile.role === 'cmo' || myProfile.role === 'lead');
     initSelect.innerHTML = '<option value="">— None (Inbox task) —</option>' +
-      initiatives.map(i => `<option value="${i.id}" ${i.id === task.initiativeId ? 'selected' : ''}>${escapeHtml(i.name)}</option>`).join('');
+      initiatives.map(i => `<option value="${i.id}" ${i.id === task.initiativeId ? 'selected' : ''}>${escapeHtml(i.name)}</option>`).join('') +
+      (isLeader ? '<option value="__new__">+ New initiative…</option>' : '');
+    initSelect.dataset.priorValue = task.initiativeId || '';
     refreshInitiativeDatesHint(task.dueDate);
   }
 
@@ -1287,6 +1332,20 @@ function openModal(id) {
 
 function closeModal(id) {
   document.getElementById(id).style.display = 'none';
+  if (id === 'modal-initiative') {
+    // Drop any in-flight promote state so a subsequent fresh "new initiative" isn't stuck in promote mode.
+    promotingWorkspaceId = null;
+    const banner = document.getElementById('init-promote-banner');
+    if (banner) banner.style.display = 'none';
+    // If the initiative form was opened mid-task-flow and the user cancels,
+    // restore the task modal that was hidden behind it.
+    if (typeof afterInitiativeCancel === 'function') {
+      const cb = afterInitiativeCancel;
+      afterInitiativeCancel = null;
+      afterInitiativeSave = null;
+      try { cb(); } catch (e) { console.error(e); }
+    }
+  }
 }
 
 function resetAddForm() {
@@ -1328,8 +1387,11 @@ function resetAddForm() {
   // Populate initiative dropdown
   const initSelect = document.getElementById('input-initiative');
   if (initSelect) {
+    const isLeader = myProfile && (myProfile.role === 'cmo' || myProfile.role === 'lead');
     initSelect.innerHTML = '<option value="">— None (Inbox task) —</option>' +
-      initiatives.map(i => `<option value="${i.id}">${escapeHtml(i.name)}</option>`).join('');
+      initiatives.map(i => `<option value="${i.id}">${escapeHtml(i.name)}</option>`).join('') +
+      (isLeader ? '<option value="__new__">+ New initiative…</option>' : '');
+    initSelect.dataset.priorValue = '';
     refreshInitiativeDatesHint('');
   }
 }
@@ -2920,7 +2982,7 @@ async function createAiTasks() {
 
 // === Search ===
 let searchTimeout = null;
-let lastSearchResults = { tasks: [], notes: [] };
+let lastSearchResults = { tasks: [], notes: [], initiatives: [] };
 
 function handleSearch() {
   const q = document.getElementById('global-search').value.trim();
@@ -2959,12 +3021,20 @@ function renderSearchResults() {
   const dateFilter = document.getElementById('search-filter-date').value;
   const dateCutoff = getDateCutoff(dateFilter);
 
+  const initsContainer = document.getElementById('search-results-initiatives');
   const tasksContainer = document.getElementById('search-results-tasks');
   const notesContainer = document.getElementById('search-results-notes');
   const noResults = document.getElementById('search-no-results');
 
+  // Filter initiatives
+  const showInits = typeFilter === 'all' || typeFilter === 'initiatives';
+  let filteredInits = !showInits ? [] : (lastSearchResults.initiatives || []).filter(i => {
+    if (deptFilter !== 'all' && i.department !== deptFilter) return false;
+    return true;
+  });
+
   // Filter tasks
-  let filteredTasks = typeFilter === 'notes' ? [] : lastSearchResults.tasks.filter(t => {
+  let filteredTasks = (typeFilter === 'notes' || typeFilter === 'initiatives') ? [] : lastSearchResults.tasks.filter(t => {
     if (statusFilter !== 'all' && t.status !== statusFilter) return false;
     if (deptFilter !== 'all' && t.department !== deptFilter && (t.subDepartment || '') !== deptFilter) return false;
     if (dateCutoff && t.createdAt < dateCutoff) return false;
@@ -2972,13 +3042,14 @@ function renderSearchResults() {
   });
 
   // Filter notes
-  let filteredNotes = typeFilter === 'tasks' ? [] : lastSearchResults.notes.filter(n => {
+  let filteredNotes = (typeFilter === 'tasks' || typeFilter === 'initiatives') ? [] : lastSearchResults.notes.filter(n => {
     if (deptFilter !== 'all' && n.folderName !== deptFilter) return false;
     if (dateCutoff && n.updatedAt < dateCutoff) return false;
     return true;
   });
 
-  if (filteredTasks.length === 0 && filteredNotes.length === 0) {
+  if (filteredInits.length === 0 && filteredTasks.length === 0 && filteredNotes.length === 0) {
+    if (initsContainer) initsContainer.innerHTML = '';
     tasksContainer.innerHTML = '';
     notesContainer.innerHTML = '';
     noResults.style.display = 'block';
@@ -2986,6 +3057,29 @@ function renderSearchResults() {
   }
 
   noResults.style.display = 'none';
+
+  if (initsContainer && filteredInits.length > 0) {
+    initsContainer.innerHTML = `<div class="search-section-title">Initiatives (${filteredInits.length})</div>` +
+      filteredInits.map(i => {
+        const dates = (i.start || '—') + ' → ' + (i.end || '—');
+        const pct = Math.round((Number(i.progress) || 0) * 100);
+        return `<div class="search-result-item search-initiative" data-search-init-id="${i.id}">
+          <div class="search-result-title">↗ ${escapeHtml(i.name || 'Untitled')}</div>
+          <div class="search-result-meta">${escapeHtml(i.department || '—')} · ${escapeHtml(i.ownerName || 'Unassigned')} · ${escapeHtml(dates)} · ${pct}% · ${escapeHtml(i.health || 'on-track')}</div>
+          ${i.thesis ? `<div class="search-result-preview">${escapeHtml(i.thesis)}</div>` : ''}
+        </div>`;
+      }).join('');
+
+    initsContainer.querySelectorAll('[data-search-init-id]').forEach(el => {
+      el.addEventListener('click', () => {
+        document.getElementById('global-search').value = '';
+        switchView('roadmap');
+        setTimeout(() => openInitiativeDetail(el.dataset.searchInitId), 30);
+      });
+    });
+  } else if (initsContainer) {
+    initsContainer.innerHTML = '';
+  }
 
   if (filteredTasks.length > 0) {
     tasksContainer.innerHTML = `<div class="search-section-title">Tasks (${filteredTasks.length})</div>` +
@@ -3122,6 +3216,28 @@ async function init() {
   document.getElementById('btn-add-workspace').addEventListener('click', () => showCreateWorkspaceModal());
   document.getElementById('btn-close-workspace').addEventListener('click', closeWorkspace);
   document.getElementById('btn-edit-workspace').addEventListener('click', () => showCreateWorkspaceModal(activeWorkspaceId));
+  const wsTasksBtn = document.getElementById('btn-ws-toggle-tasks');
+  if (wsTasksBtn) wsTasksBtn.addEventListener('click', () => {
+    if (activeWorkspaceId) openWorkspace(activeWorkspaceId);
+  });
+  const wsNotesBtn = document.getElementById('btn-ws-toggle-notes');
+  if (wsNotesBtn) wsNotesBtn.addEventListener('click', () => {
+    if (activeWorkspaceId) openWorkspaceNotes(activeWorkspaceId);
+  });
+  const promoteBtn = document.getElementById('btn-promote-workspace');
+  if (promoteBtn) promoteBtn.addEventListener('click', () => {
+    if (activeWorkspaceId) promoteWorkspaceToInitiative(activeWorkspaceId);
+  });
+  const openLinkedBtn = document.getElementById('btn-open-linked-initiative');
+  if (openLinkedBtn) openLinkedBtn.addEventListener('click', () => {
+    const ws = workspaces.find(w => w.id === activeWorkspaceId);
+    if (ws && ws.initiativeId) openInitiativeDetail(ws.initiativeId);
+  });
+  const initBadge = document.getElementById('workspace-init-badge');
+  if (initBadge) initBadge.addEventListener('click', () => {
+    const ws = workspaces.find(w => w.id === activeWorkspaceId);
+    if (ws && ws.initiativeId) openInitiativeDetail(ws.initiativeId);
+  });
   document.getElementById('form-workspace').addEventListener('submit', submitWorkspace);
 
   // View mode toggles
@@ -3181,6 +3297,15 @@ async function init() {
       teamMembers.filter(m => m.status === 'active' || !m.status).map(m =>
         `<option value="${m.userId}">${escapeHtml(m.displayName)}</option>`
       ).join('');
+    // Populate initiative dropdown
+    const initSelect = document.getElementById('parsed-initiative');
+    if (initSelect) {
+      const isLeader = myProfile && (myProfile.role === 'cmo' || myProfile.role === 'lead');
+      initSelect.innerHTML = '<option value="">— None (Inbox task) —</option>' +
+        initiatives.map(i => `<option value="${i.id}">${escapeHtml(i.name)}</option>`).join('') +
+        (isLeader ? '<option value="__new__">+ New initiative…</option>' : '');
+      initSelect.dataset.priorValue = '';
+    }
     openModal('modal-import');
   });
 
@@ -3202,6 +3327,12 @@ async function init() {
       document.getElementById('parsed-recurring').value = parsed.recurring || 'none';
       document.getElementById('parsed-notes').value = parsed.notes || '';
       if (parsed.assignedTo) document.getElementById('parsed-assign').value = parsed.assignedTo;
+      const initSel = document.getElementById('parsed-initiative');
+      if (initSel) {
+        const chosen = (parsed.initiativeId && initiativesById[parsed.initiativeId]) ? parsed.initiativeId : '';
+        initSel.value = chosen;
+        initSel.dataset.priorValue = chosen;
+      }
       document.getElementById('ai-parsed-task').style.display = 'block';
     } catch (err) {
       showToast('AI parsing failed', 'error');
@@ -3223,7 +3354,8 @@ async function init() {
     const notes = document.getElementById('parsed-notes').value.trim();
 
     const parsedTags = lastParsedResult && lastParsedResult.tags ? lastParsedResult.tags : [];
-    await addTask(title, dept, priority, notes, 'manual', [], dueDate, recurring, assignedTo, parsedTags, startDate);
+    const initSelected = (document.getElementById('parsed-initiative') || {}).value || null;
+    await addTask(title, dept, priority, notes, 'manual', [], dueDate, recurring, assignedTo, parsedTags, startDate, initSelected);
     closeModal('modal-import');
   });
 
@@ -3980,8 +4112,28 @@ async function showBriefingCard() {
     parts.push(`<span style="opacity:0.8">${b.completedCount} done this week</span>`);
     statsEl.innerHTML = parts.join('<span class="stat-sep">·</span>');
 
-    // AI narrative
-    document.getElementById('briefing-card-narrative').textContent = b.narrative || '';
+    // AI narrative — render [tasklink:ID:Title] tags as clickable spans
+    const narrativeEl = document.getElementById('briefing-card-narrative');
+    narrativeEl.innerHTML = '';
+    const rawNarr = b.narrative || '';
+    const re = /\[tasklink:([^:\]]+):([^\]]+)\]/g;
+    let lastIdx = 0;
+    let m;
+    while ((m = re.exec(rawNarr)) !== null) {
+      if (m.index > lastIdx) narrativeEl.appendChild(document.createTextNode(rawNarr.slice(lastIdx, m.index)));
+      const link = document.createElement('a');
+      link.href = '#';
+      link.className = 'briefing-task-link';
+      link.textContent = m[2];
+      const taskId = m[1];
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        if (typeof showTaskDetail === 'function') showTaskDetail(taskId);
+      });
+      narrativeEl.appendChild(link);
+      lastIdx = re.lastIndex;
+    }
+    if (lastIdx < rawNarr.length) narrativeEl.appendChild(document.createTextNode(rawNarr.slice(lastIdx)));
 
     // Action chips — only show if there's something to do
     const actionsEl = document.getElementById('briefing-card-actions');
@@ -4199,6 +4351,8 @@ function renderInitiativePill(task) {
   if (init) {
     return `<span class="kb-init-pill" title="${escapeHtml(init.thesis || init.name)}">${escapeHtml(init.name)}</span>`;
   }
+  // Workspace-scoped tasks aren't "inbox" — they live in that workspace.
+  if (task.workspaceId) return '';
   return `<span class="kb-init-pill kb-init-pill--inbox">Inbox</span>`;
 }
 
@@ -4229,13 +4383,19 @@ function renderSidebarWorkspaces() {
   container.innerHTML = html;
 
   container.onclick = async (e) => {
-    // Toggle expand/collapse
+    // Click workspace name → expand AND navigate to its task board.
+    // Sub-items (Tasks/Notes) still let users switch without re-navigating.
     const toggle = e.target.closest('[data-ws-toggle]');
     if (toggle) {
       const id = toggle.dataset.wsToggle;
-      if (expandedWorkspaces.has(id)) expandedWorkspaces.delete(id);
-      else expandedWorkspaces.add(id);
+      expandedWorkspaces.add(id);
       renderSidebarWorkspaces();
+      // If we're already on this workspace's notes view, don't yank to tasks.
+      const alreadyOnNotes = activeWorkspaceId === id && currentView === 'notes' && activeWorkspaceNotesView;
+      if (!alreadyOnNotes) {
+        await openWorkspace(id);
+        closeSidebar();
+      }
       return;
     }
 
@@ -4273,6 +4433,9 @@ async function openWorkspace(id) {
   document.getElementById('workspace-header-name').textContent = ws.name;
   document.getElementById('btn-edit-workspace').style.display =
     (myProfile && (myProfile.role === 'cmo' || myProfile.userId === ws.ownerId)) ? '' : 'none';
+  renderWorkspaceInitiativeChrome(ws);
+  setWorkspaceToggleState('tasks');
+  refreshWorkspaceNotesBadge(id);
   switchView('tasks');
   await loadTasks();
   setTaskViewMode(taskViewMode);
@@ -4313,6 +4476,9 @@ async function openWorkspaceNotes(id) {
   document.getElementById('workspace-header-name').textContent = ws.name;
   document.getElementById('btn-edit-workspace').style.display =
     (myProfile && (myProfile.role === 'cmo' || myProfile.userId === ws.ownerId)) ? '' : 'none';
+  renderWorkspaceInitiativeChrome(ws);
+  setWorkspaceToggleState('notes');
+  refreshWorkspaceNotesBadge(id);
   // Sync All/Mine toggle
   document.getElementById('btn-all-notes').classList.add('active');
   document.getElementById('btn-my-notes').classList.remove('active');
@@ -5555,12 +5721,19 @@ function setHealthSegmented(val) {
   });
 }
 
+// Set when the initiative form is opened in "promote a workspace" mode.
+// saveInitiativeFromForm checks this and routes to the promote endpoint instead.
+let promotingWorkspaceId = null;
+
 function openInitiativeForm(initiativeId) {
   if (myProfile && myProfile.role === 'viewer') return;
   if (!initiativeId && !(myProfile && (myProfile.role === 'cmo' || myProfile.role === 'lead'))) {
     showToast('Only leaders can create initiatives', 'error');
     return;
   }
+  // Default: not promoting unless promoteWorkspaceToInitiative set this beforehand.
+  const banner = document.getElementById('init-promote-banner');
+  if (banner && !promotingWorkspaceId) banner.style.display = 'none';
   const titleEl = document.getElementById('modal-initiative-title');
   const breadEl = document.getElementById('modal-initiative-bread');
   const submitBtn = document.getElementById('btn-submit-initiative');
@@ -5628,6 +5801,110 @@ function openInitiativeForm(initiativeId) {
   openModal('modal-initiative');
 }
 
+// Tasks/Notes toggle in the workspace header — makes notes discoverable
+// without the user needing to dive back into the sidebar.
+function setWorkspaceToggleState(activeView) {
+  const tasksBtn = document.getElementById('btn-ws-toggle-tasks');
+  const notesBtn = document.getElementById('btn-ws-toggle-notes');
+  if (tasksBtn) tasksBtn.classList.toggle('is-active', activeView === 'tasks');
+  if (notesBtn) notesBtn.classList.toggle('is-active', activeView === 'notes');
+}
+
+async function refreshWorkspaceNotesBadge(workspaceId) {
+  const countEl = document.getElementById('workspace-toggle-notes-count');
+  if (!countEl || !workspaceId) return;
+  try {
+    const notes = await api('GET', `/api/notes?workspaceId=${encodeURIComponent(workspaceId)}`);
+    countEl.textContent = String(Array.isArray(notes) ? notes.length : 0);
+  } catch {
+    countEl.textContent = '0';
+  }
+}
+
+// Decide what initiative-related chrome to show on the workspace header.
+// If linked: hide promote, show "Open initiative →" and the slim strip.
+// If unlinked: show promote (leaders only), hide everything else.
+function renderWorkspaceInitiativeChrome(ws) {
+  const promoteBtn = document.getElementById('btn-promote-workspace');
+  const openBtn = document.getElementById('btn-open-linked-initiative');
+  const badge = document.getElementById('workspace-init-badge');
+  const strip = document.getElementById('workspace-init-strip');
+  const isLeader = myProfile && (myProfile.role === 'cmo' || myProfile.role === 'lead');
+  if (!ws.initiativeId) {
+    if (promoteBtn) promoteBtn.style.display = isLeader ? '' : 'none';
+    if (openBtn) openBtn.style.display = 'none';
+    if (badge) badge.style.display = 'none';
+    if (strip) strip.style.display = 'none';
+    return;
+  }
+  const init = initiativesById[ws.initiativeId];
+  if (!init) {
+    // Linked but initiative not loaded yet (or archived). Hide chrome rather than show stale data.
+    if (promoteBtn) promoteBtn.style.display = 'none';
+    if (openBtn) openBtn.style.display = '';
+    if (badge) badge.style.display = '';
+    if (strip) strip.style.display = 'none';
+    return;
+  }
+  if (promoteBtn) promoteBtn.style.display = 'none';
+  if (openBtn) openBtn.style.display = '';
+  if (badge) badge.style.display = '';
+  if (strip) {
+    strip.style.display = '';
+    document.getElementById('ws-strip-dates').textContent = `${init.start || '—'} → ${init.end || '—'}`;
+    const healthLabel = { 'on-track': 'On Track', 'at-risk': 'At Risk', 'off-track': 'Off Track' }[init.health] || 'On Track';
+    const healthEl = document.getElementById('ws-strip-health');
+    healthEl.textContent = healthLabel;
+    healthEl.className = 'ws-strip-health health-' + (init.health || 'on-track');
+    document.getElementById('ws-strip-progress').textContent = `${Math.round((Number(init.progress) || 0) * 100)}%`;
+    const owner = teamMembers.find(m => m.userId === init.ownerId);
+    document.getElementById('ws-strip-owner').textContent = owner ? owner.displayName.split(' ')[0] : '—';
+  }
+}
+
+async function promoteWorkspaceToInitiative(workspaceId) {
+  if (!myProfile || (myProfile.role !== 'cmo' && myProfile.role !== 'lead')) {
+    showToast('Only leaders can promote workspaces', 'error');
+    return;
+  }
+  try {
+    const defaults = await api('GET', `/api/workspaces/${workspaceId}/promote-defaults`);
+    if (defaults.alreadyLinked) {
+      openInitiativeDetail(defaults.linkedInitiativeId);
+      return;
+    }
+    // Set promote mode BEFORE openInitiativeForm so the banner toggle survives the reset.
+    promotingWorkspaceId = workspaceId;
+    editingInitiativeCollab = (defaults.collaborators || []).slice();
+    openInitiativeForm(null);
+    // Pre-fill the form with the workspace defaults. openInitiativeForm() above
+    // resets to "new" defaults; overwrite those with the workspace-derived values.
+    document.getElementById('init-name').value = defaults.name || '';
+    document.getElementById('init-thesis').value = defaults.thesis || '';
+    if (defaults.department) document.getElementById('init-department').value = defaults.department;
+    document.getElementById('init-start').value = defaults.start || todayIso();
+    document.getElementById('init-end').value = defaults.end || todayIso();
+    populateInitiativeOwnerDropdown(defaults.ownerId || (myProfile && myProfile.userId) || '');
+    renderInitCollabChips();
+    // Live-update modal title with the pre-filled name
+    document.getElementById('modal-initiative-title').textContent = defaults.name || 'Untitled initiative';
+    document.getElementById('modal-initiative-bread').textContent = 'Promote workspace';
+    document.getElementById('btn-submit-initiative').textContent = 'Promote to initiative';
+    // Show banner
+    const banner = document.getElementById('init-promote-banner');
+    const nameSlot = document.getElementById('init-promote-ws-name');
+    const statsSlot = document.getElementById('init-promote-stats');
+    if (banner) banner.style.display = '';
+    if (nameSlot) nameSlot.textContent = defaults.name || 'this workspace';
+    if (statsSlot) statsSlot.textContent = defaults.taskCount
+      ? ` ${defaults.taskCount} task${defaults.taskCount === 1 ? '' : 's'} will move with it.`
+      : '';
+  } catch (err) {
+    promotingWorkspaceId = null;
+    showToast('Failed to load workspace defaults: ' + (err.message || ''), 'error');
+  }
+}
+
 async function saveInitiativeFromForm(e) {
   e.preventDefault();
   const payload = {
@@ -5652,19 +5929,43 @@ async function saveInitiativeFromForm(e) {
   try {
     let saved;
     const wasNew = !editingInitiativeId;
+    const wasPromote = !editingInitiativeId && promotingWorkspaceId;
     if (editingInitiativeId) {
       saved = await api('PUT', '/api/initiatives/' + editingInitiativeId, payload);
+    } else if (wasPromote) {
+      const promotedWsId = promotingWorkspaceId;
+      const promoteResult = await api('POST', `/api/workspaces/${promotedWsId}/promote`, payload);
+      saved = promoteResult.initiative;
+      promotingWorkspaceId = null;
+      // Refresh workspaces and initiatives so the back-pointer + the new initiative are visible.
+      if (typeof loadWorkspaces === 'function') await loadWorkspaces();
+      // If the user is currently inside that workspace, refresh its chrome now.
+      if (activeWorkspaceId === promotedWsId) {
+        const ws = workspaces.find(w => w.id === promotedWsId);
+        if (ws) renderWorkspaceInitiativeChrome(ws);
+      }
+      showToast(`Promoted to initiative — ${promoteResult.tasksStamped} task${promoteResult.tasksStamped === 1 ? '' : 's'} and ${promoteResult.notesStamped} note${promoteResult.notesStamped === 1 ? '' : 's'} moved across`, 'success');
     } else {
       saved = await api('POST', '/api/initiatives', payload);
     }
+    // Capture the save callback BEFORE closing the modal — closeModal otherwise
+    // fires the cancel hook which would null afterInitiativeSave behind our back.
+    const saveCb = (wasNew && saved && saved.id) ? afterInitiativeSave : null;
+    afterInitiativeSave = null;
+    afterInitiativeCancel = null;
     closeModal('modal-initiative');
     await loadInitiatives();
     // Re-render whatever's on screen so pills refresh
     if (typeof render === 'function') render();
     if (typeof renderKanban === 'function' && document.getElementById('view-tasks').style.display !== 'none') renderKanban();
-    showToast(wasNew ? 'Initiative created — add tasks below' : 'Initiative updated', 'success');
-    // After creating, auto-open the detail so the user can add tasks immediately.
-    if (wasNew && saved && saved.id) {
+    // Promote already showed its own specific success toast.
+    if (!wasPromote) {
+      showToast(wasNew ? 'Initiative created — add tasks below' : 'Initiative updated', 'success');
+    }
+    if (typeof saveCb === 'function') {
+      await saveCb(saved);
+    } else if (wasNew && saved && saved.id) {
+      // Default: auto-open the detail so the user can add tasks immediately.
       setTimeout(() => openInitiativeDetail(saved.id), 80);
     }
   } catch (err) {
@@ -5801,7 +6102,116 @@ function rmDateXOnScale(dateStr, scale) {
 }
 
 async function showRoadmapView() {
+  // Show the audit button to leaders if there are still unlinked workspaces.
+  const isLeader = myProfile && (myProfile.role === 'cmo' || myProfile.role === 'lead');
+  const auditBtn = document.getElementById('btn-open-rm-migration');
+  if (auditBtn) {
+    const unlinkedCount = (workspaces || []).filter(w => !w.archived && !w.initiativeId).length;
+    auditBtn.style.display = (isLeader && unlinkedCount > 0) ? '' : 'none';
+    auditBtn.textContent = `↗ Audit workspaces${unlinkedCount ? ` (${unlinkedCount})` : ''}`;
+  }
   await renderRoadmapTimeline();
+}
+
+async function openRoadmapMigration() {
+  if (!myProfile || (myProfile.role !== 'cmo' && myProfile.role !== 'lead')) {
+    showToast('Only leaders can run the migration', 'error');
+    return;
+  }
+  await renderRoadmapMigration();
+  openModal('modal-rm-migration');
+}
+
+async function renderRoadmapMigration() {
+  const list = document.getElementById('rm-migration-list');
+  if (!list) return;
+  const active = (workspaces || []).filter(w => !w.archived);
+  if (active.length === 0) {
+    list.innerHTML = '<p class="id-notes-empty">No active workspaces to audit.</p>';
+    return;
+  }
+  // Per-workspace task counts (from the loaded tasks). Note: workspace-scoped tasks
+  // are excluded from the master view, so we fetch counts via a quick API loop only
+  // for unlinked workspaces. For linked ones, the initiative-level count is shown.
+  const wsTaskCounts = {};
+  await Promise.all(active.map(async (w) => {
+    if (w.initiativeId) {
+      wsTaskCounts[w.id] = (initiativesById[w.initiativeId] ? (rmTasksByInit[w.initiativeId] || []).length : 0);
+      return;
+    }
+    try {
+      const tasks = await api('GET', `/api/tasks?workspaceId=${encodeURIComponent(w.id)}`);
+      wsTaskCounts[w.id] = Array.isArray(tasks) ? tasks.length : 0;
+    } catch { wsTaskCounts[w.id] = 0; }
+  }));
+
+  // Sort: unlinked first (the work to do), then linked, alpha within each
+  active.sort((a, b) => {
+    const aLinked = a.initiativeId ? 1 : 0;
+    const bLinked = b.initiativeId ? 1 : 0;
+    if (aLinked !== bLinked) return aLinked - bLinked;
+    return (a.name || '').localeCompare(b.name || '');
+  });
+
+  list.innerHTML = active.map(w => {
+    const taskCount = wsTaskCounts[w.id] || 0;
+    if (w.initiativeId) {
+      const init = initiativesById[w.initiativeId];
+      const initName = init ? init.name : '(initiative)';
+      return `<div class="rm-migration-row rm-migration-row--linked">
+        <div class="rm-migration-row__main">
+          <div class="rm-migration-row__name">${escapeHtml(w.name)}</div>
+          <div class="rm-migration-row__sub">↗ Linked to <strong>${escapeHtml(initName)}</strong> · ${taskCount} task${taskCount === 1 ? '' : 's'}</div>
+        </div>
+        <div class="rm-migration-row__actions">
+          <button type="button" class="btn btn-ghost btn-sm" data-mig-open-init="${w.initiativeId}">Open initiative →</button>
+        </div>
+      </div>`;
+    }
+    return `<div class="rm-migration-row">
+      <div class="rm-migration-row__main">
+        <div class="rm-migration-row__name">${escapeHtml(w.name)}</div>
+        <div class="rm-migration-row__sub">${taskCount} task${taskCount === 1 ? '' : 's'}${w.description ? ' · ' + escapeHtml(w.description.slice(0, 80)) : ''}</div>
+      </div>
+      <div class="rm-migration-row__actions">
+        <button type="button" class="btn btn-primary btn-sm" data-mig-promote="${w.id}">↗ Promote</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-mig-keep="${w.id}">Keep as workspace</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-mig-archive="${w.id}" style="color:var(--follett-coral);">Archive</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  list.querySelectorAll('[data-mig-promote]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      closeModal('modal-rm-migration');
+      setTimeout(() => promoteWorkspaceToInitiative(btn.dataset.migPromote), 30);
+    });
+  });
+  list.querySelectorAll('[data-mig-keep]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      // For v1, "Keep" just hides the row for the rest of this session.
+      btn.closest('.rm-migration-row').style.display = 'none';
+    });
+  });
+  list.querySelectorAll('[data-mig-archive]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const wsId = btn.dataset.migArchive;
+      if (!confirm('Archive this workspace? Tasks in it stay but the workspace is hidden.')) return;
+      try {
+        await api('DELETE', `/api/workspaces/${wsId}`);
+        if (typeof loadWorkspaces === 'function') await loadWorkspaces();
+        await renderRoadmapMigration();
+      } catch (e) {
+        showToast('Archive failed: ' + (e.message || ''), 'error');
+      }
+    });
+  });
+  list.querySelectorAll('[data-mig-open-init]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      closeModal('modal-rm-migration');
+      setTimeout(() => openInitiativeDetail(btn.dataset.migOpenInit), 30);
+    });
+  });
 }
 
 function rmFilterInitiatives() {
@@ -5850,12 +6260,9 @@ async function renderRoadmapTimeline() {
   visible.forEach(i => { (byDept[i.department] = byDept[i.department] || []).push(i); });
   const groups = RM_DEPTS.filter(d => byDept[d]).map(d => ({ label: d, items: byDept[d] }));
 
-  // Pre-fetch tasks for any expanded initiative in view
-  for (const g of groups) {
-    for (const init of g.items) {
-      if (rmExpanded.has(init.id)) await rmEnsureTasksFor(init.id);
-    }
-  }
+  // Pre-fetch tasks for every visible initiative so we can show a count chip.
+  // rmEnsureTasksFor is cached, so subsequent renders are instant.
+  await Promise.all(visible.map(i => rmEnsureTasksFor(i.id).catch(() => [])));
 
   // Lanes column
   let lanesHtml = '<div class="rm-canvas__lanes-header">Initiative</div>';
@@ -5912,12 +6319,16 @@ async function renderRoadmapTimeline() {
       const isOpen = rmExpanded.has(init.id);
       const pct = Math.round((Number(init.progress) || 0) * 100);
 
+      const taskCount = (rmTasksByInit[init.id] || []).length;
+      const taskBtn = taskCount === 0
+        ? `<button type="button" class="rm-lane-meta__action rm-lane-meta__action--add" data-add-task-init="${init.id}" title="Add a task to this initiative">+ Add task</button>`
+        : `<button type="button" class="rm-lane-meta__action rm-lane-meta__action--count ${isOpen ? 'is-open' : ''}" data-toggle-init="${init.id}" title="${isOpen ? 'Hide tasks' : 'Show tasks'}" aria-expanded="${isOpen ? 'true' : 'false'}">${taskCount} task${taskCount === 1 ? '' : 's'} <span class="rm-lane-meta__action-caret">${isOpen ? '▾' : '▸'}</span></button>`;
       lanesHtml += `<div class="rm-lane-meta">
-        <button type="button" class="rm-lane-meta__caret" data-toggle-init="${init.id}" title="${isOpen ? 'Hide tasks' : 'Show tasks'}">${isOpen ? '▾' : '▸'}</button>
-        <div style="flex:1;min-width:0;">
+        <div class="rm-lane-meta__main">
           <button type="button" class="rm-lane-meta__title" data-open-init="${init.id}" title="Open initiative">${escapeHtml(init.name)}</button>
           <span class="rm-lane-meta__sub">${escapeHtml(ownerName)} · ${escapeHtml(init.start)} → ${escapeHtml(init.end)}</span>
         </div>
+        ${taskBtn}
       </div>`;
 
       // Time column row for this initiative
@@ -5961,9 +6372,13 @@ async function renderRoadmapTimeline() {
         }
         for (const t of tasks) {
           const sk = STATUS_KEYS[t.status] || 'not-started';
-          lanesHtml += `<div class="rm-task-meta-row" data-open-task="${t.id}">
+          const noDate = !t.dueDate;
+          // Left rail: amber chip on tasks missing a due date, so it's obvious from the lane label too.
+          const missingChip = noDate ? '<span class="rm-task-no-date" title="No due date — click to add">⚠ Needs dates</span>' : '';
+          lanesHtml += `<div class="rm-task-meta-row ${noDate ? 'is-missing-date' : ''}" data-open-task="${t.id}">
             <span class="task-status-dot status-${sk}"></span>
             <span class="rm-task-meta-row__title">${escapeHtml(t.title)}</span>
+            ${missingChip}
           </div>`;
           let pinHtml = '';
           if (t.dueDate) {
@@ -5976,8 +6391,15 @@ async function renderRoadmapTimeline() {
                 <span class="rm-task-pin__title">${escapeHtml(t.title)}</span>
               </button>`;
             }
+          } else {
+            // Floating "needs dates" pill on the timeline itself, anchored to the right
+            // edge so it's visible in any zoom level without overlapping the initiative bar.
+            pinHtml = `<button type="button" class="rm-task-pin rm-task-pin--no-date" data-open-task="${t.id}" title="${escapeHtml(t.title)} — no dates set, click to add">
+              <span class="rm-task-pin__dot rm-task-pin__dot--no-date">⚠</span>
+              <span class="rm-task-pin__title">${escapeHtml(t.title)} · needs dates</span>
+            </button>`;
           }
-          rowsHtml += `<div class="rm-task-track">${pinHtml}</div>`;
+          rowsHtml += `<div class="rm-task-track ${noDate ? 'is-missing-date' : ''}">${pinHtml}</div>`;
         }
       }
     }
@@ -6009,6 +6431,13 @@ async function renderRoadmapTimeline() {
   // Caret in left rail → toggle inline expansion
   lanesEl.querySelectorAll('[data-toggle-init]').forEach(btn => {
     btn.addEventListener('click', (e) => { e.stopPropagation(); onToggleInit(btn.dataset.toggleInit); });
+  });
+  // "+ Task" button in left rail → open task form pre-filled with this initiative
+  lanesEl.querySelectorAll('[data-add-task-init]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (typeof openAddTaskForInitiative === 'function') openAddTaskForInitiative(btn.dataset.addTaskInit);
+    });
   });
   // Title in left rail AND bar in canvas → open detail panel
   lanesEl.querySelectorAll('[data-open-init]').forEach(btn => {
@@ -6123,6 +6552,8 @@ function removeInitCollab(uid) {
 document.addEventListener('DOMContentLoaded', () => {
   const newBtn = document.getElementById('btn-new-initiative-from-roadmap');
   if (newBtn) newBtn.addEventListener('click', () => openInitiativeForm(null));
+  const auditBtn = document.getElementById('btn-open-rm-migration');
+  if (auditBtn) auditBtn.addEventListener('click', () => openRoadmapMigration());
 
   // Type-ahead handlers
   const cInput = document.getElementById('init-collab-input');
@@ -6206,13 +6637,307 @@ async function openInitiativeDetail(initiativeId) {
 
   // Tasks
   await renderInitiativeDetailTasks(initiativeId);
+  if (typeof resetBraindump === 'function') resetBraindump();
+  // Notes & files — reuses /api/notes scoped by initiativeId
+  setInitiativeNotesMode('list');
+  await renderInitiativeDetailNotes(initiativeId);
+  // Default tab back to Tasks each time the panel opens
+  setInitiativeDetailTab('tasks');
 
   openModal('modal-initiative-detail');
 }
 
+function setInitiativeDetailTab(tab) {
+  document.querySelectorAll('#modal-initiative-detail .id-tab').forEach(btn => {
+    const active = btn.dataset.tab === tab;
+    btn.classList.toggle('is-active', active);
+    btn.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+  document.querySelectorAll('#modal-initiative-detail .id-tab-pane').forEach(pane => {
+    pane.hidden = pane.dataset.pane !== tab;
+  });
+}
+
+function formatNoteTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  if (sameDay) return `Today ${time}`;
+  return `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${time}`;
+}
+
+function stripHtml(html) {
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html || '';
+  return (tmp.textContent || '').trim();
+}
+
+async function renderInitiativeDetailNotes(initiativeId) {
+  const list = document.getElementById('id-detail-notes-list');
+  const tabCount = document.getElementById('id-tab-notes-count');
+  list.innerHTML = '<p class="id-notes-empty">Loading…</p>';
+  let notes = [];
+  try {
+    notes = await api('GET', `/api/notes?initiativeId=${encodeURIComponent(initiativeId)}`);
+  } catch (e) {
+    list.innerHTML = '<p class="id-notes-empty">Failed to load notes.</p>';
+    return;
+  }
+  tabCount.textContent = String(notes.length);
+  if (notes.length === 0) {
+    list.innerHTML = '<p class="id-notes-empty">No notes yet. Click <strong>+ New note</strong> to capture the RFP, vendor docs, meeting recaps — anything.</p>';
+    return;
+  }
+  // Newest first (server already sorts pinned-first, then updatedAt; preserve that)
+  list.innerHTML = notes.map(n => {
+    const sourceKey = (n.source || 'manual').toLowerCase();
+    const sourceLabel = sourceKey.toUpperCase();
+    const links = Array.isArray(n.links) ? n.links : [];
+    const fileCount = links.filter(l => l.type === 'file').length;
+    const linkCount = links.filter(l => l.type === 'link').length;
+    const fileBadge = fileCount ? `<span class="id-note__chip">📎 ${fileCount} file${fileCount === 1 ? '' : 's'}</span>` : '';
+    const linkBadge = linkCount ? `<span class="id-note__chip">🔗 ${linkCount} link${linkCount === 1 ? '' : 's'}</span>` : '';
+    const pinned = n.pinned ? '<span class="id-note__chip id-note__chip--pinned">📌 Pinned</span>' : '';
+    return `<button type="button" class="id-note" data-open-init-note="${n.id}">
+      <div class="id-note__head">
+        <span class="id-note__source id-note__source--${sourceKey}">${escapeHtml(sourceLabel)}</span>
+        <span class="id-note__title">${escapeHtml(n.title || 'Untitled')}</span>
+        ${pinned}
+        ${fileBadge}
+        ${linkBadge}
+      </div>
+      <div class="id-note__meta">
+        <span class="id-note__author">${escapeHtml(n.authorName || 'Unknown')}</span>
+        <span class="id-note__time">${escapeHtml(formatNoteTime(n.updatedAt || n.createdAt))}</span>
+      </div>
+    </button>`;
+  }).join('');
+
+  list.querySelectorAll('[data-open-init-note]').forEach(row => {
+    row.addEventListener('click', () => openInitiativeNoteInline(row.dataset.openInitNote));
+  });
+}
+
+async function createInitiativeNote() {
+  const initiativeId = detailOpenInitiativeId;
+  if (!initiativeId) return;
+  const btn = document.getElementById('btn-add-init-note');
+  btn.disabled = true;
+  try {
+    const init = initiativesById[initiativeId];
+    const title = init ? `${init.name} — note` : 'Initiative note';
+    const note = await api('POST', '/api/notes', {
+      title,
+      content: '',
+      folderId: '',
+      initiativeId,
+      private: false
+    });
+    await openInitiativeNoteInline(note.id, note);
+  } catch (e) {
+    console.error('Create initiative note failed:', e);
+    alert('Failed to create note: ' + (e.message || 'unknown error'));
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// === Inline note editor (lives inside the initiative detail modal) ===
+let editingInitNoteId = null;
+let editingInitNoteSaveTimer = null;
+let editingInitNoteLinks = [];
+
+function setInitiativeNotesMode(mode) {
+  document.querySelectorAll('#modal-initiative-detail [data-mode]').forEach(el => {
+    el.hidden = el.dataset.mode !== mode;
+  });
+}
+
+async function openInitiativeNoteInline(noteId, preloaded) {
+  try {
+    const note = preloaded || await api('GET', `/api/notes/${noteId}`);
+    editingInitNoteId = noteId;
+    editingInitNoteLinks = Array.isArray(note.links) ? note.links.slice() : [];
+    document.getElementById('id-note-editor-title').value = note.title || '';
+    document.getElementById('id-note-editor-content').value = stripHtmlPreserveBreaks(note.content || '');
+    document.getElementById('id-note-editor-saved').textContent = '';
+    document.getElementById('id-note-editor-status').style.display = 'none';
+    renderEditingInitNoteAttachments();
+    resetInitNoteLinkRow();
+    setInitiativeNotesMode('edit');
+    // Edit permission: creator, leader, or allowEditing (best-effort; server enforces)
+    const canEdit = myProfile && (myProfile.role === 'cmo' || myProfile.role === 'lead' || note.createdBy === myProfile.userId || note.allowEditing);
+    document.getElementById('id-note-editor-title').readOnly = !canEdit;
+    document.getElementById('id-note-editor-content').readOnly = !canEdit;
+    document.getElementById('btn-init-note-delete').style.display = canEdit ? '' : 'none';
+    document.getElementById('btn-init-note-link').style.display = canEdit ? '' : 'none';
+    document.getElementById('id-note-editor-file-input').disabled = !canEdit;
+  } catch (e) {
+    console.error('Open inline note failed:', e);
+    alert('Failed to open note: ' + (e.message || 'unknown error'));
+  }
+}
+
+function stripHtmlPreserveBreaks(html) {
+  if (!html) return '';
+  // Convert <br> and </p> to newlines, then strip rest of tags.
+  const normalized = String(html)
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<\/div>/gi, '\n');
+  const tmp = document.createElement('div');
+  tmp.innerHTML = normalized;
+  return (tmp.textContent || '').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function plainTextToHtml(text) {
+  // Wrap each line in <div>; matches the contenteditable serialization used by the global editor.
+  return String(text || '').split('\n').map(l => `<div>${escapeHtml(l) || '<br>'}</div>`).join('');
+}
+
+function renderEditingInitNoteAttachments() {
+  const wrap = document.getElementById('id-note-editor-attachments');
+  if (editingInitNoteLinks.length === 0) {
+    wrap.innerHTML = '<p class="id-note-editor__empty">No attachments yet.</p>';
+    return;
+  }
+  wrap.innerHTML = editingInitNoteLinks.map((l, i) => {
+    const isFile = l.type === 'file';
+    const sizeStr = isFile && l.size ? ` · ${(l.size / 1024).toFixed(0)} KB` : '';
+    const icon = isFile ? '📎' : '🔗';
+    return `<div class="id-note-editor__attachment">
+      <button type="button" class="id-note-editor__attachment-open" data-attach-idx="${i}">${icon} ${escapeHtml(l.name || (isFile ? 'file' : l.url))}${escapeHtml(sizeStr)}</button>
+      <button type="button" class="id-note-editor__attachment-rm" data-attach-rm="${i}" title="Remove">×</button>
+    </div>`;
+  }).join('');
+  wrap.querySelectorAll('[data-attach-open], [data-attach-idx]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.attachIdx, 10);
+      const l = editingInitNoteLinks[idx];
+      if (!l) return;
+      if (l.type === 'file' && l.gcsPath) {
+        downloadFile(l.gcsPath);
+      } else if (l.url) {
+        window.open(l.url, '_blank', 'noopener');
+      }
+    });
+  });
+  wrap.querySelectorAll('[data-attach-rm]').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const idx = parseInt(btn.dataset.attachRm, 10);
+      editingInitNoteLinks.splice(idx, 1);
+      renderEditingInitNoteAttachments();
+      await saveEditingInitNoteFields({ links: editingInitNoteLinks });
+    });
+  });
+}
+
+function scheduleInitNoteSave() {
+  if (editingInitNoteSaveTimer) clearTimeout(editingInitNoteSaveTimer);
+  document.getElementById('id-note-editor-saved').textContent = 'Saving…';
+  editingInitNoteSaveTimer = setTimeout(async () => {
+    if (!editingInitNoteId) return;
+    const title = document.getElementById('id-note-editor-title').value.trim() || 'Untitled';
+    const contentText = document.getElementById('id-note-editor-content').value;
+    await saveEditingInitNoteFields({ title, content: plainTextToHtml(contentText) });
+  }, 600);
+}
+
+async function saveEditingInitNoteFields(fields) {
+  if (!editingInitNoteId) return;
+  try {
+    await api('PUT', `/api/notes/${editingInitNoteId}`, fields);
+    document.getElementById('id-note-editor-saved').textContent = 'Saved';
+  } catch (e) {
+    document.getElementById('id-note-editor-saved').textContent = 'Save failed';
+  }
+}
+
+async function uploadInitNoteFile(file) {
+  if (!editingInitNoteId || !file) return;
+  const status = document.getElementById('id-note-editor-status');
+  status.style.display = 'block';
+  status.textContent = `Uploading ${file.name}…`;
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    const res = await fetch('/api/upload', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${authToken}` },
+      body: fd
+    });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody.error || 'Upload failed');
+    }
+    const result = await res.json();
+    editingInitNoteLinks.push({ type: 'file', name: result.name, gcsPath: result.gcsPath, size: result.size });
+    renderEditingInitNoteAttachments();
+    await saveEditingInitNoteFields({ links: editingInitNoteLinks });
+    status.textContent = '';
+    status.style.display = 'none';
+  } catch (e) {
+    console.error('Upload failed:', e);
+    status.textContent = 'Upload failed: ' + (e.message || 'unknown');
+  }
+}
+
+function resetInitNoteLinkRow() {
+  const row = document.getElementById('id-note-editor-link-row');
+  if (row) row.style.display = 'none';
+  const url = document.getElementById('id-note-editor-link-url');
+  const name = document.getElementById('id-note-editor-link-name');
+  if (url) url.value = '';
+  if (name) name.value = '';
+}
+
+async function addInitNoteLink() {
+  const url = document.getElementById('id-note-editor-link-url').value.trim();
+  const name = document.getElementById('id-note-editor-link-name').value.trim();
+  if (!url) return;
+  editingInitNoteLinks.push({ type: 'link', name: name || url, url });
+  renderEditingInitNoteAttachments();
+  await saveEditingInitNoteFields({ links: editingInitNoteLinks });
+  resetInitNoteLinkRow();
+}
+
+async function deleteInitNoteInline() {
+  if (!editingInitNoteId) return;
+  if (!confirm('Delete this note? This cannot be undone.')) return;
+  const id = editingInitNoteId;
+  try {
+    await api('DELETE', `/api/notes/${id}`);
+    editingInitNoteId = null;
+    setInitiativeNotesMode('list');
+    if (detailOpenInitiativeId) await renderInitiativeDetailNotes(detailOpenInitiativeId);
+  } catch (e) {
+    alert('Failed to delete note: ' + (e.message || 'unknown error'));
+  }
+}
+
+async function backToInitiativeNotesList() {
+  // Flush any pending save before swapping
+  if (editingInitNoteSaveTimer) {
+    clearTimeout(editingInitNoteSaveTimer);
+    editingInitNoteSaveTimer = null;
+    if (editingInitNoteId) {
+      const title = document.getElementById('id-note-editor-title').value.trim() || 'Untitled';
+      const contentText = document.getElementById('id-note-editor-content').value;
+      await saveEditingInitNoteFields({ title, content: plainTextToHtml(contentText) });
+    }
+  }
+  editingInitNoteId = null;
+  setInitiativeNotesMode('list');
+  if (detailOpenInitiativeId) await renderInitiativeDetailNotes(detailOpenInitiativeId);
+}
+
 async function renderInitiativeDetailTasks(initiativeId) {
   const list = document.getElementById('id-detail-task-list');
-  const countEl = document.getElementById('id-detail-task-count');
+  const countEl = document.getElementById('id-tab-tasks-count');
   let initTasks = [];
   try { initTasks = await api('GET', '/api/initiatives/' + initiativeId + '/tasks'); }
   catch { initTasks = []; }
@@ -6233,7 +6958,9 @@ async function renderInitiativeDetailTasks(initiativeId) {
     const sk = STATUS_KEYS[t.status] || 'not-started';
     const owner = teamMembers.find(m => m.userId === t.assignedTo);
     const ownerName = owner ? owner.displayName.split(' ')[0] : '';
-    const due = t.dueDate ? `<span class="id-task-row-due">${escapeHtml(t.dueDate)}</span>` : '';
+    const due = t.dueDate
+      ? `<span class="id-task-row-due">${escapeHtml(t.dueDate)}</span>`
+      : `<button type="button" class="id-task-row-add-date" data-add-date-task="${t.id}" title="Set a due date">+ Add due date</button>`;
     return `<div class="id-task-row status-${sk}" data-task-id="${t.id}">
       <span class="task-status-dot status-${sk}"></span>
       <span class="id-task-row-title">${escapeHtml(t.title)}</span>
@@ -6242,6 +6969,15 @@ async function renderInitiativeDetailTasks(initiativeId) {
       ${ownerName ? `<span class="id-task-row-owner">${escapeHtml(ownerName)}</span>` : ''}
     </div>`;
   }).join('');
+  // Clicking "+ Add due date" opens the edit task modal scoped to this task.
+  list.querySelectorAll('[data-add-date-task]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const tid = btn.dataset.addDateTask;
+      closeModal('modal-initiative-detail');
+      setTimeout(() => showTaskDetail(tid), 30);
+    });
+  });
   list.querySelectorAll('[data-task-id]').forEach(row => {
     row.addEventListener('click', () => {
       const tid = row.dataset.taskId;
@@ -6288,12 +7024,163 @@ function openAddTaskForInitiative(initiativeId) {
   }, 50);
 }
 
+// === Brain dump (bulk task add via AI on initiative detail) ===
+let braindumpParsed = [];
+
+function setBraindumpState(state) {
+  document.querySelectorAll('#modal-initiative-detail .id-braindump [data-state]').forEach(el => {
+    el.style.display = el.dataset.state === state ? '' : 'none';
+  });
+}
+
+function resetBraindump() {
+  braindumpParsed = [];
+  const t = document.getElementById('id-braindump-text');
+  if (t) t.value = '';
+  const err = document.getElementById('id-braindump-error');
+  if (err) err.textContent = '';
+  setBraindumpState('compose');
+}
+
+function renderBraindumpPreview() {
+  const list = document.getElementById('id-braindump-list');
+  const summary = document.getElementById('id-braindump-summary');
+  if (!list) return;
+  summary.textContent = `${braindumpParsed.length} task${braindumpParsed.length === 1 ? '' : 's'}`;
+  if (braindumpParsed.length === 0) {
+    list.innerHTML = '<p class="id-braindump__empty">AI didn\'t find any tasks. Go back and try rephrasing.</p>';
+    return;
+  }
+  const memberOpts = teamMembers
+    .filter(m => m.status === 'active' || !m.status)
+    .map(m => `<option value="${m.userId}">${escapeHtml(m.displayName)}</option>`).join('');
+  list.innerHTML = braindumpParsed.map((t, i) => `
+    <div class="id-braindump__row" data-row-idx="${i}">
+      <input type="text" class="id-braindump__title-input" data-field="title" value="${escapeHtml(t.title)}">
+      <div class="id-braindump__row-meta">
+        <input type="date" class="id-braindump__date-input ${t.dueDate ? '' : 'is-missing'}" data-field="dueDate" value="${escapeHtml(t.dueDate || '')}" title="${t.dueDate ? '' : 'AI didn’t find a date — add one or this task will land without a deadline'}">
+        <select class="id-braindump__select" data-field="priority">
+          <option value="High" ${t.priority === 'High' ? 'selected' : ''}>High</option>
+          <option value="Medium" ${t.priority === 'Medium' ? 'selected' : ''}>Medium</option>
+          <option value="Low" ${t.priority === 'Low' ? 'selected' : ''}>Low</option>
+        </select>
+        <select class="id-braindump__select" data-field="assignedTo">
+          <option value="">Me</option>
+          ${memberOpts}
+        </select>
+        <button type="button" class="id-braindump__remove" data-remove-row="${i}" title="Remove this task">&times;</button>
+      </div>
+    </div>
+  `).join('');
+  // Apply selected assignee post-render (avoids HTML-escape pitfalls)
+  list.querySelectorAll('[data-row-idx]').forEach(row => {
+    const idx = Number(row.dataset.rowIdx);
+    const sel = row.querySelector('select[data-field="assignedTo"]');
+    if (sel && braindumpParsed[idx] && braindumpParsed[idx].assignedTo) sel.value = braindumpParsed[idx].assignedTo;
+  });
+  // Per-row input handlers — sync edits back into the array
+  list.querySelectorAll('[data-row-idx] input, [data-row-idx] select').forEach(el => {
+    el.addEventListener('input', () => {
+      const idx = Number(el.closest('[data-row-idx]').dataset.rowIdx);
+      const field = el.dataset.field;
+      if (!Number.isInteger(idx) || !field || !braindumpParsed[idx]) return;
+      braindumpParsed[idx][field] = el.value;
+    });
+  });
+  list.querySelectorAll('[data-remove-row]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      braindumpParsed.splice(Number(btn.dataset.removeRow), 1);
+      renderBraindumpPreview();
+    });
+  });
+}
+
+async function parseBraindump() {
+  if (!detailOpenInitiativeId) return;
+  const text = (document.getElementById('id-braindump-text').value || '').trim();
+  const errEl = document.getElementById('id-braindump-error');
+  errEl.textContent = '';
+  if (!text) {
+    errEl.textContent = 'Type something first.';
+    return;
+  }
+  const parseBtn = document.getElementById('btn-braindump-parse');
+  parseBtn.disabled = true;
+  parseBtn.textContent = '⏳ Parsing…';
+  try {
+    const result = await api('POST', '/api/ai/parse-bulk-tasks', { text, initiativeId: detailOpenInitiativeId });
+    braindumpParsed = result.tasks || [];
+    renderBraindumpPreview();
+    setBraindumpState('preview');
+  } catch (e) {
+    errEl.textContent = e.message || 'Parse failed';
+  } finally {
+    parseBtn.disabled = false;
+    parseBtn.textContent = 'Parse with AI';
+  }
+}
+
+async function commitBraindump() {
+  if (!detailOpenInitiativeId || braindumpParsed.length === 0) return;
+  const commitBtn = document.getElementById('btn-braindump-commit');
+  commitBtn.disabled = true;
+  commitBtn.textContent = '⏳ Creating…';
+  try {
+    const init = initiativesById[detailOpenInitiativeId];
+    const payload = {
+      tasks: braindumpParsed.filter(t => t.title && t.title.trim()).map(t => ({
+        title: t.title.trim(),
+        department: t.department || (init ? init.department : 'Personal'),
+        priority: t.priority || 'Medium',
+        dueDate: t.dueDate || '',
+        assignedTo: t.assignedTo || '',
+        notes: t.notes || '',
+        status: 'Not Started',
+        initiativeId: detailOpenInitiativeId,
+        source: 'ai-braindump'
+      }))
+    };
+    if (payload.tasks.length === 0) {
+      showToast('Nothing to create — all rows are empty', 'error');
+      return;
+    }
+    const result = await api('POST', '/api/tasks/batch', payload);
+    showToast(`Created ${result.imported} task${result.imported === 1 ? '' : 's'}`, 'success');
+    resetBraindump();
+    // Refresh tasks shown in the detail panel
+    if (typeof renderInitiativeDetailTasks === 'function') await renderInitiativeDetailTasks(detailOpenInitiativeId);
+    // Refresh global tasks list so the roadmap pin/count picks up the new tasks
+    if (typeof loadTasks === 'function') await loadTasks();
+    if (typeof renderRoadmapTimeline === 'function' && currentView === 'roadmap') renderRoadmapTimeline();
+  } catch (e) {
+    showToast('Commit failed: ' + (e.message || ''), 'error');
+  } finally {
+    commitBtn.disabled = false;
+    commitBtn.textContent = 'Create tasks';
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   const addTaskBtn = document.getElementById('btn-add-task-to-init');
   if (addTaskBtn) addTaskBtn.addEventListener('click', () => {
     if (!detailOpenInitiativeId) return;
     closeModal('modal-initiative-detail');
     openAddTaskForInitiative(detailOpenInitiativeId);
+  });
+
+  const bdParse = document.getElementById('btn-braindump-parse');
+  if (bdParse) bdParse.addEventListener('click', () => parseBraindump());
+  const bdCommit = document.getElementById('btn-braindump-commit');
+  if (bdCommit) bdCommit.addEventListener('click', () => commitBraindump());
+  const bdCancel = document.getElementById('btn-braindump-cancel');
+  if (bdCancel) bdCancel.addEventListener('click', () => setBraindumpState('compose'));
+  const bdText = document.getElementById('id-braindump-text');
+  // Cmd/Ctrl+Enter to parse
+  if (bdText) bdText.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      parseBraindump();
+    }
   });
   const editBtn = document.getElementById('btn-edit-from-detail');
   if (editBtn) editBtn.addEventListener('click', () => {
@@ -6302,12 +7189,96 @@ document.addEventListener('DOMContentLoaded', () => {
     closeModal('modal-initiative-detail');
     setTimeout(() => openInitiativeForm(id), 30);
   });
+
+  const addNoteBtn = document.getElementById('btn-add-init-note');
+  if (addNoteBtn) addNoteBtn.addEventListener('click', () => createInitiativeNote());
+
+  document.querySelectorAll('#modal-initiative-detail .id-tab').forEach(btn => {
+    btn.addEventListener('click', () => setInitiativeDetailTab(btn.dataset.tab));
+  });
+
+  // Inline note editor wiring
+  const editorTitle = document.getElementById('id-note-editor-title');
+  if (editorTitle) editorTitle.addEventListener('input', scheduleInitNoteSave);
+  const editorContent = document.getElementById('id-note-editor-content');
+  if (editorContent) editorContent.addEventListener('input', scheduleInitNoteSave);
+  const backBtn = document.getElementById('btn-init-note-back');
+  if (backBtn) backBtn.addEventListener('click', () => backToInitiativeNotesList());
+  const deleteBtn = document.getElementById('btn-init-note-delete');
+  if (deleteBtn) deleteBtn.addEventListener('click', () => deleteInitNoteInline());
+  const fileInput = document.getElementById('id-note-editor-file-input');
+  if (fileInput) fileInput.addEventListener('change', async () => {
+    const f = fileInput.files && fileInput.files[0];
+    if (f) await uploadInitNoteFile(f);
+    fileInput.value = '';
+  });
+  const linkBtn = document.getElementById('btn-init-note-link');
+  if (linkBtn) linkBtn.addEventListener('click', () => {
+    const row = document.getElementById('id-note-editor-link-row');
+    row.style.display = '';
+    document.getElementById('id-note-editor-link-url').focus();
+  });
+  const linkSave = document.getElementById('btn-init-note-link-save');
+  if (linkSave) linkSave.addEventListener('click', () => addInitNoteLink());
+  const linkCancel = document.getElementById('btn-init-note-link-cancel');
+  if (linkCancel) linkCancel.addEventListener('click', () => resetInitNoteLinkRow());
 });
 
+// Optional callbacks invoked once after the initiative form closes.
+let afterInitiativeSave = null;
+let afterInitiativeCancel = null;
+
+// Generic handler: the "+ New initiative…" sentinel was picked in some <select>.
+// Hides the host modal, opens the initiative form, and on save/cancel restores
+// the host modal with the new initiative selected (or prior value on cancel).
+function handleNewInitiativeFromSelect(initSel, hostModalId) {
+  const priorValue = initSel.dataset.priorValue || '';
+  initSel.value = priorValue;
+  if (initSel.id === 'input-initiative') refreshInitiativeDatesHint('');
+  const host = document.getElementById(hostModalId);
+  const wasOpen = host && host.style.display !== 'none';
+  if (wasOpen) host.style.display = 'none';
+  const isLeader = myProfile && (myProfile.role === 'cmo' || myProfile.role === 'lead');
+  afterInitiativeSave = async (newInit) => {
+    initSel.innerHTML = '<option value="">— None (Inbox task) —</option>' +
+      initiatives.map(i => `<option value="${i.id}">${escapeHtml(i.name)}</option>`).join('') +
+      (isLeader ? '<option value="__new__">+ New initiative…</option>' : '');
+    initSel.value = newInit.id;
+    initSel.dataset.priorValue = newInit.id;
+    if (initSel.id === 'input-initiative') {
+      const dueSel = (document.getElementById('input-due-date') || {}).value || '';
+      refreshInitiativeDatesHint(dueSel);
+    }
+    if (wasOpen && host) host.style.display = 'flex';
+  };
+  afterInitiativeCancel = () => {
+    if (wasOpen && host) host.style.display = 'flex';
+  };
+  openInitiativeForm(null);
+}
+
 // Live-refresh initiative dates hint when user changes either the dropdown or the due date.
+// Also: handle the "+ New initiative…" sentinel that opens the initiative form mid-task-flow.
 document.addEventListener('DOMContentLoaded', () => {
   const initSel = document.getElementById('input-initiative');
-  if (initSel) initSel.addEventListener('change', () => refreshInitiativeDatesHint(''));
+  if (initSel) initSel.addEventListener('change', () => {
+    if (initSel.value === '__new__') {
+      handleNewInitiativeFromSelect(initSel, 'modal-add');
+    } else {
+      initSel.dataset.priorValue = initSel.value;
+      refreshInitiativeDatesHint('');
+    }
+  });
   const dueInput = document.getElementById('input-due-date');
   if (dueInput) dueInput.addEventListener('change', () => refreshInitiativeDatesHint(dueInput.value));
+
+  // Quick-Add modal initiative dropdown — same flow, different host modal.
+  const parsedInit = document.getElementById('parsed-initiative');
+  if (parsedInit) parsedInit.addEventListener('change', () => {
+    if (parsedInit.value === '__new__') {
+      handleNewInitiativeFromSelect(parsedInit, 'modal-import');
+    } else {
+      parsedInit.dataset.priorValue = parsedInit.value;
+    }
+  });
 });
