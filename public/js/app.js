@@ -5823,6 +5823,16 @@ async function rmEnsureTasksFor(initiativeId) {
   return rmTasksByInit[initiativeId];
 }
 
+// Sortable numeric key for a task's due date. Parses the date so ordering is
+// correct regardless of the stored format (ISO date, ISO timestamp, non-padded
+// "2026-5-5", or verbose "May 20, 2026"). Tasks with no/invalid due date sort last.
+function taskDueSortKey(t) {
+  if (!t || !t.dueDate) return Infinity;
+  const ms = Date.parse(t.dueDate);
+  return isNaN(ms) ? Infinity : ms;
+}
+function byDueDate(a, b) { return taskDueSortKey(a) - taskDueSortKey(b); }
+
 async function renderRoadmapTimeline() {
   const lanesEl = document.getElementById('rm-lanes');
   const headerEl = document.getElementById('rm-time-header');
@@ -5954,8 +5964,7 @@ async function renderRoadmapTimeline() {
       if (isOpen) {
         // Sort by due date ascending so the timeline flows chronologically top-to-bottom
         // (tasks with no due date sort to the end). Copy first to avoid mutating the cache.
-        const tasks = [...(rmTasksByInit[init.id] || [])].sort((a, b) =>
-          (a.dueDate || '￿').localeCompare(b.dueDate || '￿'));
+        const tasks = [...(rmTasksByInit[init.id] || [])].sort(byDueDate);
         if (tasks.length === 0) {
           lanesHtml += `<div class="rm-task-meta-row rm-task-meta-row--empty" data-open-init="${init.id}">
             <span class="rm-task-meta-row__title" style="color:var(--color-text-muted);font-style:italic;">No tasks yet — click to add</span>
@@ -6226,7 +6235,7 @@ async function renderInitiativeDetailTasks(initiativeId) {
   }
   // Sort by due date ascending (tasks with no due date last) so subtasks
   // flow chronologically, matching the roadmap timeline ordering.
-  initTasks.sort((a, b) => (a.dueDate || '￿').localeCompare(b.dueDate || '￿'));
+  initTasks.sort(byDueDate);
   list.innerHTML = initTasks.map(t => {
     const sk = STATUS_KEYS[t.status] || 'not-started';
     const owner = teamMembers.find(m => m.userId === t.assignedTo);
