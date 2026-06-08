@@ -2398,12 +2398,15 @@ app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
         scopeLines.push(`The user is on the "${clip(context.view, 40)}" screen.`);
       }
       if (context.department) scopeLines.push(`They have filtered to the ${clip(context.department, 40)} department — restrict to that department's items.`);
+      const sectionName = context.entityType
+        ? `this ${clip(context.entityType, 20)}`
+        : ({ roadmap: 'the Roadmap', tasks: 'your Tasks', notes: 'your Notes', features: 'Ideas & Feedback', team: 'the Team section' }[context.view] || 'this section');
       if (scopeLines.length) {
         contextHint = `\nCURRENT CONTEXT & SCOPE:\n${scopeLines.join('\n')}\n` +
-          `SCOPING RULES (important):\n` +
-          `- Keep your answer scoped to the above. Do NOT bring in unrelated tasks, notes, meetings, comments, or events from other sections unless the user explicitly asks you to broaden ("across everything", "include my tasks too", etc.).\n` +
-          `- If nothing in this scope is relevant to the question, say so plainly rather than substituting unrelated items.\n` +
-          `- If the user asks what "needs details", "is incomplete", "needs filling in", or "is missing info", look ONLY within this scope for items missing key fields and list those specific items (with their [tasklink:...] / link tags). On the Roadmap that means: initiatives missing an owner, start/end dates, a thesis, or with 0% / stalled progress; and tasks rolled up to an initiative that are missing a due date or assignee.\n`;
+          `HOW TO RESPOND — follow this two-part pattern exactly:\n` +
+          `1. SCOPED ANSWER FIRST. Open by naming where the user is, e.g. "You're on ${sectionName}, so here's what I see${context.department ? ' for ' + clip(context.department, 40) : ''}:" — then answer using ONLY items in this scope, each with its [tasklink:ID:Title] / link tag. For "what needs details / is incomplete / needs filling in / is missing info" questions, list scope items missing key fields. On the Roadmap that means initiatives missing an owner, start/end dates, a thesis, or with 0%/stalled progress, and tasks rolled up to an initiative missing a due date or assignee. If nothing in scope fits, say so plainly — never substitute unrelated items.\n` +
+          `2. THEN OFFER TO BROADEN. You also have the rest of the app in context. After the scoped answer, IF (and only if) there are genuinely relevant items OUTSIDE this scope, add ONE short closing line offering to pull them — for example: "Across the rest of the app there are additional items that need attention — want me to pull those?" Do NOT list the out-of-scope items in this turn. If there are no relevant out-of-scope items, omit the offer entirely.\n` +
+          `3. ONLY if the user replies yes / "pull those" / asks to broaden, then list the out-of-scope items (grouped by section) with their link tags.\n`;
       }
     }
 
