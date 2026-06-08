@@ -1947,6 +1947,8 @@ async function loadSubtasks(parentId) {
       container.innerHTML = '<span style="font-size: 0.8rem; color: var(--color-text-light);">No sub-tasks yet</span>';
       return;
     }
+    // Order by due date ascending (no/invalid due date last) so sub-tasks read chronologically
+    subtasks.sort(byDueDate);
     container.innerHTML = subtasks.map(s => {
       const isComplete = s.status === 'Completed';
       const assignName = teamMembers.find(m => m.userId === s.assignedTo);
