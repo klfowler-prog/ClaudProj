@@ -2001,6 +2001,16 @@ async function moveTaskInitiative(taskId, newInitId) {
   } catch (err) { showToast('Failed to move task', 'error'); }
 }
 
+// Sortable numeric key for a task's due date. Parses the date so ordering is
+// correct regardless of stored format (ISO date, ISO timestamp, non-padded
+// "2026-5-5", or verbose "May 20, 2026"). Tasks with no/invalid due date sort last.
+function taskDueSortKey(t) {
+  if (!t || !t.dueDate) return Infinity;
+  const ms = Date.parse(t.dueDate);
+  return isNaN(ms) ? Infinity : ms;
+}
+function byDueDate(a, b) { return taskDueSortKey(a) - taskDueSortKey(b); }
+
 async function loadSubtasks(parentId) {
   try {
     const subtasks = await api('GET', `/api/tasks/${parentId}/subtasks`);
@@ -2009,6 +2019,8 @@ async function loadSubtasks(parentId) {
       container.innerHTML = '<span style="font-size: 0.8rem; color: var(--color-text-light);">No sub-tasks yet</span>';
       return;
     }
+    // Order by due date ascending (no/invalid due date last) so sub-tasks read chronologically
+    subtasks.sort(byDueDate);
     container.innerHTML = subtasks.map(s => {
       const isComplete = s.status === 'Completed';
       const assignName = teamMembers.find(m => m.userId === s.assignedTo);
@@ -6363,7 +6375,9 @@ async function renderRoadmapTimeline() {
 
       // If expanded, render task rows (or an empty-state nudge if there are none)
       if (isOpen) {
-        const tasks = rmTasksByInit[init.id] || [];
+        // Sort by due date ascending so the timeline flows chronologically top-to-bottom
+        // (tasks with no due date sort to the end). Copy first to avoid mutating the cache.
+        const tasks = [...(rmTasksByInit[init.id] || [])].sort(byDueDate);
         if (tasks.length === 0) {
           lanesHtml += `<div class="rm-task-meta-row rm-task-meta-row--empty" data-open-init="${init.id}">
             <span class="rm-task-meta-row__title" style="color:var(--color-text-muted);font-style:italic;">No tasks yet — click to add</span>
@@ -6946,14 +6960,9 @@ async function renderInitiativeDetailTasks(initiativeId) {
     list.innerHTML = '<p style="color:var(--color-text-muted);font-size:0.85rem;margin:0;padding:0.6rem;background:var(--color-bg);border-radius:6px;text-align:center;">No tasks yet — click <strong>+ Add task</strong> to start.</p>';
     return;
   }
-  // Sort by due date (no date last), then status order
-  const statusOrder = ['In Progress', 'Blocked', 'Not Started', 'Approved', 'Backlog', 'Completed', 'Delegated'];
-  initTasks.sort((a, b) => {
-    const sa = statusOrder.indexOf(a.status);
-    const sb = statusOrder.indexOf(b.status);
-    if (sa !== sb) return sa - sb;
-    return (a.dueDate || '￿').localeCompare(b.dueDate || '￿');
-  });
+  // Sort by due date ascending (tasks with no due date last) so subtasks
+  // flow chronologically, matching the roadmap timeline ordering.
+  initTasks.sort(byDueDate);
   list.innerHTML = initTasks.map(t => {
     const sk = STATUS_KEYS[t.status] || 'not-started';
     const owner = teamMembers.find(m => m.userId === t.assignedTo);
