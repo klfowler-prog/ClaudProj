@@ -2375,19 +2375,35 @@ app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
     const { message, history, context } = req.body;
     if (!message) return res.status(400).json({ error: 'Message is required' });
 
-    // Build a short hint about what the user is currently looking at, so "this"/"here"
-    // resolve to the open task/initiative/note/department without them spelling it out.
+    // Build a directive scoping instruction from what the user is currently looking at,
+    // so the assistant answers about the current section/item and does NOT wander to
+    // unrelated data unless explicitly asked to broaden.
     let contextHint = '';
     if (context && typeof context === 'object') {
-      const parts = [];
-      if (context.view) parts.push(`on the "${String(context.view).slice(0, 40)}" screen`);
+      const clip = (s, n) => String(s == null ? '' : s).slice(0, n);
+      const viewScope = {
+        roadmap: 'the ROADMAP. The subject here is the strategic INITIATIVES and the tasks that roll up to them (a task belongs to an initiative when its Initiative field is set). Treat initiatives as the primary subject.',
+        tasks: 'the TASKS list (their day-to-day tasks).',
+        notes: 'the NOTES / strategy section.',
+        features: 'the IDEAS & FEEDBACK (feature requests) section.',
+        team: 'the TEAM section.'
+      };
+      const scopeLines = [];
       if (context.entityType && context.entityId) {
-        const title = context.entityTitle ? `"${String(context.entityTitle).slice(0, 120)}" ` : '';
-        parts.push(`with the ${String(context.entityType).slice(0, 20)} ${title}(ID:${String(context.entityId).slice(0, 60)}) open`);
+        const title = context.entityTitle ? `"${clip(context.entityTitle, 120)}" ` : '';
+        scopeLines.push(`The user is focused on a specific ${clip(context.entityType, 20)} ${title}(ID:${clip(context.entityId, 60)}). Treat this as the subject of "this", "here", or "it", and answer about it first.`);
+      } else if (context.view && viewScope[context.view]) {
+        scopeLines.push(`The user is currently on ${viewScope[context.view]}`);
+      } else if (context.view) {
+        scopeLines.push(`The user is on the "${clip(context.view, 40)}" screen.`);
       }
-      if (context.department) parts.push(`filtered to the ${String(context.department).slice(0, 40)} department`);
-      if (parts.length) {
-        contextHint = `\nCURRENT CONTEXT: The user is ${parts.join(', ')}. When they say "this", "here", "it", or ask without naming a specific item, assume they mean the item/scope above and act on or answer about it.\n`;
+      if (context.department) scopeLines.push(`They have filtered to the ${clip(context.department, 40)} department — restrict to that department's items.`);
+      if (scopeLines.length) {
+        contextHint = `\nCURRENT CONTEXT & SCOPE:\n${scopeLines.join('\n')}\n` +
+          `SCOPING RULES (important):\n` +
+          `- Keep your answer scoped to the above. Do NOT bring in unrelated tasks, notes, meetings, comments, or events from other sections unless the user explicitly asks you to broaden ("across everything", "include my tasks too", etc.).\n` +
+          `- If nothing in this scope is relevant to the question, say so plainly rather than substituting unrelated items.\n` +
+          `- If the user asks what "needs details", "is incomplete", "needs filling in", or "is missing info", look ONLY within this scope for items missing key fields and list those specific items (with their [tasklink:...] / link tags). On the Roadmap that means: initiatives missing an owner, start/end dates, a thesis, or with 0% / stalled progress; and tasks rolled up to an initiative that are missing a due date or assignee.\n`;
       }
     }
 
