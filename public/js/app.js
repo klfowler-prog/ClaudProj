@@ -5952,7 +5952,10 @@ async function renderRoadmapTimeline() {
 
       // If expanded, render task rows (or an empty-state nudge if there are none)
       if (isOpen) {
-        const tasks = rmTasksByInit[init.id] || [];
+        // Sort by due date ascending so the timeline flows chronologically top-to-bottom
+        // (tasks with no due date sort to the end). Copy first to avoid mutating the cache.
+        const tasks = [...(rmTasksByInit[init.id] || [])].sort((a, b) =>
+          (a.dueDate || '￿').localeCompare(b.dueDate || '￿'));
         if (tasks.length === 0) {
           lanesHtml += `<div class="rm-task-meta-row rm-task-meta-row--empty" data-open-init="${init.id}">
             <span class="rm-task-meta-row__title" style="color:var(--color-text-muted);font-style:italic;">No tasks yet — click to add</span>
