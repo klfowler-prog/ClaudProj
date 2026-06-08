@@ -2372,8 +2372,24 @@ ${text}` }] }]
 // === Global AI Chat ===
 app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
   try {
-    const { message, history } = req.body;
+    const { message, history, context } = req.body;
     if (!message) return res.status(400).json({ error: 'Message is required' });
+
+    // Build a short hint about what the user is currently looking at, so "this"/"here"
+    // resolve to the open task/initiative/note/department without them spelling it out.
+    let contextHint = '';
+    if (context && typeof context === 'object') {
+      const parts = [];
+      if (context.view) parts.push(`on the "${String(context.view).slice(0, 40)}" screen`);
+      if (context.entityType && context.entityId) {
+        const title = context.entityTitle ? `"${String(context.entityTitle).slice(0, 120)}" ` : '';
+        parts.push(`with the ${String(context.entityType).slice(0, 20)} ${title}(ID:${String(context.entityId).slice(0, 60)}) open`);
+      }
+      if (context.department) parts.push(`filtered to the ${String(context.department).slice(0, 40)} department`);
+      if (parts.length) {
+        contextHint = `\nCURRENT CONTEXT: The user is ${parts.join(', ')}. When they say "this", "here", "it", or ask without naming a specific item, assume they mean the item/scope above and act on or answer about it.\n`;
+      }
+    }
 
     // Gather tasks — apply same role-based filtering as task list
     const tasksSnap = await orgCol(req, 'tasks').orderBy('createdAt', 'desc').get();
@@ -2505,7 +2521,7 @@ app.post('/api/ai/chat', aiLimiter, auth, async (req, res) => {
       });
 
     const systemPrompt = `You are an AI assistant for ${req.memberName}, a ${roleName} at Follett Higher Education. You have access to their task list, notes, team roster, and recent comments. Be concise, actionable, and strategic. Today's date is ${today}.
-
+${contextHint}
 When discussing tasks or notes, consider their creation and update dates to identify trends, progress, and stale items. Reference specific timeframes in your answers (e.g., "created 3 weeks ago", "completed last week", "no updates in 2 weeks").
 
 When the user asks about a specific note, search the NOTES section below by title or content and reference it by name. Quote relevant content directly from the note when answering.
@@ -2519,6 +2535,7 @@ Always include these link tags when mentioning a specific task, note, or file. C
 ACTIONS: You can take actions on behalf of the user. Include action tags in your response and they will be executed automatically. Available actions:
 
 [ACTION:create_task:{"title":"Task title","department":"B2B Marketing","priority":"High","assignedTo":"userId or empty","dueDate":"YYYY-MM-DD or empty","initiativeId":"INIT_ID or empty","links":["https://example.com"]}]
+[ACTION:create_subtask:{"parentTaskId":"TASK_ID","title":"Subtask title","priority":"Medium","assignedTo":"userId or empty","dueDate":"YYYY-MM-DD or empty"}]
 [ACTION:update_task:{"taskId":"TASK_ID","status":"In Progress"}]
 [ACTION:update_task:{"taskId":"TASK_ID","assignedTo":"userId","status":"Delegated"}]
 [ACTION:update_task:{"taskId":"TASK_ID","dueDate":"YYYY-MM-DD"}]
@@ -2534,6 +2551,7 @@ ACTIONS: You can take actions on behalf of the user. Include action tags in your
 Rules for actions:
 - create_task department must be one of: "All Marketing", "B2B Marketing", "B2C Marketing", "Personal", "Rev Ops". Use "Rev Ops" for CRM/HubSpot/Salesforce/marketing-ops work.
 - create_task initiativeId is OPTIONAL — set it when the task clearly belongs to a known initiative (match by name/topic from the INITIATIVES list below). Leave empty if no clear match.
+- create_subtask attaches a child task under an existing task. Use it when the user asks to "break this/a task into subtasks" or "add steps to" a task — emit one create_subtask per step, all with the same parentTaskId. It inherits the parent's department. If a task is open in the CURRENT CONTEXT above, use that task's ID as parentTaskId unless the user names a different one.
 - create_initiative is LEADER-ONLY. If the user's role below is "team member", DO NOT include create_initiative actions; instead reply: "Only leaders can create initiatives. Reach out to your manager."
 - create_initiative department must be one of the 5 listed above. start and end are YYYY-MM-DD and required; if the user gives a quarter ("Q3 FY27"), translate it. health is one of "on-track" / "at-risk" / "off-track". priority is High/Medium/Low.
 - update_initiative may set: name, thesis, department, ownerId, start, end, health, status, progress (0-1), priority. The initiative owner OR a leader can update; otherwise it will fail server-side.
@@ -2629,6 +2647,35 @@ ${allNotes.join('\n---\n')}`;
           }
           actionResults.push({ type: 'create_task', success: true, taskId: ref.id, title: newTask.title });
           reply = reply.replace(action.raw, `[tasklink:${ref.id}:${newTask.title}]`);
+        } else if (action.type === 'create_subtask') {
+          const p = action.params;
+          if (!p.parentTaskId || !p.title) { actionResults.push({ type: 'create_subtask', success: false, error: 'missing parentTaskId or title' }); continue; }
+          // Inherit the parent's department when available
+          let dept = p.department || 'Personal';
+          try {
+            const parentSnap = await orgCol(req, 'tasks').doc(p.parentTaskId).get();
+            if (parentSnap.exists && parentSnap.data().department) dept = parentSnap.data().department;
+          } catch {}
+          const sub = {
+            title: p.title, department: dept, subDepartment: '',
+            priority: p.priority || 'Medium', notes: '',
+            status: p.assignedTo && p.assignedTo !== req.userId ? 'Delegated' : 'Not Started',
+            completed: false, completedAt: '', createdAt: new Date().toISOString(),
+            source: 'ai', attachments: [], dueDate: p.dueDate || '',
+            emailMessageId: '', recurring: 'none',
+            createdBy: req.userId, assignedTo: p.assignedTo || req.userId,
+            sharedWith: [], parentTaskId: p.parentTaskId, workspaceId: '', tags: [],
+            initiativeId: null
+          };
+          const ref = await orgCol(req, 'tasks').add(sub);
+          if (sub.assignedTo !== req.userId) {
+            await createNotification(req.orgId, sub.assignedTo, {
+              type: 'task_assigned', title: `${req.memberName} assigned you: ${sub.title}`,
+              taskId: ref.id, dueDate: sub.dueDate, fromUserId: req.userId, fromName: req.memberName
+            });
+          }
+          actionResults.push({ type: 'create_subtask', success: true, taskId: ref.id, title: sub.title });
+          reply = reply.replace(action.raw, '');
         } else if (action.type === 'update_task') {
           const p = action.params;
           if (!p.taskId) continue;

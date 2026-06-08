@@ -116,6 +116,8 @@ let activeTaskTagFilter = '';
 let pendingAttachments = []; // temp attachments for the add-task form
 let pendingLinks = [];       // temp links for the add-task form
 let editingTaskId = null;    // null = adding, string = editing
+let currentDetailTaskId = null;       // task whose detail modal is open (for AI context)
+let currentInitiativeDetailId = null; // initiative whose detail modal is open (for AI context)
 let deleteConfirmId = null;  // track which task is awaiting delete confirm
 let notifPollInterval = null; // notification polling interval ID
 
@@ -1502,6 +1504,7 @@ function renderPendingLinks() {
 
 // === Task Detail View ===
 function showTaskDetail(id) {
+  currentDetailTaskId = id;
   let task = tasks.find(t => t.id === id);
   if (!task) {
     // Task isn't in the local view (e.g., a workspace-scoped task referenced from the AI
@@ -1685,6 +1688,11 @@ function showTaskDetail(id) {
           ${allTemplates.length > 0 ? `<select class="filter-select-compact" style="font-size:0.7rem;" onchange="if(this.value){applyTemplate(this.value,'${task.id}');this.value='';}" ><option value="">Use Template</option>${allTemplates.map(t => `<option value="${t.id}">${escapeHtml(t.name)} (${t.subtasks.length})</option>`).join('')}</select>` : ''}
           <button class="btn btn-ghost btn-sm" onclick="showSubtaskForm('${task.id}', '${escapeHtml(task.department)}')" id="btn-show-subtask-form" style="font-size:0.75rem;">+ Add</button>
         </div>
+      </div>
+      <div class="task-ai-actions" style="display:flex;gap:0.3rem;flex-wrap:wrap;margin:0.15rem 0 0.5rem;">
+        <button type="button" class="btn btn-ghost btn-sm task-ai-btn" onclick="askAiAboutCurrentTask('Break this task into 3 to 6 concrete sub-tasks and create them as sub-tasks of this task.')" style="font-size:0.72rem;">&#10022; Break into subtasks</button>
+        <button type="button" class="btn btn-ghost btn-sm task-ai-btn" onclick="askAiAboutCurrentTask('Draft a short status update for this task that I can share with my team.')" style="font-size:0.72rem;">&#10022; Draft update</button>
+        <button type="button" class="btn btn-ghost btn-sm task-ai-btn" onclick="askAiAboutCurrentTask('Suggest a realistic due date for this task given its scope, and briefly explain why.')" style="font-size:0.72rem;">&#10022; Suggest due date</button>
       </div>
       <div id="subtask-form" style="display:none;margin:0.5rem 0;padding:0.625rem;background:var(--follett-light-gray);border-radius:var(--radius);">
         <input type="text" id="subtask-title" placeholder="What needs to be done?" style="width:100%;padding:0.4rem 0.6rem;border:1px solid var(--color-border);border-radius:var(--radius);font-size:0.85rem;margin-bottom:0.375rem;">
@@ -3176,6 +3184,58 @@ function addChatMessage(role, text) {
   return div;
 }
 
+// Describe what the user is currently looking at, so the assistant can resolve
+// "this"/"here" and scope answers/actions to the open task, initiative, note, or department.
+function getAiContext() {
+  const ctx = { view: currentView };
+  const isOpen = (id) => { const el = document.getElementById(id); return el && el.style.display !== 'none'; };
+  if (isOpen('modal-detail') && currentDetailTaskId) {
+    const t = (tasks || []).find(x => x.id === currentDetailTaskId);
+    if (t) { ctx.entityType = 'task'; ctx.entityId = t.id; ctx.entityTitle = t.title; }
+  } else if (isOpen('modal-initiative-detail') && currentInitiativeDetailId) {
+    const i = initiativesById[currentInitiativeDetailId];
+    if (i) { ctx.entityType = 'initiative'; ctx.entityId = i.id; ctx.entityTitle = i.name; }
+  } else if (currentView === 'notes' && activeNoteId) {
+    const n = (notesList || []).find(x => x.id === activeNoteId);
+    if (n) { ctx.entityType = 'note'; ctx.entityId = n.id; ctx.entityTitle = n.title; }
+  }
+  if (currentView === 'tasks' && filters && filters.department && filters.department !== 'all') {
+    ctx.department = filters.department;
+  }
+  return ctx;
+}
+
+// Shared rendering of AI action results (used by the full-screen chat and the ⌘K command bar).
+function renderAiActionsHtml(actions) {
+  if (!actions || !actions.length) return '';
+  let html = '<div style="margin-top:0.5rem;padding-top:0.5rem;border-top:1px solid var(--color-border);font-size:0.8rem;">';
+  actions.forEach(a => {
+    if (a.success) {
+      if (a.type === 'create_task') {
+        html += `<div style="color:var(--follett-sage);margin-bottom:0.25rem;">&#10003; Created: <a href="#" class="ai-link ai-link-task" data-task-id="${a.taskId}" style="color:var(--follett-medium-blue);text-decoration:underline;cursor:pointer;">${escapeHtml(a.title || 'task')}</a></div>`;
+      } else if (a.type === 'update_task') {
+        html += `<div style="color:var(--follett-sage);">&#10003; Task updated</div>`;
+      } else if (a.type === 'create_subtask') {
+        html += `<div style="color:var(--follett-sage);">&#10003; Sub-task added: ${escapeHtml(a.title || '')}</div>`;
+      } else if (a.type === 'add_comment') {
+        html += `<div style="color:var(--follett-sage);">&#10003; Comment added</div>`;
+      } else if (a.type === 'create_note') {
+        html += `<div style="color:var(--follett-sage);">&#10003; Note saved: ${escapeHtml(a.title || '')}${a.folder ? ' in ' + escapeHtml(a.folder) : ''}</div>`;
+      } else if (a.type === 'create_initiative') {
+        html += `<div style="color:var(--follett-sage);">&#10003; Initiative created${a.name ? ': ' + escapeHtml(a.name) : ''}</div>`;
+      } else if (a.type === 'update_initiative') {
+        html += `<div style="color:var(--follett-sage);">&#10003; Initiative updated</div>`;
+      } else {
+        html += `<div style="color:var(--follett-sage);">&#10003; Done</div>`;
+      }
+    } else {
+      html += `<div style="color:var(--follett-coral);">&#10007; Failed: ${escapeHtml(a.error || a.type)}</div>`;
+    }
+  });
+  html += '</div>';
+  return html;
+}
+
 async function sendChatMessage(messageOverride) {
   const input = document.getElementById('chat-input');
   const message = messageOverride || input.value.trim();
@@ -3191,37 +3251,143 @@ async function sendChatMessage(messageOverride) {
   try {
     const result = await api('POST', '/api/ai/chat', {
       message,
-      history: chatHistory.slice(-10)
+      history: chatHistory.slice(-10),
+      context: getAiContext()
     });
     loadingDiv.classList.remove('loading');
     let replyHtml = renderMarkdown(result.reply);
-    // Show action results
-    if (result.actions && result.actions.length > 0) {
-      replyHtml += '<div style="margin-top:0.5rem;padding-top:0.5rem;border-top:1px solid var(--color-border);font-size:0.8rem;">';
-      result.actions.forEach(a => {
-        if (a.success) {
-          if (a.type === 'create_task') {
-            replyHtml += `<div style="color:var(--follett-sage);margin-bottom:0.25rem;">&#10003; Created: <a href="#" class="ai-link ai-link-task" data-task-id="${a.taskId}" style="color:var(--follett-medium-blue);text-decoration:underline;cursor:pointer;">${escapeHtml(a.title)}</a></div>`;
-          } else if (a.type === 'update_task') {
-            replyHtml += `<div style="color:var(--follett-sage);">&#10003; Task updated</div>`;
-          } else if (a.type === 'add_comment') {
-            replyHtml += `<div style="color:var(--follett-sage);">&#10003; Comment added</div>`;
-          } else if (a.type === 'create_note') {
-            replyHtml += `<div style="color:var(--follett-sage);">&#10003; Note saved: ${escapeHtml(a.title)} in ${escapeHtml(a.folder)}</div>`;
-          }
-        } else {
-          replyHtml += `<div style="color:var(--follett-coral);">&#10007; Failed: ${escapeHtml(a.error || a.type)}</div>`;
-        }
-      });
-      replyHtml += '</div>';
-      loadTasks().then(render);
-    }
+    const actionsHtml = renderAiActionsHtml(result.actions);
+    if (actionsHtml) { replyHtml += actionsHtml; loadTasks().then(render); }
     loadingDiv.innerHTML = replyHtml;
     chatHistory.push({ role: 'model', text: result.reply });
   } catch (err) {
     loadingDiv.classList.remove('loading');
     loadingDiv.textContent = 'Error: ' + err.message;
   }
+}
+
+// === Global AI command bar (Cmd/Ctrl+K) ===
+let cmdbarHistory = [];
+
+function cmdbarContextLabel() {
+  const c = getAiContext();
+  if (c.entityType && c.entityTitle) {
+    const type = c.entityType.charAt(0).toUpperCase() + c.entityType.slice(1);
+    const title = c.entityTitle.length > 28 ? c.entityTitle.slice(0, 28) + '…' : c.entityTitle;
+    return `${type} · ${title}`;
+  }
+  if (c.department) return c.department;
+  const names = { tasks: 'Tasks', notes: 'Notes', roadmap: 'Roadmap', ai: 'Assistant', features: 'Ideas', team: 'Team', search: 'Search' };
+  return names[c.view] || '';
+}
+
+function openCommandBar(prefill) {
+  const overlay = document.getElementById('cmdbar-overlay');
+  if (!overlay) return;
+  overlay.style.display = 'flex';
+  document.getElementById('cmdbar-context').textContent = cmdbarContextLabel();
+  const input = document.getElementById('cmdbar-input');
+  if (prefill) input.value = prefill;
+  setTimeout(() => { input.focus(); input.select(); }, 30);
+}
+
+function closeCommandBar() {
+  const overlay = document.getElementById('cmdbar-overlay');
+  if (overlay) overlay.style.display = 'none';
+}
+
+function resetCommandBar() {
+  cmdbarHistory = [];
+  const body = document.getElementById('cmdbar-body');
+  if (body) { body.innerHTML = ''; body.style.display = 'none'; }
+  const hint = document.getElementById('cmdbar-hint');
+  if (hint) hint.style.display = '';
+}
+
+function cmdbarAddMessage(role, text) {
+  const body = document.getElementById('cmdbar-body');
+  body.style.display = 'block';
+  document.getElementById('cmdbar-hint').style.display = 'none';
+  const div = document.createElement('div');
+  div.className = `cmdbar-msg cmdbar-msg-${role === 'user' ? 'user' : 'ai'}`;
+  div.innerHTML = role === 'user' ? escapeHtml(text) : renderMarkdown(text);
+  body.appendChild(div);
+  body.scrollTop = body.scrollHeight;
+  return div;
+}
+
+async function sendCommandBarMessage(messageOverride) {
+  const input = document.getElementById('cmdbar-input');
+  const message = messageOverride || input.value.trim();
+  if (!message) return;
+  input.value = '';
+  cmdbarAddMessage('user', message);
+  const loadingDiv = cmdbarAddMessage('ai', 'Thinking…');
+  loadingDiv.classList.add('loading');
+  cmdbarHistory.push({ role: 'user', text: message });
+  try {
+    const result = await api('POST', '/api/ai/chat', {
+      message,
+      history: cmdbarHistory.slice(-10),
+      context: getAiContext()
+    });
+    loadingDiv.classList.remove('loading');
+    let replyHtml = renderMarkdown(result.reply);
+    const actionsHtml = renderAiActionsHtml(result.actions);
+    if (actionsHtml) {
+      replyHtml += actionsHtml;
+      loadTasks().then(render);
+      // If a task detail is open underneath, refresh its sub-task list so new ones show
+      const td = document.getElementById('modal-detail');
+      if (td && td.style.display !== 'none' && currentDetailTaskId && typeof loadSubtasks === 'function') {
+        loadSubtasks(currentDetailTaskId);
+      }
+    }
+    loadingDiv.innerHTML = replyHtml;
+    cmdbarHistory.push({ role: 'model', text: result.reply });
+    document.getElementById('cmdbar-body').scrollTop = document.getElementById('cmdbar-body').scrollHeight;
+  } catch (err) {
+    loadingDiv.classList.remove('loading');
+    loadingDiv.textContent = 'Error: ' + err.message;
+  }
+}
+
+// Per-task AI actions (from the task detail panel) — open the command bar over the
+// task and send a prompt; getAiContext() resolves "this task" from the open detail modal.
+function askAiAboutCurrentTask(prompt) {
+  openCommandBar();
+  sendCommandBarMessage(prompt);
+}
+
+function wireCommandBar() {
+  // Cmd/Ctrl+K toggles the command bar from anywhere (unless typing in a field)
+  document.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+      e.preventDefault();
+      const overlay = document.getElementById('cmdbar-overlay');
+      if (overlay && overlay.style.display === 'flex') closeCommandBar();
+      else openCommandBar();
+    }
+    if (e.key === 'Escape') {
+      const overlay = document.getElementById('cmdbar-overlay');
+      if (overlay && overlay.style.display === 'flex') closeCommandBar();
+    }
+  });
+  const overlay = document.getElementById('cmdbar-overlay');
+  const input = document.getElementById('cmdbar-input');
+  const body = document.getElementById('cmdbar-body');
+  if (overlay) overlay.addEventListener('click', (e) => { if (e.target === overlay) closeCommandBar(); });
+  document.getElementById('cmdbar-close').addEventListener('click', closeCommandBar);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); sendCommandBarMessage(); }
+  });
+  document.querySelectorAll('#cmdbar-hint .cmdbar-chip').forEach(chip => {
+    chip.addEventListener('click', () => sendCommandBarMessage(chip.dataset.q));
+  });
+  // Close the bar when the user clicks a task/note link in a reply (the global handler opens it)
+  if (body) body.addEventListener('click', (e) => {
+    if (e.target.closest('.ai-link, [data-task-id], [data-note-id]')) closeCommandBar();
+  });
 }
 
 // === Event Binding ===
@@ -3593,6 +3759,9 @@ async function init() {
   const expandBtn = document.getElementById('sidebar-expand');
   if (collapseBtn) collapseBtn.addEventListener('click', () => setSidebarCollapsed(true));
   if (expandBtn) expandBtn.addEventListener('click', () => setSidebarCollapsed(false));
+
+  // Global AI command bar (Cmd/Ctrl+K)
+  wireCommandBar();
 
   // Notes event listeners
   document.getElementById('btn-new-note').addEventListener('click', createNote);
@@ -6649,6 +6818,7 @@ let detailOpenInitiativeId = null;
 async function openInitiativeDetail(initiativeId) {
   const init = initiativesById[initiativeId];
   if (!init) return;
+  currentInitiativeDetailId = initiativeId;
   detailOpenInitiativeId = initiativeId;
 
   // Header
