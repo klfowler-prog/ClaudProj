@@ -102,6 +102,14 @@
         </div>
       </div>
 
+      <!-- Roadmap nav item (initiatives + timeline live behind this) -->
+      <div class="sidebar-section">
+        <button class="sidebar-nav-item" id="btn-roadmap" data-view="roadmap">
+          <span class="sidebar-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M3 12h12"/><path d="M3 18h6"/><circle cx="20" cy="12" r="2"/><circle cx="14" cy="18" r="2"/></svg></span>
+          <span>Roadmap</span>
+        </button>
+      </div>
+
       <!-- Middle section items -->
       <div class="sidebar-section">
         <button class="sidebar-nav-item" id="btn-open-chat">
@@ -198,10 +206,11 @@
       <!-- Hidden dept filter (used by sidebar clicks) -->
       <select id="filter-department" style="display:none;">
         <option value="all">All Departments</option>
+        <option value="All Marketing">All Marketing</option>
         <option value="B2B Marketing">B2B Marketing</option>
         <option value="B2C Marketing">B2C Marketing</option>
-        <option value="All Marketing">All Marketing</option>
         <option value="Personal">Personal</option>
+        <option value="Rev Ops">Rev Ops</option>
       </select>
 
       <!-- Task Actions -->
@@ -492,8 +501,11 @@
           <div class="form-group">
             <label>Department <span class="required">*</span></label>
             <div id="invite-depts" style="display: flex; flex-direction: column; gap: 0.25rem;">
+              <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;text-transform:none;font-weight:400;color:var(--color-text);"><input type="checkbox" class="invite-dept-cb" value="All Marketing"> All Marketing</label>
               <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;text-transform:none;font-weight:400;color:var(--color-text);"><input type="checkbox" class="invite-dept-cb" value="B2B Marketing"> B2B Marketing</label>
               <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;text-transform:none;font-weight:400;color:var(--color-text);"><input type="checkbox" class="invite-dept-cb" value="B2C Marketing"> B2C Marketing</label>
+              <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;text-transform:none;font-weight:400;color:var(--color-text);"><input type="checkbox" class="invite-dept-cb" value="Personal"> Personal</label>
+              <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;text-transform:none;font-weight:400;color:var(--color-text);"><input type="checkbox" class="invite-dept-cb" value="Rev Ops"> Rev Ops</label>
             </div>
           </div>
           <div class="form-group">
@@ -619,6 +631,132 @@
       </div>
     </div>
 
+    <!-- Initiative Detail Modal -->
+    <div class="modal-overlay" id="modal-initiative-detail" style="display: none;">
+      <div class="modal id-modal">
+        <div class="modal-header id-modal__header">
+          <div style="flex:1;min-width:0;">
+            <span class="badge" id="id-detail-dept-badge">—</span>
+            <h2 id="id-detail-name" style="font-family:'IBM Plex Serif',Georgia,serif;font-weight:500;margin:0.4rem 0 0.35rem;color:var(--follett-dark-blue);">Initiative</h2>
+            <p class="id-thesis" id="id-detail-thesis"></p>
+          </div>
+          <button class="modal-close" data-close="modal-initiative-detail">&times;</button>
+        </div>
+        <div class="id-modal__meta">
+          <div class="id-meta-item"><span class="id-meta-lbl">Owner</span><span class="id-meta-val" id="id-detail-owner">—</span></div>
+          <div class="id-meta-item"><span class="id-meta-lbl">Dates</span><span class="id-meta-val" id="id-detail-dates">—</span></div>
+          <div class="id-meta-item"><span class="id-meta-lbl">Health</span><span class="id-meta-val" id="id-detail-health">—</span></div>
+          <div class="id-meta-item"><span class="id-meta-lbl">Progress</span><span class="id-meta-val" id="id-detail-progress">—</span></div>
+        </div>
+        <div class="id-modal__body">
+          <div class="id-section">
+            <div class="id-section__head">
+              <h3 class="id-section__title">Tasks <span id="id-detail-task-count" class="id-section__count">0</span></h3>
+              <button type="button" class="btn btn-primary btn-sm" id="btn-add-task-to-init">+ Add task</button>
+            </div>
+            <div id="id-detail-task-list" class="id-task-list"></div>
+          </div>
+        </div>
+        <div class="if-modal__actions">
+          <button type="button" class="btn btn-ghost" data-close="modal-initiative-detail">Close</button>
+          <div style="flex:1;"></div>
+          <button type="button" class="btn btn-secondary" id="btn-edit-from-detail">Edit details</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Create/Edit Initiative Modal -->
+    <div class="modal-overlay" id="modal-initiative" style="display: none;">
+      <div class="modal if-modal">
+        <div class="modal-header if-modal__header">
+          <div>
+            <div class="if-modal__bread" id="modal-initiative-bread">New initiative</div>
+            <h2 id="modal-initiative-title">Untitled initiative</h2>
+          </div>
+          <button class="modal-close" data-close="modal-initiative">&times;</button>
+        </div>
+        <form id="form-initiative" class="if-form">
+          <div class="if-grid">
+            <label class="if-field if-field--full">
+              <span class="if-label">Name <span class="required">*</span></span>
+              <input type="text" id="init-name" required maxlength="120" placeholder="e.g. Shopify Rollout — 50 Stores">
+            </label>
+
+            <label class="if-field if-field--full">
+              <span class="if-label">Why this matters <span class="required">*</span>
+                <span class="if-hint">One sentence — the strategic thesis. Will show on hover and in detail views.</span>
+              </span>
+              <textarea id="init-thesis" rows="2" required maxlength="500" placeholder="What's the bet, and why is it worth doing now?"></textarea>
+            </label>
+
+            <label class="if-field">
+              <span class="if-label">Department <span class="required">*</span></span>
+              <select id="init-department" required>
+                <option value="">Select</option>
+                <option>All Marketing</option>
+                <option>B2B Marketing</option>
+                <option>B2C Marketing</option>
+                <option>Personal</option>
+                <option>Rev Ops</option>
+              </select>
+            </label>
+
+            <label class="if-field">
+              <span class="if-label">Priority</span>
+              <select id="init-priority">
+                <option>Medium</option>
+                <option>High</option>
+                <option>Low</option>
+              </select>
+            </label>
+
+            <div class="if-field">
+              <span class="if-label">Health</span>
+              <div class="segmented-radio" id="init-health-seg" data-name="health">
+                <button type="button" class="seg-btn is-active" data-val="on-track">On Track</button>
+                <button type="button" class="seg-btn" data-val="at-risk">At Risk</button>
+                <button type="button" class="seg-btn" data-val="off-track">Off Track</button>
+              </div>
+              <input type="hidden" id="init-health" value="on-track">
+            </div>
+
+            <label class="if-field">
+              <span class="if-label">Owner</span>
+              <select id="init-owner"></select>
+            </label>
+
+            <label class="if-field">
+              <span class="if-label">Start <span class="required">*</span></span>
+              <input type="date" id="init-start" required>
+            </label>
+
+            <label class="if-field">
+              <span class="if-label">End <span class="required">*</span></span>
+              <input type="date" id="init-end" required>
+            </label>
+
+            <div class="if-field if-field--full">
+              <span class="if-label">Collaborators
+                <span class="if-hint">Type a name to add. Backspace to remove the last chip.</span>
+              </span>
+              <div class="contributor-input-wrap" id="init-collab-wrap">
+                <div id="init-collab-chips" class="contributor-chips"></div>
+                <input type="text" id="init-collab-input" class="contributor-input" placeholder="Add collaborator…" autocomplete="off">
+                <div id="init-collab-suggestions" class="contributor-suggestions" style="display:none;"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="if-modal__actions">
+            <button type="button" class="btn btn-ghost btn-danger" id="btn-archive-initiative" style="display:none;">Archive initiative</button>
+            <div style="flex:1;"></div>
+            <button type="button" class="btn btn-ghost" data-close="modal-initiative">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="btn-submit-initiative">Create initiative</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <!-- Create/Edit Workspace Modal -->
     <div class="modal-overlay" id="modal-workspace" style="display: none;">
       <div class="modal">
@@ -713,6 +851,53 @@
       <div id="feature-requests-empty" style="display:none;text-align:center;padding:2rem;color:var(--color-text-muted);">No suggestions yet. Be the first!</div>
     </div>
 
+    <!-- Roadmap View (timeline) -->
+    <div id="view-roadmap" style="display: none;">
+      <div class="rm-hero">
+        <div class="rm-hero__left">
+          <h1 class="rm-hero__title">Roadmap</h1>
+          <p class="rm-hero__sub">Big initiatives by department, with the tasks that bring them to life. Click an initiative to expand it.</p>
+        </div>
+        <div class="rm-hero__actions">
+          <button class="btn btn-primary" id="btn-new-initiative-from-roadmap">+ New Initiative</button>
+        </div>
+      </div>
+      <div class="rm-toolbar">
+        <div class="zoom-toggle" id="rm-zoom-toggle">
+          <button type="button" class="zoom-btn" data-zoom="week">Week</button>
+          <button type="button" class="zoom-btn is-active" data-zoom="quarter">Quarter</button>
+          <button type="button" class="zoom-btn" data-zoom="year">Year</button>
+        </div>
+        <div class="rm-toolbar__filters">
+          <select id="rm-filter-dept" class="filter-select-compact">
+            <option value="all">All departments</option>
+            <option>All Marketing</option>
+            <option>B2B Marketing</option>
+            <option>B2C Marketing</option>
+            <option>Personal</option>
+            <option>Rev Ops</option>
+          </select>
+          <select id="rm-filter-health" class="filter-select-compact">
+            <option value="all">All health</option>
+            <option value="on-track">On Track</option>
+            <option value="at-risk">At Risk</option>
+            <option value="off-track">Off Track</option>
+          </select>
+        </div>
+      </div>
+      <div class="rm-canvas" id="rm-canvas">
+        <div class="rm-canvas__lanes" id="rm-lanes"></div>
+        <div class="rm-canvas__time-wrap">
+          <div class="rm-time-header" id="rm-time-header"></div>
+          <div class="rm-time-rows" id="rm-time-rows"></div>
+        </div>
+      </div>
+      <div class="rm-empty" id="rm-empty" style="display:none;">
+        <p class="empty-title">No initiatives yet</p>
+        <p class="empty-subtitle">Click "+ New Initiative" to start the roadmap.</p>
+      </div>
+    </div>
+
     <!-- Search Results View -->
     <div id="view-search" style="display: none;">
       <h2 style="font-family: 'IBM Plex Serif', Georgia, serif; font-size: 1.25rem; color: var(--follett-dark-blue); margin-bottom: 0.25rem;">Search Results</h2>
@@ -733,13 +918,11 @@
         </select>
         <select id="search-filter-dept" class="filter-select-compact">
           <option value="all">All Departments</option>
+          <option value="All Marketing">All Marketing</option>
           <option value="B2B Marketing">B2B Marketing</option>
           <option value="B2C Marketing">B2C Marketing</option>
           <option value="Personal">Personal</option>
-          <option value="Biz Dev">Biz Dev</option>
-          <option value="Growth & Brand">Growth & Brand</option>
           <option value="Rev Ops">Rev Ops</option>
-          <option value="Internal Comms">Internal Comms</option>
         </select>
         <select id="search-filter-date" class="filter-select-compact">
           <option value="all">Any Time</option>
@@ -772,10 +955,11 @@
           <div class="form-group">
             <label for="input-department">Department <span class="required">*</span></label>
             <select id="input-department" required>
+              <option value="All Marketing">All Marketing</option>
               <option value="B2B Marketing">B2B Marketing</option>
               <option value="B2C Marketing">B2C Marketing</option>
-              <option value="All Marketing">All Marketing</option>
               <option value="Personal">Personal</option>
+              <option value="Rev Ops">Rev Ops</option>
             </select>
           </div>
           <div class="form-group">
@@ -783,6 +967,13 @@
             <select id="input-workspace">
               <option value="">None</option>
             </select>
+          </div>
+          <div class="form-group">
+            <label for="input-initiative">Initiative <span style="font-weight:400;color:var(--color-text-muted);font-size:0.7rem;">— rolls up to a strategic initiative</span></label>
+            <select id="input-initiative">
+              <option value="">— None (Inbox task) —</option>
+            </select>
+            <div id="input-initiative-dates" style="font-size:0.7rem;color:var(--color-text-muted);margin-top:0.3rem;line-height:1.35;display:none;"></div>
           </div>
           <div class="form-group">
             <label for="input-priority">Priority</label>

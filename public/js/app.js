@@ -1,5 +1,5 @@
 // === Constants ===
-const DEPARTMENTS = ['B2B Marketing', 'B2C Marketing', 'All Marketing', 'Personal'];
+const DEPARTMENTS = ['All Marketing', 'B2B Marketing', 'B2C Marketing', 'Personal', 'Rev Ops'];
 const SUB_DEPARTMENTS = {
   'B2B Marketing': ['Biz Dev', 'Growth & Brand', 'Rev Ops', 'Internal Comms'],
   'B2C Marketing': []
@@ -109,6 +109,8 @@ const DEPT_KEYWORDS = {
 
 // === State ===
 let tasks = [];
+let initiatives = [];
+let initiativesById = {}; // id → initiative; rebuilt by setInitiatives()
 let filters = { department: 'all', priority: 'all', search: '', sort: 'due-date', statFilter: 'none' };
 let activeTaskTagFilter = '';
 let pendingAttachments = []; // temp attachments for the add-task form
@@ -276,6 +278,7 @@ function renderKanban() {
       const assigneeName = assignee ? assignee.displayName.split(' ')[0] : '';
       return `<div class="kb-card ${prioClass}" draggable="true" data-task-id="${t.id}">
         <div class="kb-card-title">${escapeHtml(t.title)}</div>
+        <div class="kb-card-row">${renderInitiativePill(t)}</div>
         ${(t.tags || []).length > 0 ? `<div style="display:flex;gap:0.2rem;flex-wrap:wrap;margin-bottom:0.2rem;">${(t.tags || []).slice(0, 2).map(tg => renderTagChip(tg, { small: true })).join('')}</div>` : ''}
         <div class="kb-card-meta">
           ${assigneeName ? `<span>${escapeHtml(assigneeName)}</span>` : ''}
@@ -671,13 +674,17 @@ function switchView(view) {
   document.getElementById('view-notifications').style.display = view === 'notifications' ? 'block' : 'none';
   document.getElementById('view-search').style.display = view === 'search' ? 'block' : 'none';
   document.getElementById('view-features').style.display = view === 'features' ? 'block' : 'none';
+  const roadmapEl = document.getElementById('view-roadmap');
+  if (roadmapEl) roadmapEl.style.display = view === 'roadmap' ? 'block' : 'none';
+  if (view === 'roadmap') showRoadmapView();
   // Update sidebar active states — skip global buttons (handled by renderSidebarSpaces)
   document.querySelectorAll('.sidebar-nav-item').forEach(el => {
     if (el.id === 'btn-my-tasks-global' || el.id === 'btn-my-notes-global') return;
     const match = (el.id === 'btn-open-chat' && view === 'ai') ||
                   (el.id === 'btn-notifications' && view === 'notifications') ||
                   (el.id === 'btn-feature-requests' && view === 'features') ||
-                  (el.dataset.view === 'team' && view === 'team');
+                  (el.dataset.view === 'team' && view === 'team') ||
+                  (el.dataset.view === 'roadmap' && view === 'roadmap');
     el.classList.toggle('active', match);
   });
   // Update global buttons
@@ -747,6 +754,7 @@ function renderTaskItem(task) {
           ${isSubtask ? `<span class="task-parent-label">Part of: ${escapeHtml(task.parentTaskTitle || '...')}</span>` : ''}
           ${!activeWorkspaceId ? `<span class="badge badge-${deptKey}">${escapeHtml(task.department)}</span>` : ''}
           ${(task.tags || []).map(t => renderTagChip(t, { small: true })).join('')}
+          ${renderInitiativePill(task)}
           ${task.workspaceId && !activeWorkspaceId ? `<span class="ws-badge" onclick="event.stopPropagation();openWorkspace('${task.workspaceId}')">${escapeHtml(workspaces.find(w => w.id === task.workspaceId)?.name || 'Workspace')}</span>` : ''}
           ${prioDot}
           ${dueDateHtml}
@@ -943,13 +951,13 @@ function renderMarkdown(str) {
   html = html.replace(/\n/g, '<br>');
   // Clean up br inside pre
   html = html.replace(/<pre><code>([\s\S]*?)<\/code><\/pre>/g, (m, code) => '<pre><code>' + code.replace(/<br>/g, '\n') + '</code></pre>');
-  // App link tags (tasks, notes, files)
+  // App link tags (tasks, notes, files) — clicks handled by the document-level delegated handler
   html = html.replace(/\[tasklink:([^\]:]+):([^\]]+)\]/g, (_, id, title) =>
-    `<a href="#" class="ai-link ai-link-task" data-task-id="${id}" onclick="event.preventDefault();showTaskDetail('${id}')">${title}</a>`);
+    `<a href="#" class="ai-link ai-link-task" data-task-id="${id}">${title}</a>`);
   html = html.replace(/\[notelink:([^\]:]+):([^\]]+)\]/g, (_, id, title) =>
-    `<a href="#" class="ai-link ai-link-note" data-note-id="${id}" onclick="event.preventDefault();switchView('notes');openNote('${id}')">${title}</a>`);
+    `<a href="#" class="ai-link ai-link-note" data-note-id="${id}">${title}</a>`);
   html = html.replace(/\[filelink:([^\]:]+):([^\]]+)\]/g, (_, path, name) =>
-    `<a href="#" class="ai-link ai-link-file" data-gcs-path="${escapeHtml(path)}" onclick="event.preventDefault();downloadFile('${path.replace(/'/g, "\\'")}')">${name}</a>`);
+    `<a href="#" class="ai-link ai-link-file" data-gcs-path="${escapeHtml(path)}">${name}</a>`);
   // Links
   html = html.replace(/(https?:\/\/[^\s<>"']+)/g, (url) => {
     const cleanUrl = url.replace(/&amp;/g, '&');
@@ -1076,7 +1084,7 @@ function applyFilters(reload) {
 // === Task Operations (API-backed) ===
 let currentTaskTags = [];
 
-async function addTask(title, department, priority, notes, source, attachments, dueDate, recurring, assignedTo, tags, startDate) {
+async function addTask(title, department, priority, notes, source, attachments, dueDate, recurring, assignedTo, tags, startDate, initiativeId) {
   const taskData = {
     title: title.trim(),
     department,
@@ -1091,7 +1099,8 @@ async function addTask(title, department, priority, notes, source, attachments, 
     startDate: startDate || '',
     dueDate: dueDate || '',
     recurring: recurring || 'none',
-    workspaceId: activeWorkspaceId || ''
+    workspaceId: activeWorkspaceId || '',
+    initiativeId: initiativeId || null
   };
   if (assignedTo && myProfile && assignedTo !== myProfile.userId) {
     taskData.assignedTo = assignedTo;
@@ -1228,6 +1237,14 @@ async function editTask(id) {
       workspaces.map(w => `<option value="${w.id}" ${w.id === task.workspaceId ? 'selected' : ''}>${escapeHtml(w.name)}</option>`).join('');
   }
 
+  // Set initiative dropdown
+  const initSelect = document.getElementById('input-initiative');
+  if (initSelect) {
+    initSelect.innerHTML = '<option value="">— None (Inbox task) —</option>' +
+      initiatives.map(i => `<option value="${i.id}" ${i.id === task.initiativeId ? 'selected' : ''}>${escapeHtml(i.name)}</option>`).join('');
+    refreshInitiativeDatesHint(task.dueDate);
+  }
+
   // Load existing attachments into pending lists
   pendingAttachments = (task.attachments || []).filter(a => a.type === 'file');
   pendingLinks = (task.attachments || []).filter(a => a.type === 'link');
@@ -1307,6 +1324,28 @@ function resetAddForm() {
     wsSelect.innerHTML = '<option value="">None</option>' +
       workspaces.map(w => `<option value="${w.id}" ${w.id === activeWorkspaceId ? 'selected' : ''}>${escapeHtml(w.name)}</option>`).join('');
   }
+
+  // Populate initiative dropdown
+  const initSelect = document.getElementById('input-initiative');
+  if (initSelect) {
+    initSelect.innerHTML = '<option value="">— None (Inbox task) —</option>' +
+      initiatives.map(i => `<option value="${i.id}">${escapeHtml(i.name)}</option>`).join('');
+    refreshInitiativeDatesHint('');
+  }
+}
+
+// Show the parent initiative's date range under the dropdown; flag if due date is outside.
+function refreshInitiativeDatesHint(dueDate) {
+  const sel = document.getElementById('input-initiative');
+  const hint = document.getElementById('input-initiative-dates');
+  if (!sel || !hint) return;
+  const init = initiativesById[sel.value];
+  if (!init) { hint.style.display = 'none'; hint.innerHTML = ''; return; }
+  const due = dueDate || (document.getElementById('input-due-date') || {}).value || '';
+  const outOfRange = due && (due < init.start || due > init.end);
+  hint.style.display = '';
+  hint.innerHTML = `Initiative runs <strong>${escapeHtml(init.start || '—')} → ${escapeHtml(init.end || '—')}</strong>` +
+    (outOfRange ? `<span style="color:var(--follett-coral);"> · Task due date is outside this range</span>` : '');
 }
 
 function renderTaskFormTags() {
@@ -1388,8 +1427,19 @@ function renderPendingLinks() {
 
 // === Task Detail View ===
 function showTaskDetail(id) {
-  const task = tasks.find(t => t.id === id);
-  if (!task) return;
+  let task = tasks.find(t => t.id === id);
+  if (!task) {
+    // Task isn't in the local view (e.g., a workspace-scoped task referenced from the AI
+    // assistant or a search result). Fetch it from the API and re-render.
+    api('GET', `/api/tasks/${id}`).then(fetched => {
+      if (!fetched) return;
+      tasks.push(fetched);
+      showTaskDetail(id);
+    }).catch(err => {
+      if (typeof showToast === 'function') showToast('Could not open task: ' + err.message, 'error');
+    });
+    return;
+  }
 
   // Fill in parent task context from local tasks array if missing (for subtasks)
   if (task.parentTaskId && !task.parentTaskTitle) {
@@ -1502,6 +1552,21 @@ function showTaskDetail(id) {
           <option value="" ${!task.workspaceId ? 'selected' : ''}>None</option>
           ${workspaces.map(w => `<option value="${w.id}" ${w.id === task.workspaceId ? 'selected' : ''}>${escapeHtml(w.name)}</option>`).join('')}
         </select>
+      </div>
+      <div>
+        <div class="detail-section-title">Initiative</div>
+        <select class="filter-select-compact" onchange="moveTaskInitiative('${task.id}', this.value)" style="font-size:0.8rem;">
+          <option value="" ${!task.initiativeId ? 'selected' : ''}>— None (Inbox) —</option>
+          ${initiatives.map(i => `<option value="${i.id}" ${i.id === task.initiativeId ? 'selected' : ''}>${escapeHtml(i.name)}</option>`).join('')}
+        </select>
+        ${(() => {
+          const init = initiativesById[task.initiativeId];
+          if (!init) return '';
+          return `<div style="font-size:0.7rem;color:var(--color-text-muted);margin-top:0.25rem;line-height:1.35;">
+            Runs <strong>${escapeHtml(init.start || '—')} → ${escapeHtml(init.end || '—')}</strong>
+            ${task.dueDate && (task.dueDate < init.start || task.dueDate > init.end) ? `<span style="color:var(--follett-coral);"> · Task is outside initiative range</span>` : ''}
+          </div>`;
+        })()}
       </div>
       <div>
         <div class="detail-section-title">${task.startDate ? 'Dates' : 'Due Date'}</div>
@@ -1857,6 +1922,20 @@ async function moveTaskWorkspace(taskId, newWsId) {
     render();
     const ws = workspaces.find(w => w.id === newWsId);
     showToast(newWsId ? 'Moved to ' + ws.name : 'Removed from workspace');
+  } catch (err) { showToast('Failed to move task', 'error'); }
+}
+
+async function moveTaskInitiative(taskId, newInitId) {
+  try {
+    await api('PUT', `/api/tasks/${taskId}`, { initiativeId: newInitId || null });
+    const task = tasks.find(t => t.id === taskId);
+    if (task) task.initiativeId = newInitId || null;
+    // Invalidate the timeline's cached tasks so re-render picks up the move
+    if (typeof rmTasksByInit !== 'undefined') rmTasksByInit = {};
+    render();
+    if (currentView === 'roadmap' && typeof renderRoadmapTimeline === 'function') renderRoadmapTimeline();
+    const init = initiativesById[newInitId];
+    showToast(newInitId ? 'Linked to ' + init.name : 'Moved to Inbox');
   } catch (err) { showToast('Failed to move task', 'error'); }
 }
 
@@ -3031,6 +3110,7 @@ async function init() {
   await loadTasks();
   await loadTeam();
   await loadWorkspaces();
+  await loadInitiatives();
   await loadTemplates();
   await loadFolders();
   await migrateLocalStorage();
@@ -3168,13 +3248,15 @@ async function init() {
     const assignTo = document.getElementById('input-assign-to').value || undefined;
     const wsSelect = document.getElementById('input-workspace');
     const selectedWorkspaceId = wsSelect ? wsSelect.value : '';
+    const initSelect = document.getElementById('input-initiative');
+    const selectedInitiativeId = initSelect && initSelect.value ? initSelect.value : null;
 
     if (!title || !department) return;
 
     const allAttachments = [...pendingAttachments, ...pendingLinks];
 
     if (editingTaskId) {
-      const updates = { title, department, priority, notes, startDate, dueDate, recurring, attachments: allAttachments, tags: currentTaskTags, workspaceId: selectedWorkspaceId };
+      const updates = { title, department, priority, notes, startDate, dueDate, recurring, attachments: allAttachments, tags: currentTaskTags, workspaceId: selectedWorkspaceId, initiativeId: selectedInitiativeId };
       if (assignTo) {
         const existingTask = tasks.find(t => t.id === editingTaskId);
         const assigneeChanged = existingTask && assignTo !== existingTask.assignedTo;
@@ -3195,7 +3277,7 @@ async function init() {
     } else {
       const prevWsId = activeWorkspaceId;
       activeWorkspaceId = selectedWorkspaceId || null;
-      await addTask(title, department, priority, notes, 'manual', allAttachments, dueDate, recurring, assignTo, currentTaskTags, startDate);
+      await addTask(title, department, priority, notes, 'manual', allAttachments, dueDate, recurring, assignTo, currentTaskTags, startDate, selectedInitiativeId);
       activeWorkspaceId = prevWsId;
     }
 
@@ -4094,6 +4176,30 @@ let expandedWorkspaces = new Set();
 async function loadWorkspaces() {
   try { workspaces = await api('GET', '/api/workspaces'); } catch { workspaces = []; }
   renderSidebarWorkspaces();
+}
+
+// === Initiatives ===
+async function loadInitiatives() {
+  try { initiatives = await api('GET', '/api/initiatives'); }
+  catch { initiatives = []; }
+  initiativesById = {};
+  for (const i of initiatives) initiativesById[i.id] = i;
+  // Invalidate the timeline's task cache so newly-added tasks appear.
+  if (typeof rmTasksByInit !== 'undefined') rmTasksByInit = {};
+  if (currentView === 'roadmap' && typeof renderRoadmapTimeline === 'function') renderRoadmapTimeline();
+}
+
+function initiativeForTask(task) {
+  if (!task || !task.initiativeId) return null;
+  return initiativesById[task.initiativeId] || null;
+}
+
+function renderInitiativePill(task) {
+  const init = initiativeForTask(task);
+  if (init) {
+    return `<span class="kb-init-pill" title="${escapeHtml(init.thesis || init.name)}">${escapeHtml(init.name)}</span>`;
+  }
+  return `<span class="kb-init-pill kb-init-pill--inbox">Inbox</span>`;
 }
 
 function renderSidebarWorkspaces() {
@@ -5406,4 +5512,802 @@ document.addEventListener('DOMContentLoaded', () => {
   setInterval(async () => {
     if (currentUser) authToken = await currentUser.getIdToken(true);
   }, 50 * 60 * 1000);
+});
+
+// === Initiative form ===
+let editingInitiativeId = null;
+let editingInitiativeCollab = []; // userIds selected as collaborators in the open form
+
+function todayIso() {
+  const d = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function populateInitiativeOwnerDropdown(selectedId) {
+  const sel = document.getElementById('init-owner');
+  if (!sel) return;
+  const me = myProfile || {};
+  const list = (teamMembers || []).filter(m => m.status === 'active' || !m.status);
+  const meRow = `<option value="${me.userId || ''}">${escapeHtml(me.name || 'Me')} (default)</option>`;
+  const others = list
+    .filter(m => m.userId !== me.userId)
+    .map(m => `<option value="${m.userId}">${escapeHtml(m.displayName)}</option>`)
+    .join('');
+  sel.innerHTML = meRow + others;
+  if (selectedId && [...sel.options].every(o => o.value !== selectedId)) {
+    // Owner not in current dropdown — append a placeholder option so we don't lose it
+    const opt = document.createElement('option');
+    opt.value = selectedId;
+    opt.textContent = (teamMembers.find(m => m.userId === selectedId) || {}).displayName || 'Owner';
+    sel.appendChild(opt);
+  }
+  if (selectedId) sel.value = selectedId;
+}
+
+function setHealthSegmented(val) {
+  const seg = document.getElementById('init-health-seg');
+  const hidden = document.getElementById('init-health');
+  if (!seg || !hidden) return;
+  hidden.value = val;
+  seg.querySelectorAll('.seg-btn').forEach(b => {
+    b.classList.toggle('is-active', b.dataset.val === val);
+  });
+}
+
+function openInitiativeForm(initiativeId) {
+  if (myProfile && myProfile.role === 'viewer') return;
+  if (!initiativeId && !(myProfile && (myProfile.role === 'cmo' || myProfile.role === 'lead'))) {
+    showToast('Only leaders can create initiatives', 'error');
+    return;
+  }
+  const titleEl = document.getElementById('modal-initiative-title');
+  const breadEl = document.getElementById('modal-initiative-bread');
+  const submitBtn = document.getElementById('btn-submit-initiative');
+  const archiveBtn = document.getElementById('btn-archive-initiative');
+  const form = document.getElementById('form-initiative');
+  const collabInput = document.getElementById('init-collab-input');
+  const collabSugg = document.getElementById('init-collab-suggestions');
+  if (!form) return;
+
+  // Live-update the modal h2 as the user types Name
+  const nameInput = document.getElementById('init-name');
+  if (nameInput && !nameInput.dataset.bound) {
+    nameInput.dataset.bound = '1';
+    nameInput.addEventListener('input', () => {
+      titleEl.textContent = nameInput.value.trim() || 'Untitled initiative';
+    });
+  }
+
+  if (initiativeId) {
+    const init = initiativesById[initiativeId];
+    if (!init) return;
+    editingInitiativeId = init.id;
+    editingInitiativeCollab = (init.collaborators || []).slice();
+    breadEl.textContent = 'Edit initiative';
+    titleEl.textContent = init.name || 'Untitled initiative';
+    submitBtn.textContent = 'Save changes';
+
+    document.getElementById('init-name').value = init.name || '';
+    document.getElementById('init-thesis').value = init.thesis || '';
+    document.getElementById('init-department').value = init.department || '';
+    document.getElementById('init-priority').value = init.priority || 'Medium';
+    setHealthSegmented(init.health || 'on-track');
+    document.getElementById('init-start').value = init.start || todayIso();
+    document.getElementById('init-end').value = init.end || todayIso();
+    populateInitiativeOwnerDropdown(init.ownerId);
+
+    const canArchive = myProfile && (
+      myProfile.role === 'cmo' || myProfile.role === 'lead' ||
+      init.ownerId === myProfile.userId
+    );
+    archiveBtn.style.display = canArchive ? '' : 'none';
+  } else {
+    editingInitiativeId = null;
+    editingInitiativeCollab = [];
+    breadEl.textContent = 'New initiative';
+    titleEl.textContent = 'Untitled initiative';
+    submitBtn.textContent = 'Create initiative';
+    archiveBtn.style.display = 'none';
+    form.reset();
+    populateInitiativeOwnerDropdown((myProfile && myProfile.userId) || '');
+    setHealthSegmented('on-track');
+    document.getElementById('init-priority').value = 'Medium';
+    const t = todayIso();
+    document.getElementById('init-start').value = t;
+    const d = new Date(t + 'T00:00:00');
+    d.setDate(d.getDate() + 90);
+    const pad = n => String(n).padStart(2, '0');
+    document.getElementById('init-end').value = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }
+  // Render contributor chips + clear input
+  if (collabInput) collabInput.value = '';
+  if (collabSugg) collabSugg.style.display = 'none';
+  renderInitCollabChips();
+
+  openModal('modal-initiative');
+}
+
+async function saveInitiativeFromForm(e) {
+  e.preventDefault();
+  const payload = {
+    name: document.getElementById('init-name').value.trim(),
+    thesis: document.getElementById('init-thesis').value.trim(),
+    department: document.getElementById('init-department').value,
+    priority: document.getElementById('init-priority').value,
+    health: document.getElementById('init-health').value,
+    ownerId: document.getElementById('init-owner').value,
+    start: document.getElementById('init-start').value,
+    end: document.getElementById('init-end').value,
+    collaborators: editingInitiativeCollab.slice()
+  };
+  if (!payload.name || !payload.thesis || !payload.department || !payload.start || !payload.end) {
+    showToast('Name, thesis, department, start and end are required', 'error');
+    return;
+  }
+  if (payload.start > payload.end) {
+    showToast('End date must be on or after start date', 'error');
+    return;
+  }
+  try {
+    let saved;
+    const wasNew = !editingInitiativeId;
+    if (editingInitiativeId) {
+      saved = await api('PUT', '/api/initiatives/' + editingInitiativeId, payload);
+    } else {
+      saved = await api('POST', '/api/initiatives', payload);
+    }
+    closeModal('modal-initiative');
+    await loadInitiatives();
+    // Re-render whatever's on screen so pills refresh
+    if (typeof render === 'function') render();
+    if (typeof renderKanban === 'function' && document.getElementById('view-tasks').style.display !== 'none') renderKanban();
+    showToast(wasNew ? 'Initiative created — add tasks below' : 'Initiative updated', 'success');
+    // After creating, auto-open the detail so the user can add tasks immediately.
+    if (wasNew && saved && saved.id) {
+      setTimeout(() => openInitiativeDetail(saved.id), 80);
+    }
+  } catch (err) {
+    showToast('Failed: ' + err.message, 'error');
+  }
+}
+
+async function archiveInitiativeFromForm() {
+  if (!editingInitiativeId) return;
+  if (!confirm('Archive this initiative? Linked tasks remain but the initiative will be hidden.')) return;
+  try {
+    await api('DELETE', '/api/initiatives/' + editingInitiativeId);
+    closeModal('modal-initiative');
+    await loadInitiatives();
+    if (typeof render === 'function') render();
+    if (typeof renderKanban === 'function') renderKanban();
+    showToast('Initiative archived', 'success');
+  } catch (err) {
+    showToast('Failed: ' + err.message, 'error');
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const form = document.getElementById('form-initiative');
+  if (form) form.addEventListener('submit', saveInitiativeFromForm);
+
+  const seg = document.getElementById('init-health-seg');
+  if (seg) seg.addEventListener('click', (e) => {
+    const btn = e.target.closest('.seg-btn');
+    if (!btn) return;
+    setHealthSegmented(btn.dataset.val);
+  });
+
+  const archBtn = document.getElementById('btn-archive-initiative');
+  if (archBtn) archBtn.addEventListener('click', archiveInitiativeFromForm);
+
+  // Owner change → re-render contributor chips (in case the new owner was a chip)
+  const ownerSel = document.getElementById('init-owner');
+  if (ownerSel) ownerSel.addEventListener('change', () => {
+    const newOwner = ownerSel.value;
+    editingInitiativeCollab = editingInitiativeCollab.filter(uid => uid !== newOwner);
+    renderInitCollabChips();
+  });
+});
+
+// === Roadmap timeline view ===
+
+const RM_DEPTS = ['All Marketing', 'B2B Marketing', 'B2C Marketing', 'Rev Ops', 'Personal'];
+
+let rmZoom = 'quarter';
+let rmFilters = { dept: 'all', health: 'all' };
+let rmExpanded = new Set(); // initiative IDs whose tasks are expanded
+let rmCollapsedGroups = new Set(); // dept names collapsed
+let rmTasksByInit = {}; // initiative id → tasks[] cached for the session
+
+function deptKeyFor(department) {
+  const m = {
+    'All Marketing': 'allmkt',
+    'B2B Marketing': 'b2b',
+    'B2C Marketing': 'b2c',
+    'Personal': 'personal',
+    'Rev Ops': 'revops'
+  };
+  return m[department] || 'allmkt';
+}
+
+const rmParseDate = (s) => new Date(s + 'T00:00:00');
+const rmAddDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+const rmDaysBetween = (a, b) => Math.round((b - a) / 86400000);
+const rmStartOfWeek = (d) => { const x = new Date(d); x.setDate(x.getDate() - x.getDay()); x.setHours(0,0,0,0); return x; };
+const rmStartOfMonth = (d) => new Date(d.getFullYear(), d.getMonth(), 1);
+const rmStartOfQuarter = (d) => new Date(d.getFullYear(), Math.floor(d.getMonth()/3)*3, 1);
+const rmFmtMD = (d) => d.toLocaleDateString('en-US', { month:'short', day:'numeric' });
+
+function rmBuildScale(zoom, anchor) {
+  if (zoom === 'week') {
+    const start = rmStartOfWeek(rmAddDays(anchor, -7));
+    const end = rmAddDays(start, 7 * 6);
+    const ticks = [];
+    for (let i = 0; i < 7 * 6; i++) {
+      const d = rmAddDays(start, i);
+      ticks.push({
+        date: d,
+        label: d.toLocaleDateString('en-US', { weekday: 'short' })[0],
+        sub: String(d.getDate()),
+        major: d.getDay() === 1
+      });
+    }
+    return { start, end, ticks, days: rmDaysBetween(start, end), unit: 'week', pxPerDay: 28 };
+  }
+  if (zoom === 'quarter') {
+    const start = rmStartOfMonth(rmAddDays(anchor, -30));
+    const end = rmAddDays(start, 30 * 5);
+    const ticks = [];
+    let cur = new Date(start);
+    while (cur < end) {
+      ticks.push({ date: new Date(cur), label: rmFmtMD(cur), sub: '', major: cur.getDate() <= 7 });
+      cur = rmAddDays(cur, 7);
+    }
+    return { start, end, ticks, days: rmDaysBetween(start, end), unit: 'quarter', pxPerDay: 7.5 };
+  }
+  // year
+  const start = rmStartOfQuarter(rmAddDays(anchor, -60));
+  const end = new Date(start.getFullYear() + 1, start.getMonth(), 1);
+  const ticks = [];
+  let cur = new Date(start);
+  while (cur < end) {
+    ticks.push({
+      date: new Date(cur),
+      label: cur.toLocaleDateString('en-US', { month: 'short' }),
+      sub: cur.getMonth() === 0 ? String(cur.getFullYear()) : '',
+      major: cur.getMonth() % 3 === 0
+    });
+    cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
+  }
+  return { start, end, ticks, days: rmDaysBetween(start, end), unit: 'year', pxPerDay: 3.0 };
+}
+
+function rmClampToScale(startStr, endStr, scale) {
+  if (!startStr || !endStr) return null;
+  const a = rmParseDate(startStr);
+  const b = rmParseDate(endStr);
+  if (b < scale.start || a > scale.end) return null; // entirely outside view
+  const left = Math.max(0, rmDaysBetween(scale.start, a)) * scale.pxPerDay;
+  const right = Math.min(scale.days, rmDaysBetween(scale.start, b)) * scale.pxPerDay;
+  return { left, width: Math.max(20, right - left) };
+}
+
+function rmDateXOnScale(dateStr, scale) {
+  if (!dateStr) return null;
+  const d = rmParseDate(dateStr);
+  if (d < scale.start || d > scale.end) return null;
+  return rmDaysBetween(scale.start, d) * scale.pxPerDay;
+}
+
+async function showRoadmapView() {
+  await renderRoadmapTimeline();
+}
+
+function rmFilterInitiatives() {
+  return (initiatives || []).filter(i => {
+    if (rmFilters.dept !== 'all' && i.department !== rmFilters.dept) return false;
+    if (rmFilters.health !== 'all' && i.health !== rmFilters.health) return false;
+    return true;
+  });
+}
+
+async function rmEnsureTasksFor(initiativeId) {
+  if (rmTasksByInit[initiativeId]) return rmTasksByInit[initiativeId];
+  try {
+    const list = await api('GET', '/api/initiatives/' + initiativeId + '/tasks');
+    rmTasksByInit[initiativeId] = list || [];
+  } catch {
+    rmTasksByInit[initiativeId] = [];
+  }
+  return rmTasksByInit[initiativeId];
+}
+
+async function renderRoadmapTimeline() {
+  const lanesEl = document.getElementById('rm-lanes');
+  const headerEl = document.getElementById('rm-time-header');
+  const rowsEl = document.getElementById('rm-time-rows');
+  const empty = document.getElementById('rm-empty');
+  const canvas = document.getElementById('rm-canvas');
+  if (!lanesEl || !headerEl || !rowsEl) return;
+
+  const visible = rmFilterInitiatives();
+  if (visible.length === 0) {
+    canvas.style.display = 'none';
+    empty.style.display = '';
+    return;
+  }
+  canvas.style.display = '';
+  empty.style.display = 'none';
+
+  const today = new Date(); today.setHours(0,0,0,0);
+  const scale = rmBuildScale(rmZoom, today);
+  const totalWidth = scale.days * scale.pxPerDay;
+  const todayX = rmDaysBetween(scale.start, today) * scale.pxPerDay;
+
+  // Group by department
+  const byDept = {};
+  visible.forEach(i => { (byDept[i.department] = byDept[i.department] || []).push(i); });
+  const groups = RM_DEPTS.filter(d => byDept[d]).map(d => ({ label: d, items: byDept[d] }));
+
+  // Pre-fetch tasks for any expanded initiative in view
+  for (const g of groups) {
+    for (const init of g.items) {
+      if (rmExpanded.has(init.id)) await rmEnsureTasksFor(init.id);
+    }
+  }
+
+  // Lanes column
+  let lanesHtml = '<div class="rm-canvas__lanes-header">Initiative</div>';
+  // Time header
+  let headerHtml = '';
+  // Rows
+  let rowsHtml = '';
+
+  // Time header ticks
+  for (const t of scale.ticks) {
+    const x = rmDaysBetween(scale.start, t.date) * scale.pxPerDay;
+    headerHtml += `<div class="rm-tick ${t.major ? 'rm-tick--major' : ''}" style="left:${x}px;">
+      <span class="rm-tick__label">${escapeHtml(t.label)}</span>
+      ${t.sub ? `<span class="rm-tick__sub">${escapeHtml(t.sub)}</span>` : ''}
+    </div>`;
+  }
+  // Today pin in header
+  if (todayX >= 0 && todayX <= totalWidth) {
+    headerHtml += `<div class="rm-today-pin" style="left:${todayX}px;">TODAY</div>`;
+  }
+
+  // Today line + grid lines belong inside rowsEl (so they span full height)
+  // We accumulate them and prepend.
+  let overlayHtml = '';
+  if (todayX >= 0 && todayX <= totalWidth) {
+    overlayHtml += `<div class="rm-today-line" style="left:${todayX}px;"></div>`;
+  }
+  for (const t of scale.ticks) {
+    if (t.major) {
+      const x = rmDaysBetween(scale.start, t.date) * scale.pxPerDay;
+      overlayHtml += `<div class="rm-grid-line" style="left:${x}px;"></div>`;
+    }
+  }
+
+  // Build group + lane rows
+  for (const g of groups) {
+    const dk = deptKeyFor(g.label);
+    const collapsed = rmCollapsedGroups.has(g.label);
+    // Lane column: group header
+    lanesHtml += `<button class="rm-group-header dept-${dk}" data-toggle-group="${escapeHtml(g.label)}">
+      <span class="rm-group-header__caret">${collapsed ? '▸' : '▾'}</span>
+      <span class="dept-dot dept-${dk}" style="width:8px;height:8px;border-radius:50%;background:var(--color-${dk === 'allmkt' ? 'b2b' : dk === 'personal' ? 'revops' : dk});"></span>
+      <span>${escapeHtml(g.label)}</span>
+      <span class="rm-group-header__count">${g.items.length}</span>
+    </button>`;
+    // Time column: empty matching row for the header
+    rowsHtml += `<div class="rm-group-track"></div>`;
+
+    if (collapsed) continue;
+
+    for (const init of g.items) {
+      const ownerObj = teamMembers.find(m => m.userId === init.ownerId);
+      const ownerName = ownerObj ? ownerObj.displayName : (init.ownerId === (myProfile && myProfile.userId) ? (myProfile.name || 'Me') : 'Unassigned');
+      const isOpen = rmExpanded.has(init.id);
+      const pct = Math.round((Number(init.progress) || 0) * 100);
+
+      lanesHtml += `<div class="rm-lane-meta">
+        <button type="button" class="rm-lane-meta__caret" data-toggle-init="${init.id}" title="${isOpen ? 'Hide tasks' : 'Show tasks'}">${isOpen ? '▾' : '▸'}</button>
+        <div style="flex:1;min-width:0;">
+          <button type="button" class="rm-lane-meta__title" data-open-init="${init.id}" title="Open initiative">${escapeHtml(init.name)}</button>
+          <span class="rm-lane-meta__sub">${escapeHtml(ownerName)} · ${escapeHtml(init.start)} → ${escapeHtml(init.end)}</span>
+        </div>
+      </div>`;
+
+      // Time column row for this initiative
+      const clamped = rmClampToScale(init.start, init.end, scale);
+      let barHtml = '';
+      if (clamped) {
+        barHtml = `<button type="button" class="rm-init-bar dept-${dk} health-${init.health} ${isOpen ? 'is-open' : ''}" data-open-init="${init.id}" style="left:${clamped.left}px;width:${clamped.width}px;" title="${escapeHtml(init.thesis || init.name)} — click to open">
+          <span class="rm-init-bar__fill" style="width:${pct}%;"></span>
+          <span class="rm-init-bar__content">
+            <span class="rm-init-bar__title">${escapeHtml(init.name)}</span>
+            <span class="rm-init-bar__pct">${pct}%</span>
+          </span>
+        </button>`;
+      }
+      // Milestones
+      let msHtml = '';
+      for (const m of (init.milestones || [])) {
+        const x = rmDateXOnScale(m.date, scale);
+        if (x === null) continue;
+        msHtml += `<span class="rm-milestone rm-milestone-${m.kind || 'event'}" style="left:${x}px;" title="${escapeHtml(m.label)} · ${escapeHtml(m.date)}">
+          <span class="rm-milestone-label">${escapeHtml(m.label)} · ${escapeHtml(m.date)}</span>
+        </span>`;
+      }
+      for (const m of (init.suggestedMilestones || [])) {
+        const x = rmDateXOnScale(m.date, scale);
+        if (x === null) continue;
+        msHtml += `<span class="rm-milestone rm-milestone-suggested" style="left:${x}px;" title="✦ Suggested: ${escapeHtml(m.label)}">
+          <span class="rm-milestone-label">✦ ${escapeHtml(m.label)} · ${escapeHtml(m.date)}</span>
+        </span>`;
+      }
+      rowsHtml += `<div class="rm-lane-track">${barHtml}${msHtml}</div>`;
+
+      // If expanded, render task rows (or an empty-state nudge if there are none)
+      if (isOpen) {
+        const tasks = rmTasksByInit[init.id] || [];
+        if (tasks.length === 0) {
+          lanesHtml += `<div class="rm-task-meta-row rm-task-meta-row--empty" data-open-init="${init.id}">
+            <span class="rm-task-meta-row__title" style="color:var(--color-text-muted);font-style:italic;">No tasks yet — click to add</span>
+          </div>`;
+          rowsHtml += `<div class="rm-task-track rm-task-track--empty"></div>`;
+        }
+        for (const t of tasks) {
+          const sk = STATUS_KEYS[t.status] || 'not-started';
+          lanesHtml += `<div class="rm-task-meta-row" data-open-task="${t.id}">
+            <span class="task-status-dot status-${sk}"></span>
+            <span class="rm-task-meta-row__title">${escapeHtml(t.title)}</span>
+          </div>`;
+          let pinHtml = '';
+          if (t.dueDate) {
+            const x = rmDateXOnScale(t.dueDate, scale);
+            if (x !== null) {
+              // Anchor the pin's left edge at the due-date pixel — this is the same convention
+              // the parent initiative bar uses for its start date, so they line up visually.
+              pinHtml = `<button type="button" class="rm-task-pin status-${sk}" data-open-task="${t.id}" style="left:${x}px;" title="${escapeHtml(t.title)} · due ${escapeHtml(t.dueDate)}">
+                <span class="rm-task-pin__dot status-${sk}"></span>
+                <span class="rm-task-pin__title">${escapeHtml(t.title)}</span>
+              </button>`;
+            }
+          }
+          rowsHtml += `<div class="rm-task-track">${pinHtml}</div>`;
+        }
+      }
+    }
+  }
+
+  lanesEl.innerHTML = lanesHtml;
+  headerEl.innerHTML = headerHtml;
+  // Match width of header to total width so ticks align
+  headerEl.style.width = totalWidth + 'px';
+  rowsEl.innerHTML = overlayHtml + rowsHtml;
+  rowsEl.style.width = totalWidth + 'px';
+
+  // Wire interactions
+  // 1. Group toggle (left rail)
+  lanesEl.querySelectorAll('[data-toggle-group]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const d = btn.dataset.toggleGroup;
+      if (rmCollapsedGroups.has(d)) rmCollapsedGroups.delete(d);
+      else rmCollapsedGroups.add(d);
+      renderRoadmapTimeline();
+    });
+  });
+  // 2. Initiative caret toggle (left rail) and bar click (right canvas) — both expand
+  const onToggleInit = async (id) => {
+    if (rmExpanded.has(id)) rmExpanded.delete(id);
+    else { rmExpanded.add(id); await rmEnsureTasksFor(id); }
+    renderRoadmapTimeline();
+  };
+  // Caret in left rail → toggle inline expansion
+  lanesEl.querySelectorAll('[data-toggle-init]').forEach(btn => {
+    btn.addEventListener('click', (e) => { e.stopPropagation(); onToggleInit(btn.dataset.toggleInit); });
+  });
+  // Title in left rail AND bar in canvas → open detail panel
+  lanesEl.querySelectorAll('[data-open-init]').forEach(btn => {
+    btn.addEventListener('click', (e) => { e.stopPropagation(); openInitiativeDetail(btn.dataset.openInit); });
+  });
+  rowsEl.querySelectorAll('[data-open-init]').forEach(btn => {
+    btn.addEventListener('click', (e) => { e.stopPropagation(); openInitiativeDetail(btn.dataset.openInit); });
+  });
+  // 4. Task row / task pin click → open task detail
+  const openTaskHandler = (id) => {
+    if (typeof showTaskDetail === 'function') showTaskDetail(id);
+  };
+  lanesEl.querySelectorAll('[data-open-task]').forEach(el => {
+    el.addEventListener('click', (e) => { e.stopPropagation(); openTaskHandler(el.dataset.openTask); });
+  });
+  rowsEl.querySelectorAll('[data-open-task]').forEach(el => {
+    el.addEventListener('click', (e) => { e.stopPropagation(); openTaskHandler(el.dataset.openTask); });
+  });
+
+  // Sync vertical scrolling between lanes column and time column
+  const timeWrap = document.querySelector('.rm-canvas__time-wrap');
+  if (lanesEl && timeWrap && !lanesEl.dataset.syncBound) {
+    lanesEl.dataset.syncBound = '1';
+    let syncing = false;
+    lanesEl.addEventListener('scroll', () => {
+      if (syncing) return; syncing = true;
+      timeWrap.scrollTop = lanesEl.scrollTop;
+      requestAnimationFrame(() => syncing = false);
+    });
+    timeWrap.addEventListener('scroll', () => {
+      if (syncing) return; syncing = true;
+      lanesEl.scrollTop = timeWrap.scrollTop;
+      requestAnimationFrame(() => syncing = false);
+    });
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const zoomToggle = document.getElementById('rm-zoom-toggle');
+  if (zoomToggle) zoomToggle.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-zoom]');
+    if (!btn) return;
+    rmZoom = btn.dataset.zoom;
+    zoomToggle.querySelectorAll('.zoom-btn').forEach(b => b.classList.toggle('is-active', b === btn));
+    if (currentView === 'roadmap') renderRoadmapTimeline();
+  });
+  const deptSel = document.getElementById('rm-filter-dept');
+  if (deptSel) deptSel.addEventListener('change', () => {
+    rmFilters.dept = deptSel.value;
+    if (currentView === 'roadmap') renderRoadmapTimeline();
+  });
+  const healthSel = document.getElementById('rm-filter-health');
+  if (healthSel) healthSel.addEventListener('change', () => {
+    rmFilters.health = healthSel.value;
+    if (currentView === 'roadmap') renderRoadmapTimeline();
+  });
+});
+
+// === Initiative form: type-ahead collaborator handlers ===
+function renderInitCollabChips() {
+  const chips = document.getElementById('init-collab-chips');
+  if (!chips) return;
+  chips.innerHTML = editingInitiativeCollab.map(uid => {
+    const m = teamMembers.find(x => x.userId === uid);
+    const me = myProfile && uid === myProfile.userId;
+    const name = m ? m.displayName : (me ? (myProfile.name || 'Me') : 'Unknown');
+    return `<span class="contributor-chip" data-uid="${uid}">${escapeHtml(name)} <span class="contributor-chip-remove" data-remove-uid="${uid}" title="Remove">×</span></span>`;
+  }).join('');
+}
+
+let initCollabActiveSuggestionIdx = -1;
+function showInitCollabSuggestions(query) {
+  const sugg = document.getElementById('init-collab-suggestions');
+  if (!sugg) return;
+  const q = (query || '').trim().toLowerCase();
+  if (!q) { sugg.style.display = 'none'; initCollabActiveSuggestionIdx = -1; return; }
+  const ownerId = document.getElementById('init-owner').value;
+  const list = (teamMembers || [])
+    .filter(m => (m.status === 'active' || !m.status))
+    .filter(m => m.userId !== ownerId)
+    .filter(m => !editingInitiativeCollab.includes(m.userId))
+    .filter(m => (m.displayName || '').toLowerCase().includes(q) || (m.email || '').toLowerCase().includes(q))
+    .slice(0, 8);
+  if (list.length === 0) {
+    sugg.innerHTML = `<div class="contributor-suggestion" style="cursor:default;color:var(--color-text-muted);">No matches</div>`;
+    sugg.style.display = '';
+    initCollabActiveSuggestionIdx = -1;
+    return;
+  }
+  sugg.innerHTML = list.map((m, idx) =>
+    `<div class="contributor-suggestion${idx === 0 ? ' active' : ''}" data-uid="${m.userId}">${escapeHtml(m.displayName || m.email)}<span class="suggest-email">${escapeHtml(m.email || '')}</span></div>`
+  ).join('');
+  sugg.style.display = '';
+  initCollabActiveSuggestionIdx = 0;
+}
+
+function addInitCollab(uid) {
+  if (!uid || editingInitiativeCollab.includes(uid)) return;
+  editingInitiativeCollab.push(uid);
+  renderInitCollabChips();
+  const input = document.getElementById('init-collab-input');
+  if (input) input.value = '';
+  const sugg = document.getElementById('init-collab-suggestions');
+  if (sugg) sugg.style.display = 'none';
+}
+
+function removeInitCollab(uid) {
+  editingInitiativeCollab = editingInitiativeCollab.filter(u => u !== uid);
+  renderInitCollabChips();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const newBtn = document.getElementById('btn-new-initiative-from-roadmap');
+  if (newBtn) newBtn.addEventListener('click', () => openInitiativeForm(null));
+
+  // Type-ahead handlers
+  const cInput = document.getElementById('init-collab-input');
+  const cSugg = document.getElementById('init-collab-suggestions');
+  const cWrap = document.getElementById('init-collab-wrap');
+  const cChips = document.getElementById('init-collab-chips');
+
+  if (cInput) {
+    cInput.addEventListener('input', () => showInitCollabSuggestions(cInput.value));
+    cInput.addEventListener('focus', () => { if (cInput.value) showInitCollabSuggestions(cInput.value); });
+    cInput.addEventListener('keydown', (e) => {
+      const items = cSugg ? Array.from(cSugg.querySelectorAll('.contributor-suggestion[data-uid]')) : [];
+      if (e.key === 'ArrowDown' && items.length) {
+        e.preventDefault();
+        initCollabActiveSuggestionIdx = Math.min(initCollabActiveSuggestionIdx + 1, items.length - 1);
+        items.forEach((el, i) => el.classList.toggle('active', i === initCollabActiveSuggestionIdx));
+      } else if (e.key === 'ArrowUp' && items.length) {
+        e.preventDefault();
+        initCollabActiveSuggestionIdx = Math.max(initCollabActiveSuggestionIdx - 1, 0);
+        items.forEach((el, i) => el.classList.toggle('active', i === initCollabActiveSuggestionIdx));
+      } else if (e.key === 'Enter') {
+        if (items.length) {
+          e.preventDefault();
+          const idx = initCollabActiveSuggestionIdx >= 0 ? initCollabActiveSuggestionIdx : 0;
+          const uid = items[idx].dataset.uid;
+          if (uid) addInitCollab(uid);
+        }
+      } else if (e.key === 'Backspace' && !cInput.value && editingInitiativeCollab.length) {
+        e.preventDefault();
+        removeInitCollab(editingInitiativeCollab[editingInitiativeCollab.length - 1]);
+      } else if (e.key === 'Escape') {
+        if (cSugg) cSugg.style.display = 'none';
+      }
+    });
+  }
+  if (cSugg) {
+    cSugg.addEventListener('mousedown', (e) => {
+      const item = e.target.closest('.contributor-suggestion[data-uid]');
+      if (item) {
+        e.preventDefault();
+        addInitCollab(item.dataset.uid);
+      }
+    });
+  }
+  if (cChips) {
+    cChips.addEventListener('click', (e) => {
+      const r = e.target.closest('[data-remove-uid]');
+      if (r) removeInitCollab(r.dataset.removeUid);
+    });
+  }
+  // Click outside closes suggestions
+  document.addEventListener('mousedown', (e) => {
+    if (cWrap && !cWrap.contains(e.target) && cSugg) cSugg.style.display = 'none';
+  });
+});
+
+// === Initiative Detail panel ===
+let detailOpenInitiativeId = null;
+
+async function openInitiativeDetail(initiativeId) {
+  const init = initiativesById[initiativeId];
+  if (!init) return;
+  detailOpenInitiativeId = initiativeId;
+
+  // Header
+  document.getElementById('id-detail-name').textContent = init.name || 'Untitled initiative';
+  document.getElementById('id-detail-thesis').textContent = init.thesis || '';
+  const deptBadge = document.getElementById('id-detail-dept-badge');
+  deptBadge.className = `badge dept-${deptKeyFor(init.department)}`;
+  deptBadge.textContent = init.department || '';
+
+  // Meta
+  const owner = teamMembers.find(m => m.userId === init.ownerId);
+  const ownerName = owner ? owner.displayName : (init.ownerId === (myProfile && myProfile.userId) ? (myProfile.name || 'Me') : 'Unassigned');
+  document.getElementById('id-detail-owner').textContent = ownerName;
+  document.getElementById('id-detail-dates').textContent = `${init.start || '—'} → ${init.end || '—'}`;
+  const healthLabel = { 'on-track': 'On Track', 'at-risk': 'At Risk', 'off-track': 'Off Track' }[init.health] || 'On Track';
+  document.getElementById('id-detail-health').textContent = healthLabel;
+  const pct = Math.round((Number(init.progress) || 0) * 100);
+  document.getElementById('id-detail-progress').textContent = `${pct}%`;
+
+  // Tasks
+  await renderInitiativeDetailTasks(initiativeId);
+
+  openModal('modal-initiative-detail');
+}
+
+async function renderInitiativeDetailTasks(initiativeId) {
+  const list = document.getElementById('id-detail-task-list');
+  const countEl = document.getElementById('id-detail-task-count');
+  let initTasks = [];
+  try { initTasks = await api('GET', '/api/initiatives/' + initiativeId + '/tasks'); }
+  catch { initTasks = []; }
+  countEl.textContent = String(initTasks.length);
+  if (initTasks.length === 0) {
+    list.innerHTML = '<p style="color:var(--color-text-muted);font-size:0.85rem;margin:0;padding:0.6rem;background:var(--color-bg);border-radius:6px;text-align:center;">No tasks yet — click <strong>+ Add task</strong> to start.</p>';
+    return;
+  }
+  // Sort by due date (no date last), then status order
+  const statusOrder = ['In Progress', 'Blocked', 'Not Started', 'Approved', 'Backlog', 'Completed', 'Delegated'];
+  initTasks.sort((a, b) => {
+    const sa = statusOrder.indexOf(a.status);
+    const sb = statusOrder.indexOf(b.status);
+    if (sa !== sb) return sa - sb;
+    return (a.dueDate || '￿').localeCompare(b.dueDate || '￿');
+  });
+  list.innerHTML = initTasks.map(t => {
+    const sk = STATUS_KEYS[t.status] || 'not-started';
+    const owner = teamMembers.find(m => m.userId === t.assignedTo);
+    const ownerName = owner ? owner.displayName.split(' ')[0] : '';
+    const due = t.dueDate ? `<span class="id-task-row-due">${escapeHtml(t.dueDate)}</span>` : '';
+    return `<div class="id-task-row status-${sk}" data-task-id="${t.id}">
+      <span class="task-status-dot status-${sk}"></span>
+      <span class="id-task-row-title">${escapeHtml(t.title)}</span>
+      <span class="id-task-row-priority pri-${(t.priority || 'medium').toLowerCase()}">${escapeHtml(t.priority || 'Medium')}</span>
+      ${due}
+      ${ownerName ? `<span class="id-task-row-owner">${escapeHtml(ownerName)}</span>` : ''}
+    </div>`;
+  }).join('');
+  list.querySelectorAll('[data-task-id]').forEach(row => {
+    row.addEventListener('click', () => {
+      const tid = row.dataset.taskId;
+      closeModal('modal-initiative-detail');
+      setTimeout(() => showTaskDetail(tid), 30);
+    });
+  });
+}
+
+// Open the existing task add modal with the initiative pre-selected.
+function openAddTaskForInitiative(initiativeId) {
+  const init = initiativesById[initiativeId];
+  if (!init) return;
+  // Use the existing add-task button to handle setup, then override the initiative dropdown.
+  if (typeof openAddTaskModal === 'function') {
+    openAddTaskModal();
+  } else {
+    // Fallback: click the existing add-task button to trigger its handler
+    const addBtn = document.getElementById('btn-add-task');
+    if (addBtn) addBtn.click();
+    else {
+      showToast('Add Task button not available', 'error');
+      return;
+    }
+  }
+  // Ensure modal is open and form populated, then set the initiative dropdown
+  setTimeout(() => {
+    const initSelect = document.getElementById('input-initiative');
+    if (initSelect) {
+      // Make sure the option exists
+      const has = [...initSelect.options].some(o => o.value === initiativeId);
+      if (!has) {
+        const opt = document.createElement('option');
+        opt.value = initiativeId; opt.textContent = init.name;
+        initSelect.appendChild(opt);
+      }
+      initSelect.value = initiativeId;
+    }
+    // Default department to the initiative's department for sensible UX
+    const deptSelect = document.getElementById('input-department');
+    if (deptSelect && init.department && [...deptSelect.options].some(o => o.value === init.department)) {
+      deptSelect.value = init.department;
+    }
+  }, 50);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const addTaskBtn = document.getElementById('btn-add-task-to-init');
+  if (addTaskBtn) addTaskBtn.addEventListener('click', () => {
+    if (!detailOpenInitiativeId) return;
+    closeModal('modal-initiative-detail');
+    openAddTaskForInitiative(detailOpenInitiativeId);
+  });
+  const editBtn = document.getElementById('btn-edit-from-detail');
+  if (editBtn) editBtn.addEventListener('click', () => {
+    if (!detailOpenInitiativeId) return;
+    const id = detailOpenInitiativeId;
+    closeModal('modal-initiative-detail');
+    setTimeout(() => openInitiativeForm(id), 30);
+  });
+});
+
+// Live-refresh initiative dates hint when user changes either the dropdown or the due date.
+document.addEventListener('DOMContentLoaded', () => {
+  const initSel = document.getElementById('input-initiative');
+  if (initSel) initSel.addEventListener('change', () => refreshInitiativeDatesHint(''));
+  const dueInput = document.getElementById('input-due-date');
+  if (dueInput) dueInput.addEventListener('change', () => refreshInitiativeDatesHint(dueInput.value));
 });

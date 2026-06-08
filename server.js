@@ -348,6 +348,16 @@ app.get('/api/tasks', auth, async (req, res) => {
       tasks = tasks.filter(t => !t.workspaceId || t.workspaceId === '' || t.showOnMaster === true);
     }
 
+    // Initiative filtering — separate axis from workspaces
+    if (req.query.initiativeId !== undefined) {
+      const want = req.query.initiativeId;
+      if (want === 'inbox' || want === 'null' || want === '') {
+        tasks = tasks.filter(t => !t.initiativeId);
+      } else {
+        tasks = tasks.filter(t => t.initiativeId === want);
+      }
+    }
+
     // Optional: filter to "my tasks" only
     if (req.query.mine === 'true') {
       tasks = tasks.filter(t => t.assignedTo === req.userId || t.createdBy === req.userId);
@@ -459,6 +469,7 @@ app.post('/api/tasks', authWrite, async (req, res) => {
       parentTaskId: req.body.parentTaskId || '',
       private: req.body.private || false,
       workspaceId: req.body.workspaceId || '',
+      initiativeId: req.body.initiativeId || null,
       showOnMaster: req.body.showOnMaster || false,
       tags: req.body.tags || [],
       watchers: req.body.watchers || []
@@ -565,7 +576,7 @@ app.put('/api/tasks/:id', auth, async (req, res) => {
     const allowedFields = ['title', 'department', 'priority', 'notes', 'status',
       'completed', 'completedAt', 'startDate', 'dueDate', 'attachments', 'emailMessageId', 'recurring',
       'assignedTo', 'sharedWith', 'parentTaskId', 'subDepartment', 'blockedReason', 'private',
-      'workspaceId', 'showOnMaster', 'tags', 'watchers'];
+      'workspaceId', 'initiativeId', 'showOnMaster', 'tags', 'watchers'];
 
     for (const field of allowedFields) {
       if (req.body[field] !== undefined) updates[field] = req.body[field];
@@ -1410,7 +1421,9 @@ app.post('/api/templates/:id/apply/:taskId', authWrite, async (req, res) => {
         dueDate: '', emailMessageId: '', recurring: 'none',
         createdBy: req.userId, assignedTo: task.assignedTo || req.userId,
         sharedWith: [], parentTaskId: req.params.taskId,
-        workspaceId: task.workspaceId || '', tags: task.tags || []
+        workspaceId: task.workspaceId || '',
+        initiativeId: task.initiativeId || null,
+        tags: task.tags || []
       });
       created.push({ id: ref.id, title: sub.title });
     }
@@ -1852,7 +1865,7 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 function getGeminiModel() {
   if (!GEMINI_API_KEY) throw new Error('Gemini API key not configured');
   const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-  const modelName = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite-preview';
+  const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
   return genAI.getGenerativeModel({ model: modelName });
 }
 
@@ -4068,6 +4081,217 @@ app.post('/api/sync', auth, async (req, res) => {
     res.json({ synced: newCount });
   } catch (err) {
     console.error('Email sync failed:', err); res.status(500).json({ error: 'Email sync failed. Please try again.' });
+  }
+});
+
+// === Initiatives (Roadmap) ===
+//
+// An Initiative is a strategic effort that tasks roll up to. Stored at
+// orgs/{orgId}/initiatives. Tasks reference one via task.initiativeId; null = "Inbox" task.
+//
+// Permissions:
+//   - GET (list, single):  any authenticated active member
+//   - POST (create):       cmo or lead
+//   - PUT  (update):       cmo, lead, or initiative owner
+//   - DELETE (archive):    cmo, lead, or initiative owner
+//   - Milestone edits flow through PUT — i.e., any leader can edit milestones.
+
+const INITIATIVE_DEPARTMENTS = ['All Marketing', 'B2B Marketing', 'B2C Marketing', 'Personal', 'Rev Ops'];
+const INITIATIVE_HEALTH = ['on-track', 'at-risk', 'off-track'];
+const INITIATIVE_STATUS = ['On Track', 'At Risk', 'Off Track', 'Completed'];
+const MILESTONE_KINDS = ['launch', 'event', 'decision', 'team'];
+
+function isLeaderRole(role) {
+  return role === 'cmo' || role === 'lead';
+}
+
+function canEditInitiative(req, initiative) {
+  if (req.memberRole === 'viewer') return false;
+  if (isLeaderRole(req.memberRole)) return true;
+  if (initiative.ownerId && initiative.ownerId === req.userId) return true;
+  return false;
+}
+
+function validateMilestoneArray(arr, fieldName) {
+  if (arr === undefined) return null;
+  if (!Array.isArray(arr)) return `${fieldName} must be an array`;
+  for (const m of arr) {
+    if (!m || typeof m !== 'object') return `${fieldName} entry must be an object`;
+    if (!m.date || !/^\d{4}-\d{2}-\d{2}$/.test(m.date)) return `${fieldName} entry needs a YYYY-MM-DD date`;
+    if (typeof m.label !== 'string' || !m.label.trim()) return `${fieldName} entry needs a label`;
+    if (m.kind && !MILESTONE_KINDS.includes(m.kind)) return `${fieldName} entry kind must be one of: ${MILESTONE_KINDS.join(', ')}`;
+  }
+  return null;
+}
+
+function validateInitiativePayload(body, { partial } = { partial: false }) {
+  if (!partial) {
+    if (!body.name || !body.name.trim()) return 'Name is required';
+    if (!body.thesis || !body.thesis.trim()) return 'Thesis ("why this matters") is required';
+    if (!body.department || !INITIATIVE_DEPARTMENTS.includes(body.department)) return `Department must be one of: ${INITIATIVE_DEPARTMENTS.join(', ')}`;
+    if (!body.start || !/^\d{4}-\d{2}-\d{2}$/.test(body.start)) return 'Start date (YYYY-MM-DD) is required';
+    if (!body.end || !/^\d{4}-\d{2}-\d{2}$/.test(body.end)) return 'End date (YYYY-MM-DD) is required';
+    if (body.start > body.end) return 'End date must be on or after start date';
+  } else {
+    if (body.department !== undefined && !INITIATIVE_DEPARTMENTS.includes(body.department)) return `Department must be one of: ${INITIATIVE_DEPARTMENTS.join(', ')}`;
+    if (body.start && !/^\d{4}-\d{2}-\d{2}$/.test(body.start)) return 'startDate must be YYYY-MM-DD';
+    if (body.end && !/^\d{4}-\d{2}-\d{2}$/.test(body.end)) return 'endDate must be YYYY-MM-DD';
+  }
+  if (body.health !== undefined && !INITIATIVE_HEALTH.includes(body.health)) return `Health must be one of: ${INITIATIVE_HEALTH.join(', ')}`;
+  if (body.status !== undefined && !INITIATIVE_STATUS.includes(body.status)) return `Status must be one of: ${INITIATIVE_STATUS.join(', ')}`;
+  if (body.progress !== undefined) {
+    const p = Number(body.progress);
+    if (!Number.isFinite(p) || p < 0 || p > 1) return 'Progress must be a number between 0 and 1';
+  }
+  if (body.priority !== undefined && !['High', 'Medium', 'Low'].includes(body.priority)) return 'Priority must be High, Medium, or Low';
+  const mErr = validateMilestoneArray(body.milestones, 'milestones');
+  if (mErr) return mErr;
+  if (body.suggestedMilestones !== undefined && !Array.isArray(body.suggestedMilestones)) return 'suggestedMilestones must be an array';
+  if (body.collaborators !== undefined && !Array.isArray(body.collaborators)) return 'collaborators must be an array of userIds';
+  return null;
+}
+
+// GET /api/initiatives — list (with optional filters)
+app.get('/api/initiatives', auth, async (req, res) => {
+  try {
+    const snap = await orgCol(req, 'initiatives').get();
+    let inits = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(i => !i.archived);
+    if (req.query.department) inits = inits.filter(i => i.department === req.query.department);
+    if (req.query.owner) inits = inits.filter(i => i.ownerId === req.query.owner);
+    if (req.query.health) inits = inits.filter(i => i.health === req.query.health);
+    if (req.query.mine === 'true') {
+      inits = inits.filter(i => i.ownerId === req.userId || (i.collaborators || []).includes(req.userId));
+    }
+    inits.sort((a, b) => (a.start || '').localeCompare(b.start || '') || (a.name || '').localeCompare(b.name || ''));
+    res.json(inits);
+  } catch (err) {
+    console.error('Initiatives list failed:', err);
+    res.status(500).json({ error: 'Failed to fetch initiatives' });
+  }
+});
+
+// GET /api/initiatives/:id — single initiative
+app.get('/api/initiatives/:id', auth, async (req, res) => {
+  try {
+    const doc = await orgCol(req, 'initiatives').doc(req.params.id).get();
+    if (!doc.exists) return res.status(404).json({ error: 'Initiative not found' });
+    res.json({ id: doc.id, ...doc.data() });
+  } catch (err) {
+    console.error('Initiative fetch failed:', err);
+    res.status(500).json({ error: 'Failed to fetch initiative' });
+  }
+});
+
+// POST /api/initiatives — create (cmo or lead)
+app.post('/api/initiatives', authWrite, async (req, res) => {
+  if (!isLeaderRole(req.memberRole)) {
+    return res.status(403).json({ error: 'Only leaders can create initiatives' });
+  }
+  try {
+    const err = validateInitiativePayload(req.body, { partial: false });
+    if (err) return res.status(400).json({ error: err });
+    const now = new Date().toISOString();
+    const initiative = {
+      name: req.body.name.trim(),
+      thesis: req.body.thesis.trim(),
+      department: req.body.department,
+      ownerId: req.body.ownerId || req.userId,
+      collaborators: Array.isArray(req.body.collaborators) ? req.body.collaborators : [],
+      priority: ['High', 'Medium', 'Low'].includes(req.body.priority) ? req.body.priority : 'Medium',
+      status: INITIATIVE_STATUS.includes(req.body.status) ? req.body.status : 'On Track',
+      health: INITIATIVE_HEALTH.includes(req.body.health) ? req.body.health : 'on-track',
+      start: req.body.start,
+      end: req.body.end,
+      progress: typeof req.body.progress === 'number' ? Math.max(0, Math.min(1, req.body.progress)) : 0,
+      milestones: Array.isArray(req.body.milestones) ? req.body.milestones : [],
+      suggestedMilestones: Array.isArray(req.body.suggestedMilestones) ? req.body.suggestedMilestones : [],
+      archived: false,
+      createdBy: req.userId,
+      createdAt: now,
+      updatedAt: now
+    };
+    const ref = await orgCol(req, 'initiatives').add(initiative);
+    res.status(201).json({ id: ref.id, ...initiative });
+  } catch (err) {
+    console.error('Initiative create failed:', err);
+    res.status(500).json({ error: 'Failed to create initiative' });
+  }
+});
+
+// PUT /api/initiatives/:id — update (leader OR owner)
+app.put('/api/initiatives/:id', authWrite, async (req, res) => {
+  try {
+    const ref = orgCol(req, 'initiatives').doc(req.params.id);
+    const doc = await ref.get();
+    if (!doc.exists) return res.status(404).json({ error: 'Initiative not found' });
+    const ws = doc.data();
+    if (!canEditInitiative(req, ws)) {
+      return res.status(403).json({ error: 'Only leaders or the initiative owner can edit' });
+    }
+    const err = validateInitiativePayload(req.body, { partial: true });
+    if (err) return res.status(400).json({ error: err });
+
+    const updates = { updatedAt: new Date().toISOString() };
+    const allowed = ['name', 'thesis', 'department', 'ownerId', 'collaborators',
+      'priority', 'status', 'health', 'start', 'end', 'progress',
+      'milestones', 'suggestedMilestones'];
+    for (const f of allowed) {
+      if (req.body[f] === undefined) continue;
+      if ((f === 'name' || f === 'thesis') && !String(req.body[f]).trim()) {
+        return res.status(400).json({ error: `${f} cannot be empty` });
+      }
+      if (f === 'progress') {
+        updates[f] = Math.max(0, Math.min(1, Number(req.body[f])));
+      } else {
+        updates[f] = req.body[f];
+      }
+    }
+    const newStart = updates.start !== undefined ? updates.start : ws.start;
+    const newEnd = updates.end !== undefined ? updates.end : ws.end;
+    if (newStart && newEnd && newStart > newEnd) return res.status(400).json({ error: 'End date must be on or after start date' });
+
+    await ref.update(updates);
+    res.json({ id: req.params.id, ...ws, ...updates });
+  } catch (err) {
+    console.error('Initiative update failed:', err);
+    res.status(500).json({ error: 'Failed to update initiative' });
+  }
+});
+
+// DELETE /api/initiatives/:id — archive (leader OR owner). Tasks keep their initiativeId; UI hides archived.
+app.delete('/api/initiatives/:id', authWrite, async (req, res) => {
+  try {
+    const ref = orgCol(req, 'initiatives').doc(req.params.id);
+    const doc = await ref.get();
+    if (!doc.exists) return res.status(404).json({ error: 'Initiative not found' });
+    if (!canEditInitiative(req, doc.data())) {
+      return res.status(403).json({ error: 'Only leaders or the initiative owner can archive' });
+    }
+    await ref.update({ archived: true, updatedAt: new Date().toISOString() });
+    res.json({ archived: true });
+  } catch (err) {
+    console.error('Initiative archive failed:', err);
+    res.status(500).json({ error: 'Failed to archive initiative' });
+  }
+});
+
+// GET /api/initiatives/:id/tasks — tasks rolled up to this initiative
+app.get('/api/initiatives/:id/tasks', auth, async (req, res) => {
+  try {
+    const snap = await orgCol(req, 'tasks').where('initiativeId', '==', req.params.id).get();
+    let tasks = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    if (req.memberRole !== 'cmo') {
+      tasks = tasks.filter(t =>
+        req.memberDepts.includes(t.department) ||
+        t.assignedTo === req.userId ||
+        (t.sharedWith && t.sharedWith.includes(req.userId)) ||
+        t.createdBy === req.userId
+      );
+    }
+    res.json(tasks);
+  } catch (err) {
+    console.error('Initiative tasks fetch failed:', err);
+    res.status(500).json({ error: 'Failed to fetch initiative tasks' });
   }
 });
 
