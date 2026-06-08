@@ -3285,6 +3285,8 @@ function openCommandBar(prefill) {
   const overlay = document.getElementById('cmdbar-overlay');
   if (!overlay) return;
   overlay.style.display = 'flex';
+  const fab = document.getElementById('ai-fab');
+  if (fab) fab.classList.add('is-hidden');
   document.getElementById('cmdbar-context').textContent = cmdbarContextLabel();
   const input = document.getElementById('cmdbar-input');
   if (prefill) input.value = prefill;
@@ -3294,6 +3296,8 @@ function openCommandBar(prefill) {
 function closeCommandBar() {
   const overlay = document.getElementById('cmdbar-overlay');
   if (overlay) overlay.style.display = 'none';
+  const fab = document.getElementById('ai-fab');
+  if (fab) fab.classList.remove('is-hidden');
 }
 
 function resetCommandBar() {
@@ -3378,6 +3382,8 @@ function wireCommandBar() {
   const body = document.getElementById('cmdbar-body');
   if (overlay) overlay.addEventListener('click', (e) => { if (e.target === overlay) closeCommandBar(); });
   document.getElementById('cmdbar-close').addEventListener('click', closeCommandBar);
+  const fab = document.getElementById('ai-fab');
+  if (fab) fab.addEventListener('click', () => openCommandBar());
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); sendCommandBarMessage(); }
   });
