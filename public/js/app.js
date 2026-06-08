@@ -6224,14 +6224,9 @@ async function renderInitiativeDetailTasks(initiativeId) {
     list.innerHTML = '<p style="color:var(--color-text-muted);font-size:0.85rem;margin:0;padding:0.6rem;background:var(--color-bg);border-radius:6px;text-align:center;">No tasks yet — click <strong>+ Add task</strong> to start.</p>';
     return;
   }
-  // Sort by due date (no date last), then status order
-  const statusOrder = ['In Progress', 'Blocked', 'Not Started', 'Approved', 'Backlog', 'Completed', 'Delegated'];
-  initTasks.sort((a, b) => {
-    const sa = statusOrder.indexOf(a.status);
-    const sb = statusOrder.indexOf(b.status);
-    if (sa !== sb) return sa - sb;
-    return (a.dueDate || '￿').localeCompare(b.dueDate || '￿');
-  });
+  // Sort by due date ascending (tasks with no due date last) so subtasks
+  // flow chronologically, matching the roadmap timeline ordering.
+  initTasks.sort((a, b) => (a.dueDate || '￿').localeCompare(b.dueDate || '￿'));
   list.innerHTML = initTasks.map(t => {
     const sk = STATUS_KEYS[t.status] || 'not-started';
     const owner = teamMembers.find(m => m.userId === t.assignedTo);
