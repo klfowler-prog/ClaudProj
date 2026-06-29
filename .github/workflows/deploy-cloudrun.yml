@@ -32,6 +32,14 @@ jobs:
             --timeout 120 \
             --set-env-vars "GMAIL_CLIENT_ID=${{ secrets.GMAIL_CLIENT_ID }},GMAIL_CLIENT_SECRET=${{ secrets.GMAIL_CLIENT_SECRET }},GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }},SLACK_CLIENT_ID=${{ secrets.SLACK_CLIENT_ID }},SLACK_CLIENT_SECRET=${{ secrets.SLACK_CLIENT_SECRET }}"
 
+      - name: Apply Artifact Registry cleanup policy
+        run: |
+          gcloud artifacts repositories set-cleanup-policies cloud-run-source-deploy \
+            --project cmo-task-app \
+            --location us-central1 \
+            --policy .github/artifact-cleanup-policy.json \
+            --no-dry-run
+
       - name: Cleanup credentials
         if: always()
         run: rm -f /tmp/gcp-key.json
