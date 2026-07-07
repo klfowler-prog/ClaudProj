@@ -30,7 +30,8 @@ jobs:
             --max-instances 4 \
             --cpu-throttling \
             --timeout 120 \
-            --set-env-vars "GMAIL_CLIENT_ID=${{ secrets.GMAIL_CLIENT_ID }},GMAIL_CLIENT_SECRET=${{ secrets.GMAIL_CLIENT_SECRET }},GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }},SLACK_CLIENT_ID=${{ secrets.SLACK_CLIENT_ID }},SLACK_CLIENT_SECRET=${{ secrets.SLACK_CLIENT_SECRET }}"
+            --set-env-vars "GMAIL_CLIENT_ID=${{ secrets.GMAIL_CLIENT_ID }},SLACK_CLIENT_ID=${{ secrets.SLACK_CLIENT_ID }}" \
+            --set-secrets "GMAIL_CLIENT_SECRET=gmail-client-secret:latest,GEMINI_API_KEY=gemini-api-key:latest,SLACK_CLIENT_SECRET=slack-client-secret:latest"
 
       - name: Apply Artifact Registry cleanup policy
         run: |
