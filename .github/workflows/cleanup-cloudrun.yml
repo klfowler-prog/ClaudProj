@@ -1,0 +1,79 @@
+name: Cloud Run Revision Cleanup
+
+# Prevents stale tagged/inactive revisions from silently accumulating and
+# holding warm (billed) instances 24/7 — the root cause of the min-instance
+# cost blow-up. Runs weekly; can also be triggered manually.
+#
+# Policy (safe by construction):
+#   - NEVER touches the latest ready revision or any revision serving traffic.
+#   - Removes tags from revisions older than AGE_DAYS. A tagged revision keeps a
+#     dedicated URL and can hold a minimum instance warm around the clock.
+#   - Deletes inactive (0% traffic, untagged) revisions older than AGE_DAYS,
+#     always keeping the KEEP most-recent revisions for rollback.
+
+on:
+  schedule:
+    - cron: '0 8 * * 1'   # Mondays 08:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    env:
+      SERVICE: cmo-task-manager
+      REGION: us-central1
+      PROJECT: cmo-task-app
+      AGE_DAYS: '14'
+      KEEP: '5'
+    steps:
+      - name: Write GCP credentials file
+        run: echo '${{ secrets.GCP_SA_KEY_B64 }}' | base64 -d > /tmp/gcp-key.json
+
+      - name: Authenticate with GCP
+        run: |
+          gcloud auth activate-service-account --key-file=/tmp/gcp-key.json
+          gcloud config set project "$PROJECT"
+
+      - name: Prune stale tags and inactive revisions
+        run: |
+          set -uo pipefail
+          CUTOFF=$(date -u -d "${AGE_DAYS} days ago" +%Y-%m-%dT%H:%M:%SZ)
+          echo "Untag/delete inactive revisions created before: $CUTOFF"
+
+          SVC_JSON=$(gcloud run services describe "$SERVICE" --region "$REGION" --format=json)
+          LATEST=$(echo "$SVC_JSON" | jq -r '.status.latestReadyRevisionName')
+          ACTIVE=$(echo "$SVC_JSON" | jq -r '.status.traffic[] | select((.percent // 0) > 0) | .revisionName' | sort -u)
+          echo "Latest ready revision (never touched): $LATEST"
+
+          # 1) Remove tags from revisions older than the cutoff (tags pin idle instances)
+          echo "$SVC_JSON" \
+            | jq -r '.spec.traffic[] | select(.tag != null and .revisionName != null) | "\(.tag) \(.revisionName)"' \
+            | while read -r TAG REV; do
+                [ "$REV" = "$LATEST" ] && continue
+                CREATED=$(gcloud run revisions describe "$REV" --region "$REGION" \
+                  --format='value(metadata.creationTimestamp)' 2>/dev/null || echo "")
+                if [ -n "$CREATED" ] && [[ "$CREATED" < "$CUTOFF" ]]; then
+                  echo "Removing stale tag '$TAG' -> $REV (created $CREATED)"
+                  gcloud run services update-traffic "$SERVICE" --region "$REGION" --remove-tags "$TAG" || true
+                fi
+              done
+
+          # 2) Delete inactive, untagged revisions older than cutoff, keeping the KEEP most recent
+          gcloud run revisions list --service "$SERVICE" --region "$REGION" \
+            --sort-by='~metadata.creationTimestamp' \
+            --format='value(metadata.name,metadata.creationTimestamp)' \
+            | tail -n +$((KEEP + 1)) \
+            | while read -r REV CREATED; do
+                [ "$REV" = "$LATEST" ] && continue
+                echo "$ACTIVE" | grep -qx "$REV" && continue
+                if [[ "$CREATED" < "$CUTOFF" ]]; then
+                  echo "Deleting inactive revision $REV (created $CREATED)"
+                  gcloud run revisions delete "$REV" --region "$REGION" --quiet || true
+                fi
+              done
+
+          echo "Cleanup complete."
+
+      - name: Cleanup credentials
+        if: always()
+        run: rm -f /tmp/gcp-key.json
